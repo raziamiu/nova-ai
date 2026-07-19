@@ -2,6 +2,6 @@ import { defineAgent } from "eve";
 
 export default defineAgent({
   description:
-    "Sales work for Aurora Living: replying to customers about purchases, negotiation and objection handling, targeted discounts, upsells/cross-sells/bundles, and abandoned-cart recovery.",
+    "Sales work: replying to customers about purchases, negotiation and objection handling, targeted discounts, upsells/cross-sells/bundles, and abandoned-cart recovery.",
   model: "anthropic/claude-sonnet-5",
 });

@@ -1,11 +1,11 @@
 /**
  * The boundary between Nova and the Dakio store.
  *
- * Nova only ever talks to a `StoreClient`. Today that resolves to the
- * in-memory demo backend (`backend.ts`), seeded with realistic data for the
- * "Aurora Living" demo store. When the real Express store API is ready,
- * implement this same interface with `fetch()` calls and swap it in
- * `getStoreClient()` — no tool, subagent, or schedule changes required.
+ * Nova only ever talks to a `StoreClient`. Today that resolves to a
+ * per-tenant in-memory demo backend (`backend.ts`), one seeded dataset per
+ * store. When the real Express store API is ready, implement this same
+ * interface with `fetch()` calls and swap the constructor in
+ * `storeFor` (`resolve.ts`) — no tool, subagent, or schedule changes required.
  *
  * The store persists Nova's own data too (memory, activity, prepared
  * actions, reports), matching the Dakio design where the store server saves
@@ -14,6 +14,10 @@
  * Every data-access method is async (a real implementation is a network
  * call). `now()` is the one exception — it is a local clock read, not a
  * request, so callers can build timestamps without awaiting a round trip.
+ *
+ * There is no process-wide client. A `StoreClient` is always tenant-bound and
+ * resolved per call via `storeFor(ctx)` in `resolve.ts` — see `requireStore`
+ * in `lib/tenant.ts` for how the tenant is derived from verified auth.
  */
 
 import type {
@@ -42,7 +46,6 @@ import type {
   TicketStatus,
   TrendingProduct,
 } from "../types";
-import { DemoStore } from "./backend";
 
 export interface StoreClient {
   /** Local clock read, ISO 8601. Not a request — safe to call without awaiting. */
@@ -149,17 +152,4 @@ export interface StoreClient {
 
   listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]>;
   addReport(report: Omit<NovaReport, "id" | "createdAt">): Promise<NovaReport>;
-}
-
-let singleton: StoreClient | null = null;
-
-/**
- * Resolve the store client. Demo backend for now; replace the constructor
- * with an HTTP implementation pointed at the Express store to go live.
- */
-export function getStoreClient(): StoreClient {
-  if (!singleton) {
-    singleton = new DemoStore();
-  }
-  return singleton;
 }

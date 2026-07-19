@@ -14,7 +14,7 @@ import type {
   Order,
   Product,
 } from "../types";
-import { getStoreClient } from "../store/client";
+import type { StoreClient } from "../store/client";
 import { pct, pctChange, round2, signedPct, usd } from "./format";
 import { summarizeWork } from "./activity";
 
@@ -82,8 +82,11 @@ function cpaOf(spend: number, conversions: number): number | null {
   return conversions > 0 ? spend / conversions : null;
 }
 
-export function computeCampaignMetrics(campaign: Campaign): CampaignMetrics {
-  const now = getStoreClient().now();
+export function computeCampaignMetrics(
+  client: StoreClient,
+  campaign: Campaign,
+): CampaignMetrics {
+  const now = client.now();
 
   const last7 = statsWindow(campaign.dailyStats, now, 0, 6);
   const last3 = statsWindow(campaign.dailyStats, now, 0, 2);
@@ -170,8 +173,7 @@ function cogsOf(orders: Order[], costByProductId: Map<string, number>): number {
   return total;
 }
 
-export async function buildBusinessSnapshot(): Promise<BusinessSnapshot> {
-  const client = getStoreClient();
+export async function buildBusinessSnapshot(client: StoreClient): Promise<BusinessSnapshot> {
   const now = client.now();
   const nowMs = Date.parse(now);
   const today = ymdOf(now);
@@ -199,7 +201,7 @@ export async function buildBusinessSnapshot(): Promise<BusinessSnapshot> {
     client.listSupportTickets("open"),
     client.listSupportTickets("escalated"),
     client.listCampaigns("active"),
-    summarizeWork(7),
+    summarizeWork(client, 7),
   ]);
 
   const nonCancelled = allOrders.filter((o) => o.status !== "cancelled");
@@ -315,8 +317,10 @@ function marginPctOf(product: Product): number {
   return ((product.price - product.cost) / product.price) * 100;
 }
 
-export async function buildFinanceReport(sinceDays: number): Promise<FinanceReport> {
-  const client = getStoreClient();
+export async function buildFinanceReport(
+  client: StoreClient,
+  sinceDays: number,
+): Promise<FinanceReport> {
   const now = client.now();
 
   const [ordersRaw, products, expenses] = await Promise.all([
@@ -422,8 +426,7 @@ const SEVERITY_RANK: Record<AnomalyFinding["severity"], number> = {
   info: 2,
 };
 
-export async function detectAnomalies(): Promise<AnomalyFinding[]> {
-  const client = getStoreClient();
+export async function detectAnomalies(client: StoreClient): Promise<AnomalyFinding[]> {
   const now = client.now();
   const nowMs = Date.parse(now);
   const findings: AnomalyFinding[] = [];
@@ -457,7 +460,7 @@ export async function detectAnomalies(): Promise<AnomalyFinding[]> {
   // ---- Ads ----------------------------------------------------------------
   for (const campaign of activeCampaigns) {
     if (campaign.dailyStats.length < 6) continue;
-    const m = computeCampaignMetrics(campaign);
+    const m = computeCampaignMetrics(client, campaign);
     const last3 = statsWindow(campaign.dailyStats, now, 0, 2);
     const spend3d = round2(sum(last3.map((s) => s.spend)));
     const conversions3d = sum(last3.map((s) => s.conversions));

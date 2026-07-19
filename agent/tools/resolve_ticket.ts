@@ -3,7 +3,8 @@ import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { justificationSchema, resolveTicketPayload } from "../lib/nova/schemas";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -15,8 +16,8 @@ export default defineTool({
       .optional()
       .describe("Attribution for the activity log; defaults to support."),
   }),
-  async execute({ justification, department, ...payload }) {
-    const client = getStoreClient();
+  async execute({ justification, department, ...payload }, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const ticket = await client.getSupportTicket(payload.ticketId);
     const subject = ticket?.subject ?? payload.ticketId;
     const title =
@@ -25,7 +26,7 @@ export default defineTool({
         : payload.newStatus === "escalated"
           ? `Escalate ticket "${subject}"`
           : `Reply to ticket "${subject}" (waiting on customer)`;
-    return performAction({
+    return performAction(client, {
       type: "resolve_ticket",
       department: department ?? "support",
       title,

@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -15,7 +16,7 @@ export default defineTool({
       .describe("Short stable identifier, e.g. max_discount_preference."),
     value: z.string().min(3).describe("The fact itself, one or two clear sentences."),
   }),
-  async execute({ namespace, key, value }) {
-    return getStoreClient().upsertMemory({ namespace, key, value });
+  async execute({ namespace, key, value }, ctx) {
+    return storeFor(requireStore(ctx).storeId).upsertMemory({ namespace, key, value });
   },
 });

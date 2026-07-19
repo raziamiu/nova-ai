@@ -8,7 +8,7 @@
  */
 
 import type { MemoryEntry, MemoryNamespace } from "../types";
-import { getStoreClient } from "../store/client";
+import type { StoreClient } from "../store/client";
 
 export const MEMORY_NAMESPACES: MemoryNamespace[] = [
   "goals",
@@ -53,6 +53,6 @@ export function formatMemoryForPrompt(entries: MemoryEntry[]): string {
   return sections.join("\n\n");
 }
 
-export async function loadMemorySnapshot(): Promise<string> {
-  return formatMemoryForPrompt(await getStoreClient().listMemory());
+export async function loadMemorySnapshot(client: StoreClient): Promise<string> {
+  return formatMemoryForPrompt(await client.listMemory());
 }

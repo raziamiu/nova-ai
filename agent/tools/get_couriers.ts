@@ -1,13 +1,14 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
     "List couriers with cost per shipment, average delivery days, on-time rate, RTO rate, covered regions, plus actual last-30-day order and RTO counts from the order log. Use for courier assignment and performance reviews. Returns { count, couriers } (max 50).",
   inputSchema: z.object({}),
-  async execute() {
-    const client = getStoreClient();
+  async execute(_input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const [couriers, recentOrders] = await Promise.all([
       client.listCouriers(),
       client.listOrders({ sinceDays: 30 }),

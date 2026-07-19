@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -11,8 +12,8 @@ export default defineTool({
       .optional()
       .describe("Only this namespace; omit for all memory."),
   }),
-  async execute({ namespace }) {
-    const entries = await getStoreClient().listMemory(namespace);
+  async execute({ namespace }, ctx) {
+    const entries = await storeFor(requireStore(ctx).storeId).listMemory(namespace);
     return { count: entries.length, entries };
   },
 });

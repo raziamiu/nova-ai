@@ -1,7 +1,8 @@
 import { defineTool, type ApprovalContext } from "eve/tools";
 import { z } from "zod";
 import type { AutonomyLevel } from "../lib/types";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore, isOwnerRole } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -46,12 +47,21 @@ export default defineTool({
   }),
   approval: (ctx: ApprovalContext) => {
     const a = ctx.session.auth.current;
-    return a?.authenticator === "app" && a.principalId === "eve:app"
-      ? { type: "denied" as const, reason: "Only the owner may change autonomy." }
-      : "user-approval";
+    if (a?.authenticator === "app" && a.principalId === "eve:app") {
+      return { type: "denied" as const, reason: "Only the owner may change autonomy." };
+    }
+    const role = typeof a?.attributes?.role === "string" ? a.attributes.role : undefined;
+    if (!isOwnerRole(role)) {
+      return { type: "denied" as const, reason: "Only the store owner or an admin may change autonomy." };
+    }
+    return "user-approval";
   },
-  async execute({ level, guardrails }) {
-    const client = getStoreClient();
+  async execute({ level, guardrails }, ctx) {
+    const { storeId, role } = requireStore(ctx);
+    if (!isOwnerRole(role)) {
+      return { error: "Only the store owner or an admin can change autonomy." };
+    }
+    const client = storeFor(storeId);
     const current = await client.getAutonomy();
     return client.setAutonomy({
       level: (level ?? current.level) as AutonomyLevel,

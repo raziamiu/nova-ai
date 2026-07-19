@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -11,7 +12,7 @@ export default defineTool({
       .describe("Namespace the entry lives in."),
     key: z.string().describe("Exact key of the entry to delete."),
   }),
-  async execute({ namespace, key }) {
-    return { deleted: getStoreClient().deleteMemory(namespace, key) };
+  async execute({ namespace, key }, ctx) {
+    return { deleted: await storeFor(requireStore(ctx).storeId).deleteMemory(namespace, key) };
   },
 });

@@ -1,6 +1,20 @@
 import { defineTool, type ApprovalContext } from "eve/tools";
 import { z } from "zod";
 import { rejectAction } from "../lib/nova/actions";
+import { requireStore, isOwnerRole } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
+
+function ownerOnly(ctx: ApprovalContext, verb: string) {
+  const a = ctx.session.auth.current;
+  if (a?.authenticator === "app" && a.principalId === "eve:app") {
+    return { type: "denied" as const, reason: `Scheduled runs cannot ${verb} actions — only the owner can.` };
+  }
+  const role = typeof a?.attributes?.role === "string" ? a.attributes.role : undefined;
+  if (!isOwnerRole(role)) {
+    return { type: "denied" as const, reason: `Only the store owner or an admin can ${verb} actions.` };
+  }
+  return "not-applicable" as const;
+}
 
 export default defineTool({
   description:
@@ -9,18 +23,14 @@ export default defineTool({
     actionId: z.string().describe("Id of the prepared action to reject."),
     reason: z.string().optional().describe("Why the owner said no — stored for learning."),
   }),
-  approval: (ctx: ApprovalContext) => {
-    const a = ctx.session.auth.current;
-    return a?.authenticator === "app" && a.principalId === "eve:app"
-      ? {
-          type: "denied" as const,
-          reason: "Scheduled runs cannot reject actions — only the owner can.",
-        }
-      : "not-applicable";
-  },
-  async execute({ actionId, reason }) {
+  approval: (ctx: ApprovalContext) => ownerOnly(ctx, "reject"),
+  async execute({ actionId, reason }, ctx) {
+    const { storeId, role } = requireStore(ctx);
+    if (!isOwnerRole(role)) {
+      return { error: "Only the store owner or an admin can reject actions." };
+    }
     try {
-      return rejectAction(actionId, reason);
+      return await rejectAction(storeFor(storeId), actionId, reason);
     } catch (error) {
       return { error: error instanceof Error ? error.message : String(error) };
     }

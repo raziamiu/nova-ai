@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -18,8 +19,8 @@ export default defineTool({
       .default(5)
       .describe("Maximum reports to return (default 5)"),
   }),
-  async execute(input) {
-    const client = getStoreClient();
+  async execute(input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const reports = await client.listReports({ kind: input.kind, limit: input.limit });
     return { count: reports.length, reports };
   },

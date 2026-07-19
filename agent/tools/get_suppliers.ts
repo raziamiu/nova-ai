@@ -1,13 +1,14 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
     "List suppliers with reliability score, quality score, current PO delay days, and their product offers (enriched with product names, unit cost, lead time). Use for reorder decisions, supplier comparisons, and switching evaluations. Returns { count, suppliers } (max 50).",
   inputSchema: z.object({}),
-  async execute() {
-    const client = getStoreClient();
+  async execute(_input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const [suppliers, products] = await Promise.all([
       client.listSuppliers(),
       client.listProducts(),

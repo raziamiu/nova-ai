@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -11,9 +12,9 @@ export default defineTool({
       .optional()
       .describe("Only actions with this status; omit for the full history."),
   }),
-  async execute({ status }) {
+  async execute({ status }, ctx) {
     try {
-      const all = await getStoreClient().listActions(status);
+      const all = await storeFor(requireStore(ctx).storeId).listActions(status);
       const sorted = [...all].sort(
         (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
       );

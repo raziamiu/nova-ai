@@ -2,7 +2,8 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { recordActivity } from "../lib/nova/activity";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -19,10 +20,10 @@ export default defineTool({
       .optional()
       .describe("Attribution for the activity log; defaults to ceo."),
   }),
-  async execute({ kind, title, body, department }) {
-    const client = getStoreClient();
+  async execute({ kind, title, body, department }, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const report = await client.addReport({ kind, title, body });
-    await recordActivity({
+    await recordActivity(client, {
       department: department ?? "ceo",
       kind: "report",
       title,

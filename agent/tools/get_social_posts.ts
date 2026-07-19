@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -11,8 +12,8 @@ export default defineTool({
       .optional()
       .describe("Only posts with this status"),
   }),
-  async execute(input) {
-    const client = getStoreClient();
+  async execute(input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const posts = await client.listSocialPosts(input.status);
     return { count: posts.length, posts: posts.slice(0, 50) };
   },

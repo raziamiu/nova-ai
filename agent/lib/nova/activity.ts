@@ -8,7 +8,7 @@
  */
 
 import type { ActionType, ActivityEntry, NovaDepartment } from "../types";
-import { getStoreClient } from "../store/client";
+import type { StoreClient } from "../store/client";
 
 /** Human-equivalent minutes a founder would spend doing this by hand. */
 const MINUTES_BY_ACTION: Record<ActionType, number> = {
@@ -45,8 +45,10 @@ export interface ActivityInput {
   minutesSaved?: number;
 }
 
-export async function recordActivity(input: ActivityInput): Promise<ActivityEntry> {
-  const client = getStoreClient();
+export async function recordActivity(
+  client: StoreClient,
+  input: ActivityInput,
+): Promise<ActivityEntry> {
   const minutesSaved =
     input.minutesSaved ??
     (input.actionType !== undefined
@@ -73,8 +75,11 @@ export interface WorkSummary {
 }
 
 /** Aggregate the activity log into the PRD dashboard metrics. */
-export async function summarizeWork(sinceDays: number): Promise<WorkSummary> {
-  const entries = await getStoreClient().listActivity({ sinceDays });
+export async function summarizeWork(
+  client: StoreClient,
+  sinceDays: number,
+): Promise<WorkSummary> {
+  const entries = await client.listActivity({ sinceDays });
   const byDepartment = new Map<NovaDepartment, { tasks: number; minutes: number }>();
   const byKind = new Map<ActivityEntry["kind"], number>();
   let minutes = 0;

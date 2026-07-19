@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 import { round2 } from "../lib/nova/format";
 
 export default defineTool({
@@ -12,8 +13,8 @@ export default defineTool({
       .optional()
       .describe("Only carts in this recovery state"),
   }),
-  async execute(input) {
-    const client = getStoreClient();
+  async execute(input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const carts = await client.listAbandonedCarts(input.state);
     const totalValue = round2(carts.reduce((s, c) => s + c.value, 0));
     const shown = carts.slice(0, 50);

@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -11,8 +12,8 @@ export default defineTool({
       .optional()
       .describe("Only tickets with this status"),
   }),
-  async execute(input) {
-    const client = getStoreClient();
+  async execute(input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const nowMs = Date.parse(client.now());
     const tickets = await client.listSupportTickets(input.status);
     const shown = tickets.slice(0, 50);

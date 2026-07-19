@@ -3,7 +3,8 @@ import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { justificationSchema, publishSocialPostPayload } from "../lib/nova/schemas";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -15,13 +16,13 @@ export default defineTool({
       .optional()
       .describe("Attribution for the activity log; defaults to marketing."),
   }),
-  async execute({ justification, department, ...payload }) {
-    const client = getStoreClient();
+  async execute({ justification, department, ...payload }, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const featured = payload.productIds[0]
       ? (await client.getProduct(payload.productIds[0]))?.name
       : undefined;
     const title = `${payload.scheduledFor ? "Schedule" : "Publish"} ${payload.platform} ${payload.format}${featured ? ` featuring "${featured}"` : ""}`;
-    return performAction({
+    return performAction(client, {
       type: "publish_social_post",
       department: department ?? "marketing",
       title,

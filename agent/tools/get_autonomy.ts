@@ -1,13 +1,14 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
     "Read Nova's current autonomy configuration: level (0-4), the six guardrails, when it was last changed, and a legend explaining each level. Check this before explaining why an action executed, was prepared, or was blocked.",
   inputSchema: z.object({}),
-  async execute() {
-    const config = getStoreClient().getAutonomy();
+  async execute(_input, ctx) {
+    const config = await storeFor(requireStore(ctx).storeId).getAutonomy();
     return {
       ...config,
       levels: {

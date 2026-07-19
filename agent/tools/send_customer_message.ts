@@ -3,7 +3,8 @@ import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { justificationSchema, sendCustomerMessagePayload } from "../lib/nova/schemas";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -15,12 +16,12 @@ export default defineTool({
       .optional()
       .describe("Attribution for the activity log; defaults to sales."),
   }),
-  async execute({ justification, department, ...payload }) {
-    const client = getStoreClient();
+  async execute({ justification, department, ...payload }, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const customer = await client.getCustomer(payload.customerId);
     const purposeLabel = payload.purpose.split("_").join(" ");
     const title = `Send ${purposeLabel} ${payload.channel} to ${customer?.name ?? payload.customerId}`;
-    return performAction({
+    return performAction(client, {
       type: "send_customer_message",
       department: department ?? "sales",
       title,

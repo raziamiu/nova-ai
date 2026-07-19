@@ -1,6 +1,8 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { buildFinanceReport } from "../lib/nova/analytics";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -14,7 +16,7 @@ export default defineTool({
       .default(30)
       .describe("Report period in days, 1-90 (default 30)"),
   }),
-  async execute(input) {
-    return buildFinanceReport(input.sinceDays);
+  async execute(input, ctx) {
+    return buildFinanceReport(storeFor(requireStore(ctx).storeId), input.sinceDays);
   },
 });

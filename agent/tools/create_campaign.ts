@@ -4,7 +4,8 @@ import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { createCampaignPayload, justificationSchema } from "../lib/nova/schemas";
 import { usd } from "../lib/nova/format";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -16,9 +17,9 @@ export default defineTool({
       .optional()
       .describe("Attribution for the activity log; defaults to marketing."),
   }),
-  async execute({ justification, department, ...payload }) {
+  async execute({ justification, department, ...payload }, ctx) {
     // Validate product references so the owner-facing title reads correctly.
-    const client = getStoreClient();
+    const client = storeFor(requireStore(ctx).storeId);
     const firstProduct = payload.productIds[0]
       ? await client.getProduct(payload.productIds[0])
       : null;
@@ -26,7 +27,7 @@ export default defineTool({
       ? ` for "${firstProduct.name}"${payload.productIds.length > 1 ? ` +${payload.productIds.length - 1} more` : ""}`
       : "";
     const title = `${payload.startNow ? "Launch" : "Schedule"} "${payload.name}" on ${payload.channel} at ${usd(payload.dailyBudget)}/day${focus}`;
-    return performAction({
+    return performAction(client, {
       type: "create_campaign",
       department: department ?? "marketing",
       title,

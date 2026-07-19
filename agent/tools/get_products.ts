@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -16,8 +17,8 @@ export default defineTool({
       .optional()
       .describe("Only products with stock at or below their reorder point"),
   }),
-  async execute(input) {
-    const client = getStoreClient();
+  async execute(input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     let products = await client.listProducts({
       status: input.status,
       category: input.category,

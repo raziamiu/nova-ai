@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 import { summarizeWork } from "../lib/nova/activity";
 
 export default defineTool({
@@ -14,11 +15,11 @@ export default defineTool({
       .default(7)
       .describe("Lookback window in days (default 7)"),
   }),
-  async execute(input) {
-    const client = getStoreClient();
+  async execute(input, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const [entriesRaw, summary] = await Promise.all([
       client.listActivity({ sinceDays: input.sinceDays }),
-      summarizeWork(input.sinceDays),
+      summarizeWork(client, input.sinceDays),
     ]);
     const entries = [...entriesRaw].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
     return {

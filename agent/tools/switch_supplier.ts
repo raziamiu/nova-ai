@@ -3,7 +3,8 @@ import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { justificationSchema, switchSupplierPayload } from "../lib/nova/schemas";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -15,8 +16,8 @@ export default defineTool({
       .optional()
       .describe("Attribution for the activity log; defaults to supplier_manager."),
   }),
-  async execute({ justification, department, ...payload }) {
-    const client = getStoreClient();
+  async execute({ justification, department, ...payload }, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const [product, supplier] = await Promise.all([
       client.getProduct(payload.productId),
       client.getSupplier(payload.newSupplierId),
@@ -24,7 +25,7 @@ export default defineTool({
     const productName = product?.name ?? payload.productId;
     const supplierName = supplier?.name ?? payload.newSupplierId;
     const title = `Switch "${productName}" to supplier ${supplierName}`;
-    return performAction({
+    return performAction(client, {
       type: "switch_supplier",
       department: department ?? "supplier_manager",
       title,

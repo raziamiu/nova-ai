@@ -4,7 +4,8 @@ import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { justificationSchema, updateCampaignPayload } from "../lib/nova/schemas";
 import { usd } from "../lib/nova/format";
-import { getStoreClient } from "../lib/store/client";
+import { requireStore } from "../lib/tenant";
+import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
@@ -16,8 +17,8 @@ export default defineTool({
       .optional()
       .describe("Attribution for the activity log; defaults to marketing."),
   }),
-  async execute({ justification, department, ...payload }) {
-    const client = getStoreClient();
+  async execute({ justification, department, ...payload }, ctx) {
+    const client = storeFor(requireStore(ctx).storeId);
     const campaign = await client.getCampaign(payload.campaignId);
     const name = campaign?.name ?? payload.campaignId;
     const verb =
@@ -30,7 +31,7 @@ export default defineTool({
           : payload.dailyBudget !== undefined
             ? `Set "${name}" budget to ${usd(payload.dailyBudget)}/day`
             : `Update campaign "${name}"`;
-    return performAction({
+    return performAction(client, {
       type: "update_campaign",
       department: department ?? "marketing",
       title,
