@@ -1,0 +1,33 @@
+import { defineTool } from "eve/tools";
+import { z } from "zod";
+import { NOVA_DEPARTMENTS } from "../lib/types";
+import { performAction } from "../lib/nova/actions";
+import { justificationSchema, updatePricePayload } from "../lib/nova/schemas";
+import { usd } from "../lib/nova/format";
+import { getStoreClient } from "../lib/store/client";
+
+export default defineTool({
+  description:
+    "Change a product's storefront price (and optionally its strike-through compareAtPrice). Guardrails enforce a maximum change percent and a margin floor. Autonomy-gated: returns status executed, prepared (awaiting owner approval), or blocked.",
+  inputSchema: updatePricePayload.extend({
+    justification: justificationSchema,
+    department: z
+      .enum(NOVA_DEPARTMENTS)
+      .optional()
+      .describe("Attribution for the activity log; defaults to product_research."),
+  }),
+  async execute({ justification, department, ...payload }) {
+    const client = getStoreClient();
+    const product = client.getProduct(payload.productId);
+    const title = product
+      ? `Reprice "${product.name}": ${usd(product.price)} → ${usd(payload.newPrice)}`
+      : `Set price of ${payload.productId} to ${usd(payload.newPrice)}`;
+    return performAction({
+      type: "update_price",
+      department: department ?? "product_research",
+      title,
+      payload,
+      justification,
+    });
+  },
+});
