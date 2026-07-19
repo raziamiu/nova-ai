@@ -11,13 +11,18 @@ founder's dashboard. Phase 01 (foundation agent core, demo store) is implemented
 
 ## Getting started
 
+Requires Node 24 and a model key (`AI_GATEWAY_API_KEY` in `.env.local`) for live runs.
+
 ```bash
 npm install
-npm exec -- eve dev
+npm exec -- eve dev      # chat with Nova against the seeded demo store
+npm exec -- eve eval     # run the behavior evals (needs the model key)
 ```
 
 Try: *"Good morning — how's the business doing?"*, *"Recover our abandoned carts."*,
-*"What's waiting for my approval?"*
+*"What's waiting for my approval?"* — the demo store ("Aurora Living") boots with a
+scale-ready campaign, a bleeding campaign, 14 abandoned carts, two stockout risks,
+and two prepared actions already awaiting approval.
 
 ## Engineering blueprint
 

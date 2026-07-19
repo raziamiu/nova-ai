@@ -162,10 +162,19 @@ boundary; no secrets in demo layer.
 
 ## Success / exit criteria
 
-- [x] Typecheck clean · [x] all components discovered by eve · [ ] realistic seed
-  dataset (carried into Phase 02) · [ ] eval suite green with live model (needs gateway
-  key; carried into Phase 02).
+- [x] Typecheck clean (`tsc --noEmit`, 0 errors)
+- [x] `eve build` clean; `eve info` discovery verified: 38 tools, 10 subagents
+  (correct scoped tool counts + instructions), 5 schedules, 4 skills, 0 diagnostics
+- [x] Realistic seed dataset — runtime-verified by a 40-check smoke test
+  (PRD-signature scenarios all detected by the anomaly radar; referential
+  integrity across orders/tickets/carts/suppliers; autonomy gate + undo
+  exercised end-to-end at levels 2 and 4)
+- [x] Eval suite authored and discovered by `eve eval --list` (4 evals)
+- [ ] Live-model verification (`eve dev` conversation + `eve eval` green) —
+  requires `AI_GATEWAY_API_KEY`; run on a dev machine or CI. The only
+  remaining Phase-1 box.
 
 ## Deliverables
 
-The `agent/` tree above, committed and pushed (commit `0d5e325`).
+The `agent/` tree above plus `evals/`, committed and pushed on
+`claude/nova-agent-development-5z7o79` (PR #2).
