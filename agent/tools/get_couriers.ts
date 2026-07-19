@@ -8,8 +8,10 @@ export default defineTool({
   inputSchema: z.object({}),
   async execute() {
     const client = getStoreClient();
-    const couriers = client.listCouriers();
-    const recentOrders = client.listOrders({ sinceDays: 30 });
+    const [couriers, recentOrders] = await Promise.all([
+      client.listCouriers(),
+      client.listOrders({ sinceDays: 30 }),
+    ]);
     return {
       count: couriers.length,
       couriers: couriers.slice(0, 50).map((c) => {

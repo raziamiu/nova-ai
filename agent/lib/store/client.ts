@@ -10,6 +10,10 @@
  * The store persists Nova's own data too (memory, activity, prepared
  * actions, reports), matching the Dakio design where the store server saves
  * all agent data.
+ *
+ * Every data-access method is async (a real implementation is a network
+ * call). `now()` is the one exception — it is a local clock read, not a
+ * request, so callers can build timestamps without awaiting a round trip.
  */
 
 import type {
@@ -41,107 +45,110 @@ import type {
 import { DemoStore } from "./backend";
 
 export interface StoreClient {
-  /** Store server time, ISO 8601. */
+  /** Local clock read, ISO 8601. Not a request — safe to call without awaiting. */
   now(): string;
 
   // Catalog
-  listProducts(filter?: { status?: Product["status"]; category?: string }): Product[];
-  getProduct(id: string): Product | null;
-  createProduct(product: Omit<Product, "id" | "createdAt">): Product;
+  listProducts(filter?: { status?: Product["status"]; category?: string }): Promise<Product[]>;
+  getProduct(id: string): Promise<Product | null>;
+  createProduct(product: Omit<Product, "id" | "createdAt">): Promise<Product>;
   updateProduct(
     id: string,
     patch: Partial<
       Pick<Product, "price" | "compareAtPrice" | "stock" | "status" | "supplierId" | "cost">
     >,
-  ): Product;
-  listTrendingProducts(): TrendingProduct[];
+  ): Promise<Product>;
+  listTrendingProducts(): Promise<TrendingProduct[]>;
 
   // Customers
-  listCustomers(filter?: { segment?: Customer["segment"] }): Customer[];
-  getCustomer(id: string): Customer | null;
+  listCustomers(filter?: { segment?: Customer["segment"] }): Promise<Customer[]>;
+  getCustomer(id: string): Promise<Customer | null>;
 
   // Orders
-  listOrders(filter?: { sinceDays?: number; status?: OrderStatus }): Order[];
-  getOrder(id: string): Order | null;
-  updateOrder(patch: { id: string; status?: OrderStatus; courierId?: string }): Order;
+  listOrders(filter?: { sinceDays?: number; status?: OrderStatus }): Promise<Order[]>;
+  getOrder(id: string): Promise<Order | null>;
+  updateOrder(patch: { id: string; status?: OrderStatus; courierId?: string }): Promise<Order>;
 
   // Abandoned carts
-  listAbandonedCarts(state?: CartRecoveryState): AbandonedCart[];
+  listAbandonedCarts(state?: CartRecoveryState): Promise<AbandonedCart[]>;
   updateCart(
     id: string,
     patch: { recoveryState?: CartRecoveryState; recoveryMessage?: string | null },
-  ): AbandonedCart;
+  ): Promise<AbandonedCart>;
 
   // Marketing
-  listCampaigns(status?: Campaign["status"]): Campaign[];
-  getCampaign(id: string): Campaign | null;
-  createCampaign(campaign: Omit<Campaign, "id" | "dailyStats">): Campaign;
+  listCampaigns(status?: Campaign["status"]): Promise<Campaign[]>;
+  getCampaign(id: string): Promise<Campaign | null>;
+  createCampaign(campaign: Omit<Campaign, "id" | "dailyStats">): Promise<Campaign>;
   updateCampaign(
     id: string,
     patch: Partial<Pick<Campaign, "status" | "dailyBudget" | "notes">>,
-  ): Campaign;
-  listSocialPosts(status?: SocialPost["status"]): SocialPost[];
-  createSocialPost(post: Omit<SocialPost, "id">): SocialPost;
+  ): Promise<Campaign>;
+  listSocialPosts(status?: SocialPost["status"]): Promise<SocialPost[]>;
+  createSocialPost(post: Omit<SocialPost, "id">): Promise<SocialPost>;
   updateSocialPost(
     id: string,
     patch: Partial<Pick<SocialPost, "status" | "scheduledFor" | "publishedAt">>,
-  ): SocialPost;
-  listDiscounts(activeOnly?: boolean): Discount[];
-  createDiscount(discount: Omit<Discount, "id" | "createdAt">): Discount;
-  updateDiscount(id: string, patch: { active: boolean }): Discount;
+  ): Promise<SocialPost>;
+  listDiscounts(activeOnly?: boolean): Promise<Discount[]>;
+  createDiscount(discount: Omit<Discount, "id" | "createdAt">): Promise<Discount>;
+  updateDiscount(id: string, patch: { active: boolean }): Promise<Discount>;
 
   // Support & messaging
-  listSupportTickets(status?: TicketStatus): SupportTicket[];
-  getSupportTicket(id: string): SupportTicket | null;
+  listSupportTickets(status?: TicketStatus): Promise<SupportTicket[]>;
+  getSupportTicket(id: string): Promise<SupportTicket | null>;
   addTicketMessage(
     ticketId: string,
     message: { from: "nova" | "owner"; text: string },
-  ): SupportTicket;
-  updateTicketStatus(ticketId: string, status: TicketStatus): SupportTicket;
+  ): Promise<SupportTicket>;
+  updateTicketStatus(ticketId: string, status: TicketStatus): Promise<SupportTicket>;
   listCustomerMessages(filter?: {
     purpose?: CustomerMessage["purpose"];
     sinceDays?: number;
-  }): CustomerMessage[];
-  addCustomerMessage(message: Omit<CustomerMessage, "id" | "sentAt">): CustomerMessage;
+  }): Promise<CustomerMessage[]>;
+  addCustomerMessage(message: Omit<CustomerMessage, "id" | "sentAt">): Promise<CustomerMessage>;
 
   // Suppliers & logistics
-  listSuppliers(): Supplier[];
-  getSupplier(id: string): Supplier | null;
-  listPurchaseOrders(status?: PurchaseOrder["status"]): PurchaseOrder[];
+  listSuppliers(): Promise<Supplier[]>;
+  getSupplier(id: string): Promise<Supplier | null>;
+  listPurchaseOrders(status?: PurchaseOrder["status"]): Promise<PurchaseOrder[]>;
   createPurchaseOrder(
     po: Omit<PurchaseOrder, "id" | "createdAt" | "total">,
-  ): PurchaseOrder;
-  updatePurchaseOrder(id: string, patch: { status: PurchaseOrder["status"] }): PurchaseOrder;
-  listCouriers(): Courier[];
-  getCourier(id: string): Courier | null;
+  ): Promise<PurchaseOrder>;
+  updatePurchaseOrder(id: string, patch: { status: PurchaseOrder["status"] }): Promise<PurchaseOrder>;
+  listCouriers(): Promise<Courier[]>;
+  getCourier(id: string): Promise<Courier | null>;
 
   // Finance
-  listExpenses(sinceDays?: number): ExpenseEntry[];
+  listExpenses(sinceDays?: number): Promise<ExpenseEntry[]>;
 
   // ---- Nova agent data (the store persists these too) ----
 
-  getAutonomy(): AutonomyConfig;
-  setAutonomy(config: AutonomyConfig): AutonomyConfig;
+  getAutonomy(): Promise<AutonomyConfig>;
+  setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig>;
 
-  listMemory(namespace?: MemoryNamespace): MemoryEntry[];
-  upsertMemory(entry: Omit<MemoryEntry, "updatedAt">): MemoryEntry;
-  deleteMemory(namespace: MemoryNamespace, key: string): boolean;
+  listMemory(namespace?: MemoryNamespace): Promise<MemoryEntry[]>;
+  upsertMemory(entry: Omit<MemoryEntry, "updatedAt">): Promise<MemoryEntry>;
+  deleteMemory(namespace: MemoryNamespace, key: string): Promise<boolean>;
 
-  listActivity(filter?: { sinceDays?: number; department?: ActivityEntry["department"] }): ActivityEntry[];
-  addActivity(entry: Omit<ActivityEntry, "id" | "at">): ActivityEntry;
+  listActivity(filter?: {
+    sinceDays?: number;
+    department?: ActivityEntry["department"];
+  }): Promise<ActivityEntry[]>;
+  addActivity(entry: Omit<ActivityEntry, "id" | "at">): Promise<ActivityEntry>;
 
-  listActions(status?: ActionStatus): ActionRecord[];
-  getAction(id: string): ActionRecord | null;
-  addAction(record: Omit<ActionRecord, "id" | "createdAt">): ActionRecord;
+  listActions(status?: ActionStatus): Promise<ActionRecord[]>;
+  getAction(id: string): Promise<ActionRecord | null>;
+  addAction(record: Omit<ActionRecord, "id" | "createdAt">): Promise<ActionRecord>;
   updateAction(
     id: string,
     patch: Partial<
       Pick<ActionRecord, "status" | "outcome" | "undoData" | "decidedAt" | "executedAt">
     >,
-  ): ActionRecord;
+  ): Promise<ActionRecord>;
 
-  listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): NovaReport[];
-  addReport(report: Omit<NovaReport, "id" | "createdAt">): NovaReport;
+  listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]>;
+  addReport(report: Omit<NovaReport, "id" | "createdAt">): Promise<NovaReport>;
 }
 
 let singleton: StoreClient | null = null;

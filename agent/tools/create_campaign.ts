@@ -20,7 +20,7 @@ export default defineTool({
     // Validate product references so the owner-facing title reads correctly.
     const client = getStoreClient();
     const firstProduct = payload.productIds[0]
-      ? client.getProduct(payload.productIds[0])
+      ? await client.getProduct(payload.productIds[0])
       : null;
     const focus = firstProduct
       ? ` for "${firstProduct.name}"${payload.productIds.length > 1 ? ` +${payload.productIds.length - 1} more` : ""}`

@@ -18,7 +18,8 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const name = client.getCampaign(payload.campaignId)?.name ?? payload.campaignId;
+    const campaign = await client.getCampaign(payload.campaignId);
+    const name = campaign?.name ?? payload.campaignId;
     const verb =
       payload.status === "paused" ? "Pause" : payload.status === "active" ? "Resume" : null;
     const title =

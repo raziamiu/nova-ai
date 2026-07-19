@@ -21,8 +21,8 @@ export default defineTool({
   }),
   async execute({ kind, title, body, department }) {
     const client = getStoreClient();
-    const report = client.addReport({ kind, title, body });
-    recordActivity({
+    const report = await client.addReport({ kind, title, body });
+    await recordActivity({
       department: department ?? "ceo",
       kind: "report",
       title,

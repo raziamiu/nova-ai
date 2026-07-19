@@ -4,6 +4,17 @@
 real Dakio Express store — data, mutations, agent-state persistence, and inbound events —
 for ONE store (multi-tenancy is Phase 03; do not build it here, but don't block it).
 
+**Step 1 (async `StoreClient` refactor) is ✅ DONE** — pulled forward and completed ahead
+of the rest of this phase, since Phase 03+ all build on the async contract. Every
+`StoreClient` method except `now()` (a local clock read, not I/O — kept sync so 24
+call sites don't await a value that never actually needs a round trip) now returns a
+`Promise`; the demo backend, autonomy gate, executors, action pipeline, activity
+metrics, analytics engine, memory loader, all 38 tools, and the dynamic-context
+injector were updated and re-verified: `tsc --noEmit` clean, `eve build` clean, and the
+Phase-01 runtime smoke test (40 checks) passes byte-for-byte identically to the
+pre-refactor run. Steps 2+ below (the actual Dakio HTTP client, webhook channel,
+realistic seed, CI eval wiring) are still open.
+
 ## Objective
 
 Replace the in-memory demo backend with the Dakio platform: Nova reads live store data,

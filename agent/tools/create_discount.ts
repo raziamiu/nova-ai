@@ -17,7 +17,7 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const customer = payload.customerId ? client.getCustomer(payload.customerId) : null;
+    const customer = payload.customerId ? await client.getCustomer(payload.customerId) : null;
     const title = customer
       ? `Issue ${payload.percentOff}% code ${payload.code} to ${customer.name}`
       : `Create ${payload.percentOff}% discount code ${payload.code}`;

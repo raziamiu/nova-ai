@@ -53,6 +53,6 @@ export function formatMemoryForPrompt(entries: MemoryEntry[]): string {
   return sections.join("\n\n");
 }
 
-export function loadMemorySnapshot(): string {
-  return formatMemoryForPrompt(getStoreClient().listMemory());
+export async function loadMemorySnapshot(): Promise<string> {
+  return formatMemoryForPrompt(await getStoreClient().listMemory());
 }

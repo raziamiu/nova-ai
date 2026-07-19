@@ -18,7 +18,7 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const product = client.getProduct(payload.productId);
+    const product = await client.getProduct(payload.productId);
     const title = product
       ? `Reprice "${product.name}": ${usd(product.price)} → ${usd(payload.newPrice)}`
       : `Set price of ${payload.productId} to ${usd(payload.newPrice)}`;

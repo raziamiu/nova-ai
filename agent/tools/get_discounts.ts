@@ -10,7 +10,7 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const discounts = client.listDiscounts(input.activeOnly);
+    const discounts = await client.listDiscounts(input.activeOnly);
     return { count: discounts.length, discounts: discounts.slice(0, 50) };
   },
 });

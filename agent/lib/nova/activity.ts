@@ -45,7 +45,7 @@ export interface ActivityInput {
   minutesSaved?: number;
 }
 
-export function recordActivity(input: ActivityInput): ActivityEntry {
+export async function recordActivity(input: ActivityInput): Promise<ActivityEntry> {
   const client = getStoreClient();
   const minutesSaved =
     input.minutesSaved ??
@@ -73,8 +73,8 @@ export interface WorkSummary {
 }
 
 /** Aggregate the activity log into the PRD dashboard metrics. */
-export function summarizeWork(sinceDays: number): WorkSummary {
-  const entries = getStoreClient().listActivity({ sinceDays });
+export async function summarizeWork(sinceDays: number): Promise<WorkSummary> {
+  const entries = await getStoreClient().listActivity({ sinceDays });
   const byDepartment = new Map<NovaDepartment, { tasks: number; minutes: number }>();
   const byKind = new Map<ActivityEntry["kind"], number>();
   let minutes = 0;

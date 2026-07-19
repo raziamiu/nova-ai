@@ -5,6 +5,12 @@
  * Nova's agent data, and applies mutations. State lives for the duration of
  * the process (one continuous demo "day" per server run) and is seeded with
  * a realistic dataset anchored to the current wall-clock time.
+ *
+ * Every StoreClient method is declared `async` to satisfy the interface,
+ * even though the in-memory data access itself never actually awaits
+ * anything — that's the point: callers already treat every store call as a
+ * network round trip, so swapping this class for an HTTP client later is a
+ * one-line change in `client.ts`, not a ripple through the agent.
  */
 
 import type {
@@ -69,7 +75,7 @@ export class DemoStore implements StoreClient {
 
   // ---- Catalog ----
 
-  listProducts(filter?: { status?: Product["status"]; category?: string }): Product[] {
+  async listProducts(filter?: { status?: Product["status"]; category?: string }): Promise<Product[]> {
     return this.data.products.filter(
       (p) =>
         (filter?.status === undefined || p.status === filter.status) &&
@@ -77,11 +83,11 @@ export class DemoStore implements StoreClient {
     );
   }
 
-  getProduct(id: string): Product | null {
+  async getProduct(id: string): Promise<Product | null> {
     return this.data.products.find((p) => p.id === id || p.sku === id) ?? null;
   }
 
-  createProduct(product: Omit<Product, "id" | "createdAt">): Product {
+  async createProduct(product: Omit<Product, "id" | "createdAt">): Promise<Product> {
     const created: Product = {
       ...product,
       id: this.nextId("prod"),
@@ -91,12 +97,12 @@ export class DemoStore implements StoreClient {
     return created;
   }
 
-  updateProduct(
+  async updateProduct(
     id: string,
     patch: Partial<
       Pick<Product, "price" | "compareAtPrice" | "stock" | "status" | "supplierId" | "cost">
     >,
-  ): Product {
+  ): Promise<Product> {
     const product = this.mustFind(
       this.data.products.find((p) => p.id === id),
       "Product",
@@ -106,25 +112,25 @@ export class DemoStore implements StoreClient {
     return product;
   }
 
-  listTrendingProducts(): TrendingProduct[] {
+  async listTrendingProducts(): Promise<TrendingProduct[]> {
     return this.data.trendingProducts;
   }
 
   // ---- Customers ----
 
-  listCustomers(filter?: { segment?: Customer["segment"] }): Customer[] {
+  async listCustomers(filter?: { segment?: Customer["segment"] }): Promise<Customer[]> {
     return this.data.customers.filter(
       (c) => filter?.segment === undefined || c.segment === filter.segment,
     );
   }
 
-  getCustomer(id: string): Customer | null {
+  async getCustomer(id: string): Promise<Customer | null> {
     return this.data.customers.find((c) => c.id === id) ?? null;
   }
 
   // ---- Orders ----
 
-  listOrders(filter?: { sinceDays?: number; status?: OrderStatus }): Order[] {
+  async listOrders(filter?: { sinceDays?: number; status?: OrderStatus }): Promise<Order[]> {
     const cutoff = filter?.sinceDays !== undefined ? this.sinceCutoff(filter.sinceDays) : null;
     return this.data.orders.filter(
       (o) =>
@@ -133,11 +139,11 @@ export class DemoStore implements StoreClient {
     );
   }
 
-  getOrder(id: string): Order | null {
+  async getOrder(id: string): Promise<Order | null> {
     return this.data.orders.find((o) => o.id === id) ?? null;
   }
 
-  updateOrder(patch: { id: string; status?: OrderStatus; courierId?: string }): Order {
+  async updateOrder(patch: { id: string; status?: OrderStatus; courierId?: string }): Promise<Order> {
     const order = this.mustFind(
       this.data.orders.find((o) => o.id === patch.id),
       "Order",
@@ -150,16 +156,16 @@ export class DemoStore implements StoreClient {
 
   // ---- Abandoned carts ----
 
-  listAbandonedCarts(state?: CartRecoveryState): AbandonedCart[] {
+  async listAbandonedCarts(state?: CartRecoveryState): Promise<AbandonedCart[]> {
     return this.data.abandonedCarts.filter(
       (c) => state === undefined || c.recoveryState === state,
     );
   }
 
-  updateCart(
+  async updateCart(
     id: string,
     patch: { recoveryState?: CartRecoveryState; recoveryMessage?: string | null },
-  ): AbandonedCart {
+  ): Promise<AbandonedCart> {
     const cart = this.mustFind(
       this.data.abandonedCarts.find((c) => c.id === id),
       "Cart",
@@ -172,24 +178,24 @@ export class DemoStore implements StoreClient {
 
   // ---- Marketing ----
 
-  listCampaigns(status?: Campaign["status"]): Campaign[] {
+  async listCampaigns(status?: Campaign["status"]): Promise<Campaign[]> {
     return this.data.campaigns.filter((c) => status === undefined || c.status === status);
   }
 
-  getCampaign(id: string): Campaign | null {
+  async getCampaign(id: string): Promise<Campaign | null> {
     return this.data.campaigns.find((c) => c.id === id) ?? null;
   }
 
-  createCampaign(campaign: Omit<Campaign, "id" | "dailyStats">): Campaign {
+  async createCampaign(campaign: Omit<Campaign, "id" | "dailyStats">): Promise<Campaign> {
     const created: Campaign = { ...campaign, id: this.nextId("cmp"), dailyStats: [] };
     this.data.campaigns.push(created);
     return created;
   }
 
-  updateCampaign(
+  async updateCampaign(
     id: string,
     patch: Partial<Pick<Campaign, "status" | "dailyBudget" | "notes">>,
-  ): Campaign {
+  ): Promise<Campaign> {
     const campaign = this.mustFind(
       this.data.campaigns.find((c) => c.id === id),
       "Campaign",
@@ -199,20 +205,20 @@ export class DemoStore implements StoreClient {
     return campaign;
   }
 
-  listSocialPosts(status?: SocialPost["status"]): SocialPost[] {
+  async listSocialPosts(status?: SocialPost["status"]): Promise<SocialPost[]> {
     return this.data.socialPosts.filter((p) => status === undefined || p.status === status);
   }
 
-  createSocialPost(post: Omit<SocialPost, "id">): SocialPost {
+  async createSocialPost(post: Omit<SocialPost, "id">): Promise<SocialPost> {
     const created: SocialPost = { ...post, id: this.nextId("post") };
     this.data.socialPosts.push(created);
     return created;
   }
 
-  updateSocialPost(
+  async updateSocialPost(
     id: string,
     patch: Partial<Pick<SocialPost, "status" | "scheduledFor" | "publishedAt">>,
-  ): SocialPost {
+  ): Promise<SocialPost> {
     const post = this.mustFind(
       this.data.socialPosts.find((p) => p.id === id),
       "Social post",
@@ -222,11 +228,11 @@ export class DemoStore implements StoreClient {
     return post;
   }
 
-  listDiscounts(activeOnly?: boolean): Discount[] {
+  async listDiscounts(activeOnly?: boolean): Promise<Discount[]> {
     return this.data.discounts.filter((d) => !activeOnly || d.active);
   }
 
-  createDiscount(discount: Omit<Discount, "id" | "createdAt">): Discount {
+  async createDiscount(discount: Omit<Discount, "id" | "createdAt">): Promise<Discount> {
     const created: Discount = {
       ...discount,
       id: this.nextId("disc"),
@@ -236,7 +242,7 @@ export class DemoStore implements StoreClient {
     return created;
   }
 
-  updateDiscount(id: string, patch: { active: boolean }): Discount {
+  async updateDiscount(id: string, patch: { active: boolean }): Promise<Discount> {
     const discount = this.mustFind(
       this.data.discounts.find((d) => d.id === id),
       "Discount",
@@ -248,18 +254,18 @@ export class DemoStore implements StoreClient {
 
   // ---- Support & messaging ----
 
-  listSupportTickets(status?: TicketStatus): SupportTicket[] {
+  async listSupportTickets(status?: TicketStatus): Promise<SupportTicket[]> {
     return this.data.supportTickets.filter((t) => status === undefined || t.status === status);
   }
 
-  getSupportTicket(id: string): SupportTicket | null {
+  async getSupportTicket(id: string): Promise<SupportTicket | null> {
     return this.data.supportTickets.find((t) => t.id === id) ?? null;
   }
 
-  addTicketMessage(
+  async addTicketMessage(
     ticketId: string,
     message: { from: "nova" | "owner"; text: string },
-  ): SupportTicket {
+  ): Promise<SupportTicket> {
     const ticket = this.mustFind(
       this.data.supportTickets.find((t) => t.id === ticketId),
       "Ticket",
@@ -269,7 +275,7 @@ export class DemoStore implements StoreClient {
     return ticket;
   }
 
-  updateTicketStatus(ticketId: string, status: TicketStatus): SupportTicket {
+  async updateTicketStatus(ticketId: string, status: TicketStatus): Promise<SupportTicket> {
     const ticket = this.mustFind(
       this.data.supportTickets.find((t) => t.id === ticketId),
       "Ticket",
@@ -279,10 +285,10 @@ export class DemoStore implements StoreClient {
     return ticket;
   }
 
-  listCustomerMessages(filter?: {
+  async listCustomerMessages(filter?: {
     purpose?: CustomerMessage["purpose"];
     sinceDays?: number;
-  }): CustomerMessage[] {
+  }): Promise<CustomerMessage[]> {
     const cutoff = filter?.sinceDays !== undefined ? this.sinceCutoff(filter.sinceDays) : null;
     return this.data.customerMessages.filter(
       (m) =>
@@ -291,7 +297,7 @@ export class DemoStore implements StoreClient {
     );
   }
 
-  addCustomerMessage(message: Omit<CustomerMessage, "id" | "sentAt">): CustomerMessage {
+  async addCustomerMessage(message: Omit<CustomerMessage, "id" | "sentAt">): Promise<CustomerMessage> {
     const created: CustomerMessage = {
       ...message,
       id: this.nextId("msg"),
@@ -303,19 +309,19 @@ export class DemoStore implements StoreClient {
 
   // ---- Suppliers & logistics ----
 
-  listSuppliers(): Supplier[] {
+  async listSuppliers(): Promise<Supplier[]> {
     return this.data.suppliers;
   }
 
-  getSupplier(id: string): Supplier | null {
+  async getSupplier(id: string): Promise<Supplier | null> {
     return this.data.suppliers.find((s) => s.id === id) ?? null;
   }
 
-  listPurchaseOrders(status?: PurchaseOrder["status"]): PurchaseOrder[] {
+  async listPurchaseOrders(status?: PurchaseOrder["status"]): Promise<PurchaseOrder[]> {
     return this.data.purchaseOrders.filter((po) => status === undefined || po.status === status);
   }
 
-  createPurchaseOrder(po: Omit<PurchaseOrder, "id" | "createdAt" | "total">): PurchaseOrder {
+  async createPurchaseOrder(po: Omit<PurchaseOrder, "id" | "createdAt" | "total">): Promise<PurchaseOrder> {
     const created: PurchaseOrder = {
       ...po,
       id: this.nextId("po"),
@@ -326,7 +332,7 @@ export class DemoStore implements StoreClient {
     return created;
   }
 
-  updatePurchaseOrder(id: string, patch: { status: PurchaseOrder["status"] }): PurchaseOrder {
+  async updatePurchaseOrder(id: string, patch: { status: PurchaseOrder["status"] }): Promise<PurchaseOrder> {
     const po = this.mustFind(
       this.data.purchaseOrders.find((p) => p.id === id),
       "Purchase order",
@@ -336,17 +342,17 @@ export class DemoStore implements StoreClient {
     return po;
   }
 
-  listCouriers(): Courier[] {
+  async listCouriers(): Promise<Courier[]> {
     return this.data.couriers;
   }
 
-  getCourier(id: string): Courier | null {
+  async getCourier(id: string): Promise<Courier | null> {
     return this.data.couriers.find((c) => c.id === id) ?? null;
   }
 
   // ---- Finance ----
 
-  listExpenses(sinceDays?: number): ExpenseEntry[] {
+  async listExpenses(sinceDays?: number): Promise<ExpenseEntry[]> {
     const cutoff = sinceDays !== undefined ? this.sinceCutoff(sinceDays) : null;
     return this.data.expenses.filter(
       (e) => cutoff === null || Date.parse(`${e.date}T00:00:00Z`) >= cutoff,
@@ -355,20 +361,20 @@ export class DemoStore implements StoreClient {
 
   // ---- Nova agent data ----
 
-  getAutonomy(): AutonomyConfig {
+  async getAutonomy(): Promise<AutonomyConfig> {
     return this.data.autonomy;
   }
 
-  setAutonomy(config: AutonomyConfig): AutonomyConfig {
+  async setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig> {
     this.data.autonomy = config;
     return config;
   }
 
-  listMemory(namespace?: MemoryNamespace): MemoryEntry[] {
+  async listMemory(namespace?: MemoryNamespace): Promise<MemoryEntry[]> {
     return this.data.memory.filter((m) => namespace === undefined || m.namespace === namespace);
   }
 
-  upsertMemory(entry: Omit<MemoryEntry, "updatedAt">): MemoryEntry {
+  async upsertMemory(entry: Omit<MemoryEntry, "updatedAt">): Promise<MemoryEntry> {
     const existing = this.data.memory.find(
       (m) => m.namespace === entry.namespace && m.key === entry.key,
     );
@@ -382,7 +388,7 @@ export class DemoStore implements StoreClient {
     return created;
   }
 
-  deleteMemory(namespace: MemoryNamespace, key: string): boolean {
+  async deleteMemory(namespace: MemoryNamespace, key: string): Promise<boolean> {
     const index = this.data.memory.findIndex(
       (m) => m.namespace === namespace && m.key === key,
     );
@@ -391,10 +397,10 @@ export class DemoStore implements StoreClient {
     return true;
   }
 
-  listActivity(filter?: {
+  async listActivity(filter?: {
     sinceDays?: number;
     department?: ActivityEntry["department"];
-  }): ActivityEntry[] {
+  }): Promise<ActivityEntry[]> {
     const cutoff = filter?.sinceDays !== undefined ? this.sinceCutoff(filter.sinceDays) : null;
     return this.data.activity.filter(
       (a) =>
@@ -403,21 +409,21 @@ export class DemoStore implements StoreClient {
     );
   }
 
-  addActivity(entry: Omit<ActivityEntry, "id" | "at">): ActivityEntry {
+  async addActivity(entry: Omit<ActivityEntry, "id" | "at">): Promise<ActivityEntry> {
     const created: ActivityEntry = { ...entry, id: this.nextId("act"), at: this.now() };
     this.data.activity.push(created);
     return created;
   }
 
-  listActions(status?: ActionStatus): ActionRecord[] {
+  async listActions(status?: ActionStatus): Promise<ActionRecord[]> {
     return this.data.actions.filter((a) => status === undefined || a.status === status);
   }
 
-  getAction(id: string): ActionRecord | null {
+  async getAction(id: string): Promise<ActionRecord | null> {
     return this.data.actions.find((a) => a.id === id) ?? null;
   }
 
-  addAction(record: Omit<ActionRecord, "id" | "createdAt">): ActionRecord {
+  async addAction(record: Omit<ActionRecord, "id" | "createdAt">): Promise<ActionRecord> {
     const created: ActionRecord = {
       ...record,
       id: this.nextId("action"),
@@ -427,12 +433,12 @@ export class DemoStore implements StoreClient {
     return created;
   }
 
-  updateAction(
+  async updateAction(
     id: string,
     patch: Partial<
       Pick<ActionRecord, "status" | "outcome" | "undoData" | "decidedAt" | "executedAt">
     >,
-  ): ActionRecord {
+  ): Promise<ActionRecord> {
     const action = this.mustFind(
       this.data.actions.find((a) => a.id === id),
       "Action",
@@ -442,14 +448,14 @@ export class DemoStore implements StoreClient {
     return action;
   }
 
-  listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): NovaReport[] {
+  async listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]> {
     const matching = this.data.reports
       .filter((r) => filter?.kind === undefined || r.kind === filter.kind)
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     return filter?.limit !== undefined ? matching.slice(0, filter.limit) : matching;
   }
 
-  addReport(report: Omit<NovaReport, "id" | "createdAt">): NovaReport {
+  async addReport(report: Omit<NovaReport, "id" | "createdAt">): Promise<NovaReport> {
     const created: NovaReport = {
       ...report,
       id: this.nextId("rpt"),

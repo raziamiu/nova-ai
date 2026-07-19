@@ -13,7 +13,7 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const posts = client.listSocialPosts(input.status);
+    const posts = await client.listSocialPosts(input.status);
     return { count: posts.length, posts: posts.slice(0, 50) };
   },
 });

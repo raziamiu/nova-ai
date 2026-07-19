@@ -18,7 +18,7 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    let products = client.listProducts({
+    let products = await client.listProducts({
       status: input.status,
       category: input.category,
     });

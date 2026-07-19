@@ -14,11 +14,13 @@ export default defineTool({
   async execute(input) {
     const client = getStoreClient();
     const nowMs = Date.parse(client.now());
-    const tickets = client.listSupportTickets(input.status);
+    const tickets = await client.listSupportTickets(input.status);
+    const shown = tickets.slice(0, 50);
+    const customers = await Promise.all(shown.map((t) => client.getCustomer(t.customerId)));
     return {
       count: tickets.length,
-      tickets: tickets.slice(0, 50).map((t) => {
-        const customer = client.getCustomer(t.customerId);
+      tickets: shown.map((t, i) => {
+        const customer = customers[i];
         const hoursOpen =
           Math.round(Math.max(0, (nowMs - Date.parse(t.openedAt)) / 3_600_000) * 10) / 10;
         const lastMessage = t.messages.length > 0 ? t.messages[t.messages.length - 1] : null;

@@ -17,9 +17,8 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const trending = client
-      .listTrendingProducts()
-      .find((t) => t.id === payload.trendingProductId);
+    const trendingProducts = await client.listTrendingProducts();
+    const trending = trendingProducts.find((t) => t.id === payload.trendingProductId);
     const title = `Import "${trending?.name ?? payload.trendingProductId}"${payload.activate ? " and launch live" : " as draft"}`;
     return performAction({
       type: "import_product",

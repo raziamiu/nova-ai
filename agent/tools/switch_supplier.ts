@@ -17,9 +17,12 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const productName = client.getProduct(payload.productId)?.name ?? payload.productId;
-    const supplierName =
-      client.getSupplier(payload.newSupplierId)?.name ?? payload.newSupplierId;
+    const [product, supplier] = await Promise.all([
+      client.getProduct(payload.productId),
+      client.getSupplier(payload.newSupplierId),
+    ]);
+    const productName = product?.name ?? payload.productId;
+    const supplierName = supplier?.name ?? payload.newSupplierId;
     const title = `Switch "${productName}" to supplier ${supplierName}`;
     return performAction({
       type: "switch_supplier",

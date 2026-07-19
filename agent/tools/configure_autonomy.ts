@@ -52,7 +52,7 @@ export default defineTool({
   },
   async execute({ level, guardrails }) {
     const client = getStoreClient();
-    const current = client.getAutonomy();
+    const current = await client.getAutonomy();
     return client.setAutonomy({
       level: (level ?? current.level) as AutonomyLevel,
       guardrails: { ...current.guardrails, ...guardrails },

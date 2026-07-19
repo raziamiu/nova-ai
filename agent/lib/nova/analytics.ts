@@ -170,13 +170,38 @@ function cogsOf(orders: Order[], costByProductId: Map<string, number>): number {
   return total;
 }
 
-export function buildBusinessSnapshot(): BusinessSnapshot {
+export async function buildBusinessSnapshot(): Promise<BusinessSnapshot> {
   const client = getStoreClient();
   const now = client.now();
   const nowMs = Date.parse(now);
   const today = ymdOf(now);
 
-  const allOrders = client.listOrders();
+  const [
+    allOrders,
+    products,
+    campaigns,
+    expenses7d,
+    cartsNone,
+    cartsPrepared,
+    pendingActions,
+    openTickets,
+    escalatedTickets,
+    activeCampaigns,
+    work,
+  ] = await Promise.all([
+    client.listOrders(),
+    client.listProducts(),
+    client.listCampaigns(),
+    client.listExpenses(7),
+    client.listAbandonedCarts("none"),
+    client.listAbandonedCarts("message_prepared"),
+    client.listActions("prepared"),
+    client.listSupportTickets("open"),
+    client.listSupportTickets("escalated"),
+    client.listCampaigns("active"),
+    summarizeWork(7),
+  ]);
+
   const nonCancelled = allOrders.filter((o) => o.status !== "cancelled");
   const eligible = revenueEligible(allOrders);
 
@@ -193,17 +218,13 @@ export function buildBusinessSnapshot(): BusinessSnapshot {
   ).length;
 
   // Cost of goods + ad spend + operating expenses over the same 7 days.
-  const costByProductId = new Map(client.listProducts().map((p) => [p.id, p.cost]));
+  const costByProductId = new Map(products.map((p) => [p.id, p.cost]));
   const cogs7d = cogsOf(eligibleLast7, costByProductId);
   const adSpend7d = sum(
-    client
-      .listCampaigns()
-      .flatMap((c) => statsWindow(c.dailyStats, now, 0, 6))
-      .map((s) => s.spend),
+    campaigns.flatMap((c) => statsWindow(c.dailyStats, now, 0, 6)).map((s) => s.spend),
   );
   const opEx7d = sum(
-    client
-      .listExpenses(7)
+    expenses7d
       .filter((e) => e.category === "shipping" || e.category === "fees" || e.category === "refunds")
       .map((e) => e.amount),
   );
@@ -224,14 +245,10 @@ export function buildBusinessSnapshot(): BusinessSnapshot {
     .slice(0, 5)
     .map((p) => ({ name: p.name, units: p.units, revenue: round2(p.revenue) }));
 
-  const unrecovered = [
-    ...client.listAbandonedCarts("none"),
-    ...client.listAbandonedCarts("message_prepared"),
-  ];
+  const unrecovered = [...cartsNone, ...cartsPrepared];
 
   const revenueDelta = pctChange(revenuePrior7d, revenue7d);
   const ordersDelta = pctChange(ordersPrior7, ordersLast7);
-  const work = summarizeWork(7);
 
   return {
     asOf: now,
@@ -250,13 +267,11 @@ export function buildBusinessSnapshot(): BusinessSnapshot {
     },
     aov7d: eligibleLast7.length > 0 ? round2(revenue7d / eligibleLast7.length) : null,
     estProfit7d: round2(revenue7d - cogs7d - adSpend7d - opEx7d),
-    pendingApprovals: client.listActions("prepared").length,
-    openTickets:
-      client.listSupportTickets("open").length + client.listSupportTickets("escalated").length,
-    activeCampaigns: client.listCampaigns("active").length,
-    lowStockProducts: client
-      .listProducts({ status: "active" })
-      .filter((p) => p.stock <= p.reorderPoint).length,
+    pendingApprovals: pendingActions.length,
+    openTickets: openTickets.length + escalatedTickets.length,
+    activeCampaigns: activeCampaigns.length,
+    lowStockProducts: products.filter((p) => p.status === "active" && p.stock <= p.reorderPoint)
+      .length,
     unrecoveredCarts: {
       count: unrecovered.length,
       value: round2(sum(unrecovered.map((c) => c.value))),
@@ -300,16 +315,20 @@ function marginPctOf(product: Product): number {
   return ((product.price - product.cost) / product.price) * 100;
 }
 
-export function buildFinanceReport(sinceDays: number): FinanceReport {
+export async function buildFinanceReport(sinceDays: number): Promise<FinanceReport> {
   const client = getStoreClient();
   const now = client.now();
 
-  const orders = revenueEligible(client.listOrders({ sinceDays }));
-  const costByProductId = new Map(client.listProducts().map((p) => [p.id, p.cost]));
+  const [ordersRaw, products, expenses] = await Promise.all([
+    client.listOrders({ sinceDays }),
+    client.listProducts(),
+    client.listExpenses(sinceDays),
+  ]);
+  const orders = revenueEligible(ordersRaw);
+  const costByProductId = new Map(products.map((p) => [p.id, p.cost]));
   const revenue = orderTotal(orders);
   const cogs = cogsOf(orders, costByProductId);
 
-  const expenses = client.listExpenses(sinceDays);
   const bucket = (category: ExpenseEntry["category"]): number =>
     sum(expenses.filter((e) => e.category === category).map((e) => e.amount));
   const adSpend = bucket("ads");
@@ -343,7 +362,7 @@ export function buildFinanceReport(sinceDays: number): FinanceReport {
     });
   }
 
-  const rankable = client.listProducts({ status: "active" }).filter((p) => p.price > 0);
+  const rankable = products.filter((p) => p.status === "active" && p.price > 0);
   const byMarginDesc = [...rankable].sort((a, b) => marginPctOf(b) - marginPctOf(a));
   const toMarginRow = (p: Product): { name: string; marginPct: number } => ({
     name: p.name,
@@ -403,14 +422,40 @@ const SEVERITY_RANK: Record<AnomalyFinding["severity"], number> = {
   info: 2,
 };
 
-export function detectAnomalies(): AnomalyFinding[] {
+export async function detectAnomalies(): Promise<AnomalyFinding[]> {
   const client = getStoreClient();
   const now = client.now();
   const nowMs = Date.parse(now);
   const findings: AnomalyFinding[] = [];
 
+  const [
+    activeCampaigns,
+    suppliers,
+    activeProducts,
+    couriers,
+    recentRtoOrders,
+    inTransitPOs,
+    ordersLast14,
+    openTickets,
+    escalatedTickets,
+    cartsNone,
+    cartsPrepared,
+  ] = await Promise.all([
+    client.listCampaigns("active"),
+    client.listSuppliers(),
+    client.listProducts({ status: "active" }),
+    client.listCouriers(),
+    client.listOrders({ sinceDays: 30, status: "rto" }),
+    client.listPurchaseOrders("in_transit"),
+    client.listOrders({ sinceDays: 14 }),
+    client.listSupportTickets("open"),
+    client.listSupportTickets("escalated"),
+    client.listAbandonedCarts("none"),
+    client.listAbandonedCarts("message_prepared"),
+  ]);
+
   // ---- Ads ----------------------------------------------------------------
-  for (const campaign of client.listCampaigns("active")) {
+  for (const campaign of activeCampaigns) {
     if (campaign.dailyStats.length < 6) continue;
     const m = computeCampaignMetrics(campaign);
     const last3 = statsWindow(campaign.dailyStats, now, 0, 2);
@@ -459,8 +504,8 @@ export function detectAnomalies(): AnomalyFinding[] {
   }
 
   // ---- Inventory ----------------------------------------------------------
-  const suppliersById = new Map(client.listSuppliers().map((s) => [s.id, s]));
-  for (const product of client.listProducts({ status: "active" })) {
+  const suppliersById = new Map(suppliers.map((s) => [s.id, s]));
+  for (const product of activeProducts) {
     const recentWeeks = product.weeklyVelocity.slice(-4);
     const dailyVelocity =
       recentWeeks.length > 0 ? sum(recentWeeks) / recentWeeks.length / 7 : 0;
@@ -497,8 +542,6 @@ export function detectAnomalies(): AnomalyFinding[] {
   }
 
   // ---- Logistics ----------------------------------------------------------
-  const couriers = client.listCouriers();
-  const recentRtoOrders = client.listOrders({ sinceDays: 30, status: "rto" });
   for (const courier of couriers) {
     if (courier.onTimeRate < 0.85) {
       const best = couriers
@@ -527,8 +570,7 @@ export function detectAnomalies(): AnomalyFinding[] {
       });
     }
   }
-  const inTransitPOs = client.listPurchaseOrders("in_transit");
-  for (const supplier of client.listSuppliers()) {
+  for (const supplier of suppliers) {
     if (supplier.currentDelayDays > 0) {
       const affected = inTransitPOs.filter((po) => po.supplierId === supplier.id);
       findings.push({
@@ -543,7 +585,7 @@ export function detectAnomalies(): AnomalyFinding[] {
   }
 
   // ---- Sales --------------------------------------------------------------
-  const eligibleOrders = revenueEligible(client.listOrders({ sinceDays: 14 }));
+  const eligibleOrders = revenueEligible(ordersLast14);
   const salesLast7 = eligibleOrders.filter((o) => placedWithinDays(o, nowMs, 7));
   const salesPrior7 = eligibleOrders.filter((o) => !placedWithinDays(o, nowMs, 7));
   const revLast7 = orderTotal(salesLast7);
@@ -586,10 +628,9 @@ export function detectAnomalies(): AnomalyFinding[] {
 
   // ---- Support ------------------------------------------------------------
   const staleCutoffMs = nowMs - 12 * HOUR_MS;
-  const staleTickets = [
-    ...client.listSupportTickets("open"),
-    ...client.listSupportTickets("escalated"),
-  ].filter((t) => Date.parse(t.openedAt) < staleCutoffMs);
+  const staleTickets = [...openTickets, ...escalatedTickets].filter(
+    (t) => Date.parse(t.openedAt) < staleCutoffMs,
+  );
   if (staleTickets.length > 0) {
     const oldest = staleTickets.reduce((a, b) =>
       Date.parse(a.openedAt) <= Date.parse(b.openedAt) ? a : b,
@@ -606,10 +647,7 @@ export function detectAnomalies(): AnomalyFinding[] {
   }
 
   // ---- Carts --------------------------------------------------------------
-  const unrecoveredCarts = [
-    ...client.listAbandonedCarts("none"),
-    ...client.listAbandonedCarts("message_prepared"),
-  ];
+  const unrecoveredCarts = [...cartsNone, ...cartsPrepared];
   if (unrecoveredCarts.length > 0) {
     const cartValue = round2(sum(unrecoveredCarts.map((c) => c.value)));
     const expectedRecovery = round2(cartValue * CART_RECOVERY_RATE);
@@ -624,9 +662,9 @@ export function detectAnomalies(): AnomalyFinding[] {
   }
 
   // ---- Margin -------------------------------------------------------------
-  const thinMargin = client
-    .listProducts({ status: "active" })
-    .filter((p) => p.price > 0 && marginPctOf(p) < THIN_MARGIN_PCT);
+  const thinMargin = activeProducts.filter(
+    (p) => p.price > 0 && marginPctOf(p) < THIN_MARGIN_PCT,
+  );
   if (thinMargin.length > 0) {
     findings.push({
       id: "margin-thin-products",

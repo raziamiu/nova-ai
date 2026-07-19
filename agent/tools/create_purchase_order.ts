@@ -17,8 +17,12 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const productName = client.getProduct(payload.productId)?.name ?? payload.productId;
-    const supplierName = client.getSupplier(payload.supplierId)?.name ?? payload.supplierId;
+    const [product, supplier] = await Promise.all([
+      client.getProduct(payload.productId),
+      client.getSupplier(payload.supplierId),
+    ]);
+    const productName = product?.name ?? payload.productId;
+    const supplierName = supplier?.name ?? payload.supplierId;
     const title = `Order ${payload.quantity} × "${productName}" from ${supplierName}`;
     return performAction({
       type: "create_purchase_order",

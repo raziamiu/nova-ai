@@ -14,7 +14,7 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const campaigns = client.listCampaigns(input.status);
+    const campaigns = await client.listCampaigns(input.status);
     return {
       count: campaigns.length,
       campaigns: campaigns.slice(0, 50).map((c) => ({

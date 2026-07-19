@@ -29,7 +29,7 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const orders = client.listOrders({ sinceDays: input.sinceDays, status: input.status });
+    const orders = await client.listOrders({ sinceDays: input.sinceDays, status: input.status });
     const totalValue = round2(orders.reduce((s, o) => s + o.total, 0));
     return {
       count: orders.length,

@@ -12,7 +12,7 @@ export default defineTool({
       .describe("Only this namespace; omit for all memory."),
   }),
   async execute({ namespace }) {
-    const entries = getStoreClient().listMemory(namespace);
+    const entries = await getStoreClient().listMemory(namespace);
     return { count: entries.length, entries };
   },
 });

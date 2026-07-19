@@ -16,11 +16,13 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const entries = [...client.listActivity({ sinceDays: input.sinceDays })].sort(
-      (a, b) => Date.parse(b.at) - Date.parse(a.at),
-    );
+    const [entriesRaw, summary] = await Promise.all([
+      client.listActivity({ sinceDays: input.sinceDays }),
+      summarizeWork(input.sinceDays),
+    ]);
+    const entries = [...entriesRaw].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
     return {
-      summary: summarizeWork(input.sinceDays),
+      summary,
       recent: entries.slice(0, 30).map((e) => ({
         id: e.id,
         at: e.at,

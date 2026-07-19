@@ -32,16 +32,16 @@ export interface ExecutionResult {
   revenueInfluence: number;
 }
 
-type Executor = (client: StoreClient, payload: Record<string, unknown>) => ExecutionResult;
-type Undoer = (client: StoreClient, undoData: Record<string, unknown>) => string;
+type Executor = (client: StoreClient, payload: Record<string, unknown>) => Promise<ExecutionResult>;
+type Undoer = (client: StoreClient, undoData: Record<string, unknown>) => Promise<string>;
 
 export const executors: Record<ActionType, Executor> = {
-  update_campaign(client, raw) {
+  async update_campaign(client, raw) {
     const payload = updateCampaignPayload.parse(raw);
-    const before = client.getCampaign(payload.campaignId);
+    const before = await client.getCampaign(payload.campaignId);
     if (!before) throw new Error(`Campaign not found: ${payload.campaignId}`);
     const prior = { status: before.status, dailyBudget: before.dailyBudget };
-    const updated = client.updateCampaign(payload.campaignId, {
+    const updated = await client.updateCampaign(payload.campaignId, {
       ...(payload.status !== undefined ? { status: payload.status } : {}),
       ...(payload.dailyBudget !== undefined ? { dailyBudget: payload.dailyBudget } : {}),
       ...(payload.note !== undefined
@@ -63,9 +63,9 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  create_campaign(client, raw) {
+  async create_campaign(client, raw) {
     const payload = createCampaignPayload.parse(raw);
-    const campaign = client.createCampaign({
+    const campaign = await client.createCampaign({
       name: payload.name,
       channel: payload.channel,
       status: payload.startNow ? "active" : "scheduled",
@@ -82,10 +82,10 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  publish_social_post(client, raw) {
+  async publish_social_post(client, raw) {
     const payload = publishSocialPostPayload.parse(raw);
     const scheduled = payload.scheduledFor !== undefined;
-    const post = client.createSocialPost({
+    const post = await client.createSocialPost({
       platform: payload.platform,
       format: payload.format,
       caption: payload.caption,
@@ -104,12 +104,12 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  update_price(client, raw) {
+  async update_price(client, raw) {
     const payload = updatePricePayload.parse(raw);
-    const before = client.getProduct(payload.productId);
+    const before = await client.getProduct(payload.productId);
     if (!before) throw new Error(`Product not found: ${payload.productId}`);
     const prior = { price: before.price, compareAtPrice: before.compareAtPrice };
-    const updated = client.updateProduct(before.id, {
+    const updated = await client.updateProduct(before.id, {
       price: payload.newPrice,
       ...(payload.compareAtPrice !== undefined ? { compareAtPrice: payload.compareAtPrice } : {}),
     });
@@ -121,12 +121,12 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  create_discount(client, raw) {
+  async create_discount(client, raw) {
     const payload = createDiscountPayload.parse(raw);
     const expiresAt = new Date(
       Date.parse(client.now()) + payload.expiresInDays * 24 * 60 * 60 * 1000,
     ).toISOString();
-    const discount = client.createDiscount({
+    const discount = await client.createDiscount({
       code: payload.code.toUpperCase(),
       percentOff: payload.percentOff,
       scope: payload.scope,
@@ -143,11 +143,11 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  send_customer_message(client, raw) {
+  async send_customer_message(client, raw) {
     const payload = sendCustomerMessagePayload.parse(raw);
-    const customer = client.getCustomer(payload.customerId);
+    const customer = await client.getCustomer(payload.customerId);
     if (!customer) throw new Error(`Customer not found: ${payload.customerId}`);
-    client.addCustomerMessage({
+    await client.addCustomerMessage({
       customerId: payload.customerId,
       channel: payload.channel,
       purpose: payload.purpose,
@@ -157,11 +157,10 @@ export const executors: Record<ActionType, Executor> = {
     });
     let revenueInfluence = 0;
     if (payload.purpose === "cart_recovery" && payload.relatedId) {
-      const cart = client
-        .listAbandonedCarts()
-        .find((c) => c.id === payload.relatedId);
+      const carts = await client.listAbandonedCarts();
+      const cart = carts.find((c) => c.id === payload.relatedId);
       if (cart) {
-        client.updateCart(cart.id, {
+        await client.updateCart(cart.id, {
           recoveryState: "message_sent",
           recoveryMessage: payload.body,
         });
@@ -177,12 +176,12 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  resolve_ticket(client, raw) {
+  async resolve_ticket(client, raw) {
     const payload = resolveTicketPayload.parse(raw);
-    const ticket = client.getSupportTicket(payload.ticketId);
+    const ticket = await client.getSupportTicket(payload.ticketId);
     if (!ticket) throw new Error(`Ticket not found: ${payload.ticketId}`);
-    client.addTicketMessage(payload.ticketId, { from: "nova", text: payload.reply });
-    client.updateTicketStatus(payload.ticketId, payload.newStatus);
+    await client.addTicketMessage(payload.ticketId, { from: "nova", text: payload.reply });
+    await client.updateTicketStatus(payload.ticketId, payload.newStatus);
     return {
       outcome: `Replied to ticket "${ticket.subject}" and set it to ${payload.newStatus}.`,
       undoable: false,
@@ -191,11 +190,11 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  create_purchase_order(client, raw) {
+  async create_purchase_order(client, raw) {
     const payload = createPurchaseOrderPayload.parse(raw);
-    const supplier = client.getSupplier(payload.supplierId);
+    const supplier = await client.getSupplier(payload.supplierId);
     if (!supplier) throw new Error(`Supplier not found: ${payload.supplierId}`);
-    const product = client.getProduct(payload.productId);
+    const product = await client.getProduct(payload.productId);
     if (!product) throw new Error(`Product not found: ${payload.productId}`);
     const offer = supplier.offers.find((o) => o.productId === product.id);
     const unitCost = payload.unitCost ?? offer?.unitCost;
@@ -208,7 +207,7 @@ export const executors: Record<ActionType, Executor> = {
     const expectedAt = new Date(
       Date.parse(client.now()) + leadTimeDays * 24 * 60 * 60 * 1000,
     ).toISOString();
-    const po = client.createPurchaseOrder({
+    const po = await client.createPurchaseOrder({
       supplierId: supplier.id,
       productId: product.id,
       quantity: payload.quantity,
@@ -224,18 +223,18 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  switch_supplier(client, raw) {
+  async switch_supplier(client, raw) {
     const payload = switchSupplierPayload.parse(raw);
-    const product = client.getProduct(payload.productId);
+    const product = await client.getProduct(payload.productId);
     if (!product) throw new Error(`Product not found: ${payload.productId}`);
-    const supplier = client.getSupplier(payload.newSupplierId);
+    const supplier = await client.getSupplier(payload.newSupplierId);
     if (!supplier) throw new Error(`Supplier not found: ${payload.newSupplierId}`);
     const offer = supplier.offers.find((o) => o.productId === product.id);
     if (!offer) {
       throw new Error(`${supplier.name} has no offer for ${product.name}.`);
     }
     const prior = { supplierId: product.supplierId, cost: product.cost };
-    client.updateProduct(product.id, {
+    await client.updateProduct(product.id, {
       supplierId: supplier.id,
       cost: offer.unitCost,
     });
@@ -250,14 +249,14 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  assign_courier(client, raw) {
+  async assign_courier(client, raw) {
     const payload = assignCourierPayload.parse(raw);
-    const order = client.getOrder(payload.orderId);
+    const order = await client.getOrder(payload.orderId);
     if (!order) throw new Error(`Order not found: ${payload.orderId}`);
-    const courier = client.getCourier(payload.courierId);
+    const courier = await client.getCourier(payload.courierId);
     if (!courier) throw new Error(`Courier not found: ${payload.courierId}`);
     const prior = { courierId: order.courierId };
-    client.updateOrder({ id: order.id, courierId: courier.id });
+    await client.updateOrder({ id: order.id, courierId: courier.id });
     return {
       outcome: `Assigned ${courier.name} to order ${order.id} (${order.region}).`,
       undoable: true,
@@ -266,16 +265,15 @@ export const executors: Record<ActionType, Executor> = {
     };
   },
 
-  import_product(client, raw) {
+  async import_product(client, raw) {
     const payload = importProductPayload.parse(raw);
-    const trending = client
-      .listTrendingProducts()
-      .find((t) => t.id === payload.trendingProductId);
+    const trendingProducts = await client.listTrendingProducts();
+    const trending = trendingProducts.find((t) => t.id === payload.trendingProductId);
     if (!trending) {
       throw new Error(`Trending product not found: ${payload.trendingProductId}`);
     }
     const price = payload.price ?? trending.suggestedPrice;
-    const product = client.createProduct({
+    const product = await client.createProduct({
       sku: `AUR-${trending.id.toUpperCase()}`,
       name: trending.name,
       category: trending.category,
@@ -302,59 +300,59 @@ export const executors: Record<ActionType, Executor> = {
 };
 
 export const undoers: Partial<Record<ActionType, Undoer>> = {
-  update_campaign(client, undoData) {
-    const campaign = client.updateCampaign(String(undoData.campaignId), {
+  async update_campaign(client, undoData) {
+    const campaign = await client.updateCampaign(String(undoData.campaignId), {
       status: undoData.status as "active" | "paused",
       dailyBudget: Number(undoData.dailyBudget),
     });
     return `Restored campaign "${campaign.name}" to ${campaign.status} at $${campaign.dailyBudget}/day.`;
   },
-  create_campaign(client, undoData) {
-    const campaign = client.updateCampaign(String(undoData.campaignId), { status: "paused" });
+  async create_campaign(client, undoData) {
+    const campaign = await client.updateCampaign(String(undoData.campaignId), { status: "paused" });
     return `Paused campaign "${campaign.name}" (created by Nova, now rolled back).`;
   },
-  publish_social_post(client, undoData) {
-    client.updateSocialPost(String(undoData.postId), {
+  async publish_social_post(client, undoData) {
+    await client.updateSocialPost(String(undoData.postId), {
       status: "draft",
       scheduledFor: null,
       publishedAt: null,
     });
     return "Reverted the post to draft.";
   },
-  update_price(client, undoData) {
-    const product = client.updateProduct(String(undoData.productId), {
+  async update_price(client, undoData) {
+    const product = await client.updateProduct(String(undoData.productId), {
       price: Number(undoData.price),
       compareAtPrice: undoData.compareAtPrice === null ? null : Number(undoData.compareAtPrice),
     });
     return `Restored "${product.name}" to $${product.price}.`;
   },
-  create_discount(client, undoData) {
-    const discount = client.updateDiscount(String(undoData.discountId), { active: false });
+  async create_discount(client, undoData) {
+    const discount = await client.updateDiscount(String(undoData.discountId), { active: false });
     return `Deactivated discount ${discount.code}.`;
   },
-  create_purchase_order(client, undoData) {
-    const po = client.updatePurchaseOrder(String(undoData.purchaseOrderId), {
+  async create_purchase_order(client, undoData) {
+    const po = await client.updatePurchaseOrder(String(undoData.purchaseOrderId), {
       status: "cancelled",
     });
     return `Cancelled purchase order ${po.id}.`;
   },
-  switch_supplier(client, undoData) {
-    const product = client.updateProduct(String(undoData.productId), {
+  async switch_supplier(client, undoData) {
+    const product = await client.updateProduct(String(undoData.productId), {
       supplierId: String(undoData.supplierId),
       cost: Number(undoData.cost),
     });
     return `Restored "${product.name}" to its previous supplier.`;
   },
-  assign_courier(client, undoData) {
+  async assign_courier(client, undoData) {
     const courierId = undoData.courierId;
-    client.updateOrder({
+    await client.updateOrder({
       id: String(undoData.orderId),
       courierId: courierId === null ? undefined : String(courierId),
     });
     return `Restored the previous courier assignment on order ${String(undoData.orderId)}.`;
   },
-  import_product(client, undoData) {
-    client.updateProduct(String(undoData.productId), { status: "archived" });
+  async import_product(client, undoData) {
+    await client.updateProduct(String(undoData.productId), { status: "archived" });
     return "Archived the imported product.";
   },
 };

@@ -17,7 +17,8 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const courierName = client.getCourier(payload.courierId)?.name ?? payload.courierId;
+    const courier = await client.getCourier(payload.courierId);
+    const courierName = courier?.name ?? payload.courierId;
     const title = `Assign ${courierName} to order ${payload.orderId}`;
     return performAction({
       type: "assign_courier",

@@ -8,7 +8,7 @@ export default defineTool({
   inputSchema: z.object({}),
   async execute() {
     const client = getStoreClient();
-    const trending = [...client.listTrendingProducts()].sort(
+    const trending = [...(await client.listTrendingProducts())].sort(
       (a, b) => b.demandScore - a.demandScore,
     );
     return {

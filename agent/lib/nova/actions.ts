@@ -36,13 +36,13 @@ export interface PerformResult {
 }
 
 /** Gate, then execute / queue / block. Used by every action tool. */
-export function performAction(request: ActionRequest): PerformResult {
+export async function performAction(request: ActionRequest): Promise<PerformResult> {
   const client = getStoreClient();
-  const config = client.getAutonomy();
-  const decision = gateAction(client, config, request.type, request.payload);
+  const config = await client.getAutonomy();
+  const decision = await gateAction(client, config, request.type, request.payload);
 
   if (decision.verdict === "block") {
-    const record = client.addAction({
+    const record = await client.addAction({
       type: request.type,
       department: request.department,
       title: request.title,
@@ -65,7 +65,7 @@ export function performAction(request: ActionRequest): PerformResult {
   }
 
   if (decision.verdict === "prepare") {
-    const record = client.addAction({
+    const record = await client.addAction({
       type: request.type,
       department: request.department,
       title: request.title,
@@ -90,13 +90,13 @@ export function performAction(request: ActionRequest): PerformResult {
   return executeNow(request, decision.riskClass);
 }
 
-function executeNow(
+async function executeNow(
   request: ActionRequest,
   riskClass: ActionRecord["riskClass"],
-): PerformResult {
+): Promise<PerformResult> {
   const client = getStoreClient();
-  const execution = executors[request.type](client, request.payload);
-  const record = client.addAction({
+  const execution = await executors[request.type](client, request.payload);
+  const record = await client.addAction({
     type: request.type,
     department: request.department,
     title: request.title,
@@ -110,7 +110,7 @@ function executeNow(
     decidedAt: client.now(),
     executedAt: client.now(),
   });
-  recordActivity({
+  await recordActivity({
     department: request.department,
     kind: "action",
     title: request.title,
@@ -133,22 +133,22 @@ export interface DecisionResult {
 }
 
 /** Owner approves a prepared action → it executes now. */
-export function approveAction(actionId: string): DecisionResult {
+export async function approveAction(actionId: string): Promise<DecisionResult> {
   const client = getStoreClient();
-  const record = client.getAction(actionId);
+  const record = await client.getAction(actionId);
   if (!record) throw new Error(`Action not found: ${actionId}`);
   if (record.status !== "prepared") {
     throw new Error(`Action ${actionId} is ${record.status}, not awaiting approval.`);
   }
-  const execution = executors[record.type](client, record.payload);
-  client.updateAction(actionId, {
+  const execution = await executors[record.type](client, record.payload);
+  await client.updateAction(actionId, {
     status: "executed",
     outcome: execution.outcome,
     undoData: execution.undoData,
     decidedAt: client.now(),
     executedAt: client.now(),
   });
-  recordActivity({
+  await recordActivity({
     department: record.department,
     kind: "action",
     title: record.title,
@@ -160,14 +160,14 @@ export function approveAction(actionId: string): DecisionResult {
   return { actionId, detail: execution.outcome };
 }
 
-export function rejectAction(actionId: string, reason?: string): DecisionResult {
+export async function rejectAction(actionId: string, reason?: string): Promise<DecisionResult> {
   const client = getStoreClient();
-  const record = client.getAction(actionId);
+  const record = await client.getAction(actionId);
   if (!record) throw new Error(`Action not found: ${actionId}`);
   if (record.status !== "prepared") {
     throw new Error(`Action ${actionId} is ${record.status}, not awaiting approval.`);
   }
-  client.updateAction(actionId, {
+  await client.updateAction(actionId, {
     status: "rejected",
     outcome: reason ? `Rejected by owner: ${reason}` : "Rejected by owner.",
     decidedAt: client.now(),
@@ -179,9 +179,9 @@ export function rejectAction(actionId: string, reason?: string): DecisionResult 
 }
 
 /** Roll back an executed action using the executor's undo snapshot. */
-export function undoAction(actionId: string): DecisionResult {
+export async function undoAction(actionId: string): Promise<DecisionResult> {
   const client = getStoreClient();
-  const record = client.getAction(actionId);
+  const record = await client.getAction(actionId);
   if (!record) throw new Error(`Action not found: ${actionId}`);
   if (record.status !== "executed") {
     throw new Error(`Action ${actionId} is ${record.status}; only executed actions can be undone.`);
@@ -195,12 +195,12 @@ export function undoAction(actionId: string): DecisionResult {
   if (!undoer) {
     throw new Error(`No undo procedure exists for ${record.type}.`);
   }
-  const outcome = undoer(client, record.undoData);
-  client.updateAction(actionId, {
+  const outcome = await undoer(client, record.undoData);
+  await client.updateAction(actionId, {
     status: "undone",
     outcome: `${record.outcome ?? ""} — UNDONE: ${outcome}`.trim(),
   });
-  recordActivity({
+  await recordActivity({
     department: record.department,
     kind: "action",
     title: `Undo: ${record.title}`,

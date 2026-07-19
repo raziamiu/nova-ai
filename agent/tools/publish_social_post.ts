@@ -18,7 +18,7 @@ export default defineTool({
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
     const featured = payload.productIds[0]
-      ? client.getProduct(payload.productIds[0])?.name
+      ? (await client.getProduct(payload.productIds[0]))?.name
       : undefined;
     const title = `${payload.scheduledFor ? "Schedule" : "Publish"} ${payload.platform} ${payload.format}${featured ? ` featuring "${featured}"` : ""}`;
     return performAction({

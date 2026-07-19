@@ -13,7 +13,7 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const customers = client.listCustomers({ segment: input.segment });
+    const customers = await client.listCustomers({ segment: input.segment });
     return {
       count: customers.length,
       customers: customers.slice(0, 50).map((c) => ({

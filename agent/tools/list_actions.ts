@@ -13,7 +13,7 @@ export default defineTool({
   }),
   async execute({ status }) {
     try {
-      const all = getStoreClient().listActions(status);
+      const all = await getStoreClient().listActions(status);
       const sorted = [...all].sort(
         (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
       );

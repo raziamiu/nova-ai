@@ -59,12 +59,12 @@ type GuardrailCheck =
  * approval — the owner must change the guardrail itself. "needs_approval"
  * means the action is legitimate but exceeds what Nova may do alone.
  */
-function checkGuardrails(
+async function checkGuardrails(
   client: StoreClient,
   guardrails: Guardrails,
   type: ActionType,
   payload: Record<string, unknown>,
-): GuardrailCheck {
+): Promise<GuardrailCheck> {
   switch (type) {
     case "create_discount": {
       const percentOff = Number(payload.percentOff ?? 0);
@@ -79,7 +79,7 @@ function checkGuardrails(
     case "update_price": {
       const productId = String(payload.productId ?? "");
       const newPrice = Number(payload.newPrice ?? 0);
-      const product = client.getProduct(productId);
+      const product = await client.getProduct(productId);
       if (!product) {
         return { result: "block", why: `Unknown product: ${productId}` };
       }
@@ -102,7 +102,7 @@ function checkGuardrails(
     case "update_campaign": {
       const budget = payload.dailyBudget;
       if (budget === undefined || budget === null) return { result: "allow" };
-      const campaign = client.getCampaign(String(payload.campaignId ?? ""));
+      const campaign = await client.getCampaign(String(payload.campaignId ?? ""));
       if (!campaign) {
         return { result: "block", why: `Unknown campaign: ${String(payload.campaignId)}` };
       }
@@ -136,14 +136,14 @@ function checkGuardrails(
 }
 
 /** Decide what happens to an action under the current autonomy config. */
-export function gateAction(
+export async function gateAction(
   client: StoreClient,
   config: AutonomyConfig,
   type: ActionType,
   payload: Record<string, unknown>,
-): GateDecision {
+): Promise<GateDecision> {
   const riskClass = RISK_CLASS[type];
-  const guardrail = checkGuardrails(client, config.guardrails, type, payload);
+  const guardrail = await checkGuardrails(client, config.guardrails, type, payload);
 
   if (guardrail.result === "block") {
     return { verdict: "block", riskClass, explanation: guardrail.why };

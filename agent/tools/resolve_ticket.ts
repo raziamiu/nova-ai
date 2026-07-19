@@ -17,7 +17,8 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const subject = client.getSupportTicket(payload.ticketId)?.subject ?? payload.ticketId;
+    const ticket = await client.getSupportTicket(payload.ticketId);
+    const subject = ticket?.subject ?? payload.ticketId;
     const title =
       payload.newStatus === "resolved"
         ? `Resolve ticket "${subject}"`

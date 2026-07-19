@@ -20,7 +20,7 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const reports = client.listReports({ kind: input.kind, limit: input.limit });
+    const reports = await client.listReports({ kind: input.kind, limit: input.limit });
     return { count: reports.length, reports };
   },
 });

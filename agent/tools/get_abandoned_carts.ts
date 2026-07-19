@@ -14,13 +14,15 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const carts = client.listAbandonedCarts(input.state);
+    const carts = await client.listAbandonedCarts(input.state);
     const totalValue = round2(carts.reduce((s, c) => s + c.value, 0));
+    const shown = carts.slice(0, 50);
+    const customers = await Promise.all(shown.map((cart) => client.getCustomer(cart.customerId)));
     return {
       count: carts.length,
       totalValue,
-      carts: carts.slice(0, 50).map((cart) => {
-        const customer = client.getCustomer(cart.customerId);
+      carts: shown.map((cart, i) => {
+        const customer = customers[i];
         return {
           id: cart.id,
           customerId: cart.customerId,

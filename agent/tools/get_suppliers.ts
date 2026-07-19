@@ -8,7 +8,11 @@ export default defineTool({
   inputSchema: z.object({}),
   async execute() {
     const client = getStoreClient();
-    const suppliers = client.listSuppliers();
+    const [suppliers, products] = await Promise.all([
+      client.listSuppliers(),
+      client.listProducts(),
+    ]);
+    const productNameById = new Map(products.map((p) => [p.id, p.name]));
     return {
       count: suppliers.length,
       suppliers: suppliers.slice(0, 50).map((s) => ({
@@ -21,7 +25,7 @@ export default defineTool({
         notes: s.notes,
         offers: s.offers.map((o) => ({
           productId: o.productId,
-          productName: client.getProduct(o.productId)?.name ?? null,
+          productName: productNameById.get(o.productId) ?? null,
           unitCost: o.unitCost,
           leadTimeDays: o.leadTimeDays,
         })),

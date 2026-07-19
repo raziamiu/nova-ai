@@ -13,15 +13,21 @@ export default defineTool({
   }),
   async execute(input) {
     const client = getStoreClient();
-    const purchaseOrders = client.listPurchaseOrders(input.status);
+    const [purchaseOrders, products, suppliers] = await Promise.all([
+      client.listPurchaseOrders(input.status),
+      client.listProducts(),
+      client.listSuppliers(),
+    ]);
+    const productNameById = new Map(products.map((p) => [p.id, p.name]));
+    const supplierNameById = new Map(suppliers.map((s) => [s.id, s.name]));
     return {
       count: purchaseOrders.length,
       purchaseOrders: purchaseOrders.slice(0, 50).map((po) => ({
         id: po.id,
         productId: po.productId,
-        productName: client.getProduct(po.productId)?.name ?? null,
+        productName: productNameById.get(po.productId) ?? null,
         supplierId: po.supplierId,
-        supplierName: client.getSupplier(po.supplierId)?.name ?? null,
+        supplierName: supplierNameById.get(po.supplierId) ?? null,
         quantity: po.quantity,
         unitCost: po.unitCost,
         total: po.total,

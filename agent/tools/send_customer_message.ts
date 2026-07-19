@@ -17,7 +17,7 @@ export default defineTool({
   }),
   async execute({ justification, department, ...payload }) {
     const client = getStoreClient();
-    const customer = client.getCustomer(payload.customerId);
+    const customer = await client.getCustomer(payload.customerId);
     const purposeLabel = payload.purpose.split("_").join(" ");
     const title = `Send ${purposeLabel} ${payload.channel} to ${customer?.name ?? payload.customerId}`;
     return performAction({
