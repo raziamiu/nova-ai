@@ -44,16 +44,16 @@ function attr(auth: SessionAuthContext | null | undefined, key: string): string 
 }
 
 /**
- * Dev/scheduler fallback store. Real Dakio callers always carry `storeId` on
- * their JWT, so this only fires for non-Dakio principals (local dev, the eve
- * TUI, scheduled runs) — never for an authenticated production user, who
- * fails closed instead. Configure with `NOVA_DEV_STORE_ID`; defaults to the
- * primary demo tenant.
+ * Dev/scheduler fallback store. Fails closed by default: it returns a store
+ * ONLY when `NOVA_DEV_STORE_ID` is explicitly set, and never for a Dakio
+ * principal (who must carry `storeId` on the JWT). So a loopback/local-dev or
+ * scheduled principal resolves to a tenant only in an environment that opted
+ * in — a production deployment that never sets the var can't silently grant a
+ * live tenant to an unauthenticated caller.
  */
 function devFallbackStoreId(auth: SessionAuthContext | null): string | undefined {
-  const isDakioUser = auth?.authenticator === "dakio";
-  if (isDakioUser) return undefined; // production user without a store → fail closed
-  return process.env.NOVA_DEV_STORE_ID ?? "store-aurora";
+  if (auth?.authenticator === "dakio") return undefined; // production user without a store → fail closed
+  return process.env.NOVA_DEV_STORE_ID ?? undefined; // opt-in only
 }
 
 /**
@@ -85,6 +85,8 @@ export function requireStore(ctx: TenantContext): StoreScope {
   return {
     storeId,
     userId: auth?.principalId ?? "unknown",
-    role: attr(auth, "role") ?? "owner",
+    // Least privilege: a token without a role claim is NOT an owner. Trust-plane
+    // tools (approve/reject/undo/configure) require an explicit owner/admin role.
+    role: attr(auth, "role") ?? "staff",
   };
 }

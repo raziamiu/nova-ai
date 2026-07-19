@@ -18,7 +18,7 @@
 
 import { defineHook } from "eve/hooks";
 import { resolveStoreId } from "../lib/tenant";
-import { getTenant } from "../lib/tenants";
+import { getTenant, isTenantActive } from "../lib/tenants";
 
 function storeIdOf(auth: { attributes?: Record<string, unknown> } | null | undefined): string | undefined {
   const value = auth?.attributes?.storeId;
@@ -38,15 +38,16 @@ export default defineHook({
         );
       }
 
-      // 2. Kill switch: a known, paused tenant is refused before model spend.
+      // 2. Kill switch: serve only a provisioned, active tenant. A paused OR
+      //    unknown store is refused before any model spend (fail closed).
       const storeId = resolveStoreId(ctx);
-      if (storeId) {
+      if (storeId && !isTenantActive(storeId)) {
         const tenant = getTenant(storeId);
-        if (tenant && tenant.status === "paused") {
-          throw new Error(
-            `Nova is paused for ${tenant.name}. Re-enable it from the dashboard to resume operations.`,
-          );
-        }
+        throw new Error(
+          tenant
+            ? `Nova is paused for ${tenant.name}. Re-enable it from the dashboard to resume operations.`
+            : `Store ${storeId} is not provisioned for Nova.`,
+        );
       }
     },
   },

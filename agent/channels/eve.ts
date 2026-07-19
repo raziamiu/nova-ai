@@ -51,7 +51,8 @@ function dakioJwt(): AuthFn<Request> {
       subject: claims.sub,
       attributes: {
         storeId: claims.storeId,
-        role: typeof claims.role === "string" ? claims.role : "owner",
+        // Least privilege: no explicit role claim ⇒ non-owner (trust-plane denied).
+        role: typeof claims.role === "string" ? claims.role : "staff",
         plan: typeof claims.plan === "string" ? claims.plan : "starter",
       },
     };

@@ -119,7 +119,9 @@ export function verifyDakioJwt(
 
   const now = config.nowSec ?? Math.floor(Date.now() / 1000);
   const skew = config.clockToleranceSec ?? 60;
-  if (typeof claims.exp === "number" && now > claims.exp + skew) return null;
+  // Require an expiry: a token with no `exp` would never die. Fail closed.
+  if (typeof claims.exp !== "number") return null;
+  if (now > claims.exp + skew) return null;
   if (typeof claims.nbf === "number" && now + skew < claims.nbf) return null;
 
   if (config.issuer && claims.iss !== config.issuer) return null;

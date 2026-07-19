@@ -32,6 +32,7 @@ import createCampaign from "../../agent/tools/create_campaign";
 import updateCampaign from "../../agent/tools/update_campaign";
 import remember from "../../agent/tools/remember";
 import recall from "../../agent/tools/recall";
+import approveAction from "../../agent/tools/approve_action";
 
 import tenantGuard from "../../agent/hooks/tenant-guard";
 import { requireStore, resolveStoreId } from "../../agent/lib/tenant";
@@ -220,6 +221,34 @@ async function main(): Promise<void> {
   }
   check("cross-store session hijack (current≠initiator) is refused", mismatchThrew);
 
+  // 4c. Unknown/unprovisioned store is refused (kill switch fails closed).
+  let unknownThrew = false;
+  try {
+    await guardTurn?.(evt, ctxFor("store-ghost") as never);
+  } catch {
+    unknownThrew = true;
+  }
+  check("unknown/unprovisioned store is refused", unknownThrew);
+
+  // 4d. Least privilege: a token with no role claim cannot use the trust plane.
+  const noRoleCtx = {
+    session: {
+      id: "ses-norole",
+      auth: {
+        current: {
+          authenticator: "dakio",
+          principalId: "staffer",
+          principalType: "user",
+          attributes: { storeId: AURORA, plan: "growth" },
+        },
+        initiator: null,
+      },
+    },
+  } as unknown as Ctx;
+  check("missing role defaults to least-privilege (not owner)", requireStore(noRoleCtx).role === "staff");
+  const approveAsStaff = await approveAction.execute({ actionId: "action-8001" }, noRoleCtx);
+  check("no-role caller is denied approve_action", "error" in approveAsStaff);
+
   // 5. Memory isolation — a memory A writes is invisible to B.
   console.log("\n[5] Memory isolation");
   await remember.execute(
@@ -266,6 +295,10 @@ async function main(): Promise<void> {
   check(
     "expired token is rejected",
     verifyDakioJwt(sign({ ...goodClaims, exp: 999_000 }), cfg) === null,
+  );
+  check(
+    "token without exp is rejected (no non-expiring tokens)",
+    verifyDakioJwt(sign({ ...goodClaims, exp: undefined }), cfg) === null,
   );
   check(
     "wrong signing key is rejected",
