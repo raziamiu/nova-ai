@@ -37,6 +37,7 @@ import approveAction from "../../agent/tools/approve_action";
 import tenantGuard from "../../agent/hooks/tenant-guard";
 import { requireStore, resolveStoreId } from "../../agent/lib/tenant";
 import { storeFor, resetStores } from "../../agent/lib/store/resolve";
+import { retrieveRelevant } from "../../agent/lib/memory/service";
 import { setTenantStatus } from "../../agent/lib/tenants";
 import { verifyDakioJwt } from "../../agent/lib/auth/dakio-jwt";
 import {
@@ -264,6 +265,16 @@ async function main(): Promise<void> {
   check(
     "B's memory contains no Aurora keys",
     !bKeys.includes("amelia-chen") && bKeys.includes("summit-facilities"),
+  );
+
+  // 5b. Vector-recall isolation — A's embeddings never enter B's ranking
+  // (Phase 04: semantic retrieval must respect the same tenant boundary).
+  const aVec = await retrieveRelevant(AURORA, "Aurora-only secret insight");
+  const bVec = await retrieveRelevant(BEACON, "Aurora-only secret insight");
+  check("A's vector recall can surface A's own memory", aVec.some((r) => r.entry.key === "iso-secret-a"));
+  check(
+    "B's vector recall never returns A's memory (no cross-tenant vectors)",
+    bVec.every((r) => r.entry.key !== "iso-secret-a"),
   );
 
   // 6. JWT verification unit tests.

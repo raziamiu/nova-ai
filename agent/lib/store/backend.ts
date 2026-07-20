@@ -28,6 +28,9 @@ import type {
   ExpenseEntry,
   MemoryEntry,
   MemoryNamespace,
+  MemoryUpsert,
+  NovaExperiment,
+  NovaPlaybook,
   NovaReport,
   Order,
   OrderStatus,
@@ -374,16 +377,33 @@ export class DemoStore implements StoreClient {
     return this.data.memory.filter((m) => namespace === undefined || m.namespace === namespace);
   }
 
-  async upsertMemory(entry: Omit<MemoryEntry, "updatedAt">): Promise<MemoryEntry> {
+  async upsertMemory(entry: MemoryUpsert): Promise<MemoryEntry> {
     const existing = this.data.memory.find(
       (m) => m.namespace === entry.namespace && m.key === entry.key,
     );
     if (existing) {
       existing.value = entry.value;
       existing.updatedAt = this.now();
+      if (entry.source !== undefined) existing.source = entry.source;
+      if (entry.provenance !== undefined) existing.provenance = entry.provenance;
+      if (entry.weight !== undefined) existing.weight = entry.weight;
+      if (entry.expiresAt !== undefined) existing.expiresAt = entry.expiresAt;
+      // A changed value invalidates the old embedding; re-embed on next pass
+      // unless the caller supplied one alongside the new value.
+      existing.embedding = entry.embedding ?? null;
       return existing;
     }
-    const created: MemoryEntry = { ...entry, updatedAt: this.now() };
+    const created: MemoryEntry = {
+      namespace: entry.namespace,
+      key: entry.key,
+      value: entry.value,
+      updatedAt: this.now(),
+      source: entry.source ?? "owner",
+      provenance: entry.provenance ?? null,
+      weight: entry.weight ?? 1.0,
+      expiresAt: entry.expiresAt ?? null,
+      embedding: entry.embedding ?? null,
+    };
     this.data.memory.push(created);
     return created;
   }
@@ -393,7 +413,19 @@ export class DemoStore implements StoreClient {
       (m) => m.namespace === namespace && m.key === key,
     );
     if (index === -1) return false;
+    // Hard delete — the row and its embedding go together (compliance).
     this.data.memory.splice(index, 1);
+    return true;
+  }
+
+  async setMemoryEmbedding(
+    namespace: MemoryNamespace,
+    key: string,
+    embedding: number[],
+  ): Promise<boolean> {
+    const entry = this.data.memory.find((m) => m.namespace === namespace && m.key === key);
+    if (!entry) return false;
+    entry.embedding = embedding;
     return true;
   }
 
@@ -413,6 +445,104 @@ export class DemoStore implements StoreClient {
     const created: ActivityEntry = { ...entry, id: this.nextId("act"), at: this.now() };
     this.data.activity.push(created);
     return created;
+  }
+
+  async updateActivity(
+    id: string,
+    patch: Partial<Pick<ActivityEntry, "revenueInfluence" | "revenueBasis" | "revenueProvenance">>,
+  ): Promise<ActivityEntry> {
+    const activity = this.mustFind(
+      this.data.activity.find((a) => a.id === id),
+      "Activity",
+      id,
+    );
+    Object.assign(activity, patch);
+    return activity;
+  }
+
+  // ---- Procedural memory: playbooks ----
+
+  private get playbooks(): NovaPlaybook[] {
+    if (!this.data.playbooks) this.data.playbooks = [];
+    return this.data.playbooks;
+  }
+
+  async listPlaybooks(status?: NovaPlaybook["status"]): Promise<NovaPlaybook[]> {
+    return this.playbooks.filter((p) => status === undefined || p.status === status);
+  }
+
+  async upsertPlaybook(
+    playbook: Omit<NovaPlaybook, "id" | "createdAt"> & { id?: string },
+  ): Promise<NovaPlaybook> {
+    const existing = this.playbooks.find(
+      (p) => (playbook.id !== undefined && p.id === playbook.id) || p.name === playbook.name,
+    );
+    if (existing) {
+      existing.description = playbook.description;
+      existing.markdown = playbook.markdown;
+      existing.status = playbook.status;
+      existing.createdFrom = playbook.createdFrom;
+      return existing;
+    }
+    const created: NovaPlaybook = {
+      id: playbook.id ?? this.nextId("play"),
+      name: playbook.name,
+      description: playbook.description,
+      markdown: playbook.markdown,
+      status: playbook.status,
+      createdFrom: playbook.createdFrom,
+      createdAt: this.now(),
+    };
+    this.playbooks.push(created);
+    return created;
+  }
+
+  async updatePlaybookStatus(id: string, status: NovaPlaybook["status"]): Promise<NovaPlaybook> {
+    const playbook = this.mustFind(
+      this.playbooks.find((p) => p.id === id),
+      "Playbook",
+      id,
+    );
+    playbook.status = status;
+    return playbook;
+  }
+
+  // ---- Experiments ----
+
+  private get experiments(): NovaExperiment[] {
+    if (!this.data.experiments) this.data.experiments = [];
+    return this.data.experiments;
+  }
+
+  async listExperiments(status?: NovaExperiment["status"]): Promise<NovaExperiment[]> {
+    return this.experiments.filter((e) => status === undefined || e.status === status);
+  }
+
+  async getExperiment(id: string): Promise<NovaExperiment | null> {
+    return this.experiments.find((e) => e.id === id) ?? null;
+  }
+
+  async createExperiment(experiment: Omit<NovaExperiment, "id" | "startedAt">): Promise<NovaExperiment> {
+    const created: NovaExperiment = {
+      ...experiment,
+      id: this.nextId("exp"),
+      startedAt: this.now(),
+    };
+    this.experiments.push(created);
+    return created;
+  }
+
+  async updateExperiment(
+    id: string,
+    patch: Partial<Pick<NovaExperiment, "actual" | "status" | "evaluatedAt" | "actionIds">>,
+  ): Promise<NovaExperiment> {
+    const experiment = this.mustFind(
+      this.experiments.find((e) => e.id === id),
+      "Experiment",
+      id,
+    );
+    Object.assign(experiment, patch);
+    return experiment;
   }
 
   async listActions(status?: ActionStatus): Promise<ActionRecord[]> {

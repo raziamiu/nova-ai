@@ -21,6 +21,8 @@ import type { MemoryEntry, MemoryNamespace } from "../types";
 import { storeFor } from "../store/resolve";
 import { getTenant } from "../tenants";
 import { detectAnomalies } from "../nova/analytics";
+import { retrieveRelevant } from "../memory/service";
+import { isExpired } from "../memory/vector";
 
 /** Rough token estimate: ~4 characters per token. */
 function estimateTokens(text: string): number {
@@ -113,28 +115,38 @@ export async function buildLiveOps(storeId: string): Promise<string> {
   return clampToTokens(lines.join("\n"), LAYER_BUDGET.liveOps);
 }
 
-/** L3 — relevant memory. Keyed recall today; vector recall in Phase 04. */
+/**
+ * L3 — relevant memory (Phase 04: vector recall).
+ *
+ * Two tiers, per the retrieval policy (master §3): standing rules and
+ * preferences are ALWAYS in view (a policy that only surfaces when the query
+ * happens to mention it is not a policy); on top of that, `retrieveRelevant`
+ * adds the top-K semantic matches for this turn's hint (cosine + recency +
+ * weight, K≤8, threshold 0.35). Both tiers are tenant-scoped through the same
+ * `storeId`; expired (TTL'd) entries never render. Clamped to the budget.
+ */
 export async function buildRelevantMemory(storeId: string, hint?: string): Promise<string> {
   const client = storeFor(storeId);
+  const nowMs = Date.parse(client.now());
   const memory = await client.listMemory();
 
-  // Working memory relevant to operating decisions (goals/brand live in L1).
-  const operative: MemoryNamespace[] = ["preferences", "rules", "insights", "experiments", "customers"];
-  let relevant = memory.filter((m) => operative.includes(m.namespace));
+  // Tier 1 — standing rules & preferences are always in view (operating policy).
+  const alwaysNamespaces: MemoryNamespace[] = ["rules", "preferences"];
+  const always = memory.filter(
+    (m) => alwaysNamespaces.includes(m.namespace) && !isExpired(m, nowMs),
+  );
 
-  const needle = hint?.trim().toLowerCase();
-  if (needle) {
-    const matched = relevant.filter(
-      (m) => m.key.toLowerCase().includes(needle) || m.value.toLowerCase().includes(needle),
-    );
-    // Prefer hint matches, but keep standing rules/preferences always in view.
-    const always = relevant.filter((m) => m.namespace === "rules" || m.namespace === "preferences");
-    const merged = new Map<string, MemoryEntry>();
-    for (const m of [...matched, ...always]) merged.set(`${m.namespace}:${m.key}`, m);
-    relevant = [...merged.values()];
-  }
+  // Tier 2 — top-K semantic matches for this turn's task.
+  const scored = hint && hint.trim().length > 0 ? await retrieveRelevant(storeId, hint) : [];
 
-  relevant = relevant.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  // Merge: always-in-view first, then vector hits, deduped by (namespace,key).
+  const merged = new Map<string, MemoryEntry>();
+  for (const m of always) merged.set(`${m.namespace}:${m.key}`, m);
+  for (const s of scored) merged.set(`${s.entry.namespace}:${s.entry.key}`, s.entry);
+
+  const relevant = [...merged.values()].sort(
+    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+  );
 
   const body =
     relevant.length > 0

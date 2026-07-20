@@ -1,7 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
-import { storeFor } from "../lib/store/resolve";
+import { listNamespace } from "../lib/memory/service";
 
 export default defineTool({
   description:
@@ -13,7 +13,9 @@ export default defineTool({
       .describe("Only this namespace; omit for all memory."),
   }),
   async execute({ namespace }, ctx) {
-    const entries = await storeFor(requireStore(ctx).storeId).listMemory(namespace);
-    return { count: entries.length, entries };
+    const entries = await listNamespace(requireStore(ctx).storeId, namespace);
+    // Strip embedding vectors — they are a retrieval index, not readable content.
+    const clean = entries.map(({ embedding: _embedding, ...rest }) => rest);
+    return { count: clean.length, entries: clean };
   },
 });

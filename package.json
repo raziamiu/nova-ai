@@ -10,7 +10,10 @@
     "build": "eve build",
     "dev": "eve dev",
     "start": "eve start",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "test:isolation": "npx --yes tsx evals/isolation/run.ts",
+    "test:memory": "npx --yes tsx evals/memory/run.ts",
+    "test": "npm run typecheck && npm run test:isolation && npm run test:memory"
   },
   "dependencies": {
     "@vercel/connect": "0.4.0",

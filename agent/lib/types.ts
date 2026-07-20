@@ -382,6 +382,19 @@ export interface ActivityEntry {
   /** Revenue this activity influenced, when measurable. */
   revenueInfluence: number;
   actionId: string | null;
+  /**
+   * Business entity this activity relates to (cart id, ticket id, order id …).
+   * Lets the nightly attribution pass join, e.g., a cart-recovery message to
+   * the order it recovered and replace the heuristic influence with actuals.
+   */
+  relatedId?: string | null;
+  /**
+   * How `revenueInfluence` was derived. `estimated` = heuristic at write time;
+   * `measured` = an attribution pass matched it to a real outcome (with a note).
+   */
+  revenueBasis?: "estimated" | "measured";
+  /** Provenance for a measured influence (e.g. the matched order id). */
+  revenueProvenance?: string | null;
 }
 
 export type MemoryNamespace =
@@ -393,11 +406,96 @@ export type MemoryNamespace =
   | "experiments"
   | "customers";
 
+/**
+ * Where a memory came from. Governs trust and owner-visibility (Phase 04):
+ * `owner` = the founder told Nova; `nova` = Nova wrote it during a turn;
+ * `reflection` = distilled by a nightly reflection job; `system` = seeded.
+ */
+export type MemorySource = "owner" | "nova" | "reflection" | "system";
+
+/** Audit trail tying a learned memory back to the episodes that produced it. */
+export interface MemoryProvenance {
+  /** Action ids this memory was distilled from (rejections, experiments). */
+  actionIds?: string[];
+  /** Session that wrote it, when known. */
+  sessionId?: string;
+  /** Free-form note, e.g. the reflection summary line. */
+  note?: string;
+}
+
 export interface MemoryEntry {
   namespace: MemoryNamespace;
   key: string;
   value: string;
   updatedAt: string;
+  /**
+   * Fields added in Phase 04. Optional so Phase 1–3 seeds and writers that
+   * only carry {namespace,key,value} still type-check; the service and
+   * backend normalize missing values to defaults (source "owner", weight 1).
+   */
+  source?: MemorySource;
+  provenance?: MemoryProvenance | null;
+  /** Retrieval boost; decays over time and via the forgetting pass. */
+  weight?: number;
+  /** Optional TTL — the entry stops being retrieved after this instant. */
+  expiresAt?: string | null;
+  /**
+   * Semantic embedding used for vector recall. Filled asynchronously by the
+   * embed worker (an "outbox": entries with `embedding == null` are pending).
+   * Never rendered into the model prompt — an index, not content.
+   */
+  embedding?: number[] | null;
+}
+
+/** The relaxed input accepted by `upsertMemory` — Phase 04 fields optional. */
+export interface MemoryUpsert {
+  namespace: MemoryNamespace;
+  key: string;
+  value: string;
+  source?: MemorySource;
+  provenance?: MemoryProvenance | null;
+  weight?: number;
+  expiresAt?: string | null;
+  embedding?: number[] | null;
+}
+
+// ---------------------------------------------------------------------------
+// Procedural memory — playbooks (reflection can propose; owner promotes)
+// ---------------------------------------------------------------------------
+
+export type PlaybookStatus = "candidate" | "active" | "retired";
+
+export interface NovaPlaybook {
+  id: string;
+  name: string;
+  description: string;
+  /** The procedure body, served as a dynamic skill when `active` (Phase 06). */
+  markdown: string;
+  status: PlaybookStatus;
+  /** What this playbook was distilled from (action ids, source note). */
+  createdFrom: MemoryProvenance | null;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Experiments — hypotheses evaluated against actuals (data flywheel)
+// ---------------------------------------------------------------------------
+
+export type ExperimentStatus = "running" | "won" | "lost" | "inconclusive";
+
+export interface NovaExperiment {
+  id: string;
+  hypothesis: string;
+  /** Actions that enacted the experiment (a campaign change, a price test). */
+  actionIds: string[];
+  /** What the experiment moves, e.g. "roas7d" or "revenue7d". */
+  metric: string;
+  baseline: number;
+  target: number;
+  actual: number | null;
+  status: ExperimentStatus;
+  startedAt: string;
+  evaluatedAt: string | null;
 }
 
 export interface NovaReport {
@@ -433,4 +531,7 @@ export interface StoreSeed {
   activity: ActivityEntry[];
   actions: ActionRecord[];
   reports: NovaReport[];
+  /** Phase 04 — optional so Phase 1–3 seeds don't need to declare them. */
+  playbooks?: NovaPlaybook[];
+  experiments?: NovaExperiment[];
 }

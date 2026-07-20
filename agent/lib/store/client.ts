@@ -35,6 +35,9 @@ import type {
   ExpenseEntry,
   MemoryEntry,
   MemoryNamespace,
+  MemoryUpsert,
+  NovaExperiment,
+  NovaPlaybook,
   NovaReport,
   Order,
   OrderStatus,
@@ -131,14 +134,42 @@ export interface StoreClient {
   setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig>;
 
   listMemory(namespace?: MemoryNamespace): Promise<MemoryEntry[]>;
-  upsertMemory(entry: Omit<MemoryEntry, "updatedAt">): Promise<MemoryEntry>;
+  upsertMemory(entry: MemoryUpsert): Promise<MemoryEntry>;
   deleteMemory(namespace: MemoryNamespace, key: string): Promise<boolean>;
+  /**
+   * Attach an embedding to an existing entry without touching its value or
+   * `updatedAt` — the embed worker's write-back for the retrieval index.
+   */
+  setMemoryEmbedding(
+    namespace: MemoryNamespace,
+    key: string,
+    embedding: number[],
+  ): Promise<boolean>;
 
   listActivity(filter?: {
     sinceDays?: number;
     department?: ActivityEntry["department"];
   }): Promise<ActivityEntry[]>;
   addActivity(entry: Omit<ActivityEntry, "id" | "at">): Promise<ActivityEntry>;
+  /** Update an activity in place — used by the nightly attribution pass. */
+  updateActivity(
+    id: string,
+    patch: Partial<Pick<ActivityEntry, "revenueInfluence" | "revenueBasis" | "revenueProvenance">>,
+  ): Promise<ActivityEntry>;
+
+  // Procedural memory — playbooks (reflection proposes, owner promotes)
+  listPlaybooks(status?: NovaPlaybook["status"]): Promise<NovaPlaybook[]>;
+  upsertPlaybook(playbook: Omit<NovaPlaybook, "id" | "createdAt"> & { id?: string }): Promise<NovaPlaybook>;
+  updatePlaybookStatus(id: string, status: NovaPlaybook["status"]): Promise<NovaPlaybook>;
+
+  // Experiments — hypotheses evaluated against actuals
+  listExperiments(status?: NovaExperiment["status"]): Promise<NovaExperiment[]>;
+  getExperiment(id: string): Promise<NovaExperiment | null>;
+  createExperiment(experiment: Omit<NovaExperiment, "id" | "startedAt">): Promise<NovaExperiment>;
+  updateExperiment(
+    id: string,
+    patch: Partial<Pick<NovaExperiment, "actual" | "status" | "evaluatedAt" | "actionIds">>,
+  ): Promise<NovaExperiment>;
 
   listActions(status?: ActionStatus): Promise<ActionRecord[]>;
   getAction(id: string): Promise<ActionRecord | null>;

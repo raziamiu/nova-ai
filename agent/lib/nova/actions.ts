@@ -17,6 +17,7 @@ import type { StoreClient } from "../store/client";
 import { gateAction } from "./autonomy";
 import { executors, undoers } from "./executors";
 import { recordActivity } from "./activity";
+import { learnFromRejection } from "../memory/service";
 
 export interface ActionRequest {
   type: ActionType;
@@ -120,6 +121,7 @@ async function executeNow(
     actionType: request.type,
     revenueInfluence: execution.revenueInfluence,
     actionId: record.id,
+    relatedId: execution.relatedId,
   });
   return {
     status: "executed",
@@ -160,6 +162,7 @@ export async function approveAction(
     actionType: record.type,
     revenueInfluence: execution.revenueInfluence,
     actionId,
+    relatedId: execution.relatedId,
   });
   return { actionId, detail: execution.outcome };
 }
@@ -179,6 +182,9 @@ export async function rejectAction(
     outcome: reason ? `Rejected by owner: ${reason}` : "Rejected by owner.",
     decidedAt: client.now(),
   });
+  // Rejections teach immediately: write a standing-objection preference now, so
+  // Nova stops repeating the mistake without waiting for nightly reflection.
+  await learnFromRejection(client, record, reason);
   return {
     actionId,
     detail: `Rejected${reason ? ` (${reason})` : ""}. Nova will remember this preference.`,

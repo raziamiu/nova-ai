@@ -41,6 +41,8 @@ export interface ActivityInput {
   actionType?: ActionType;
   revenueInfluence?: number;
   actionId?: string;
+  /** Business entity this relates to (cart/order id), for attribution joins. */
+  relatedId?: string | null;
   /** Override the human-equivalent minutes if the defaults don't fit. */
   minutesSaved?: number;
 }
@@ -62,6 +64,8 @@ export async function recordActivity(
     minutesSaved,
     revenueInfluence: input.revenueInfluence ?? 0,
     actionId: input.actionId ?? null,
+    relatedId: input.relatedId ?? null,
+    revenueBasis: "estimated",
   });
 }
 

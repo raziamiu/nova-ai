@@ -30,6 +30,12 @@ export interface ExecutionResult {
   undoData: Record<string, unknown> | null;
   /** Revenue this action plausibly influences, for the activity metrics. */
   revenueInfluence: number;
+  /**
+   * Business entity this action relates to (cart id, order id …). Recorded on
+   * the activity so the nightly attribution pass can join estimated influence
+   * to the real outcome.
+   */
+  relatedId?: string | null;
 }
 
 type Executor = (client: StoreClient, payload: Record<string, unknown>) => Promise<ExecutionResult>;
@@ -165,6 +171,8 @@ export const executors: Record<ActionType, Executor> = {
           recoveryMessage: payload.body,
         });
         // Industry-typical recovery expectation used for the influence metric.
+        // This is an ESTIMATE; the nightly attribution pass replaces it with
+        // the actual recovered order total where one can be measured.
         revenueInfluence = Math.round(cart.value * 0.25 * 100) / 100;
       }
     }
@@ -173,6 +181,7 @@ export const executors: Record<ActionType, Executor> = {
       undoable: false,
       undoData: null,
       revenueInfluence,
+      relatedId: payload.purpose === "cart_recovery" ? (payload.relatedId ?? null) : null,
     };
   },
 
