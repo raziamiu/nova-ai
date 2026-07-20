@@ -33,6 +33,7 @@ import type {
   CustomerMessage,
   Discount,
   ExpenseEntry,
+  InboxEvent,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
@@ -183,4 +184,8 @@ export interface StoreClient {
 
   listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]>;
   addReport(report: Omit<NovaReport, "id" | "createdAt">): Promise<NovaReport>;
+
+  // Inbox — inbound store events (Phase 2.3)
+  listInboxEvents(filter?: { processed?: boolean }): Promise<InboxEvent[]>;
+  markEventProcessed(id: string): Promise<InboxEvent>;
 }

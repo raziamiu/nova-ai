@@ -15,7 +15,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 | Phase | Milestone | Status | Report |
 |---|---|---|---|
 | 01 | Nova operates a demo store end-to-end | ✅ shipped | [phase-01](./capabilities/phase-01-foundation-agent-core.md) |
-| 02 | One real dev store via Express APIs + webhooks | ⛔ **deferred** (only async seam "2a") | [phase-02](./capabilities/phase-02-dakio-integration.md) |
+| 02 | One real dev store via Express APIs + webhooks | 🟢 **all slices shipped** (2.0 foundation, 2.1 live reads, 2.2 commerce mutations, 2.3 event-driven proactivity) — marketing/support gap groups remain parked | [phase-02](./capabilities/phase-02-dakio-integration.md) |
 | 03 | Two stores, one deployment, zero leakage | ✅ shipped | [phase-03](./capabilities/phase-03-multi-tenant-core.md) |
 | 04 | Cross-session recall + nightly reflection | ✅ shipped | [phase-04](./capabilities/phase-04-memory-and-learning.md) |
 | 05 | Per-tenant daily loop for a tenant fleet | ⬜ planned | — |
@@ -108,9 +108,18 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 
 ## The honesty summary (read this)
 
-- **Nothing is live yet.** Every ✅ above is proven against the deterministic
-  **demo backend**. Phase 02 (Dakio integration) is the deferred blocker on all
-  "(live)" rows and should be built next.
+- **A live path now exists (reads, core commerce writes, AND events).**
+  Phase 02 (all four slices — 2.0/2.1/2.2/2.3) shipped: with
+  `NOVA_STORE_BACKEND=dakio`, Nova reads real Dakio commerce data, persists
+  its own state in Dakio's DB, acts (product/order/cart/discount/PO
+  mutations, idempotently), and reacts to real order/cart events within the
+  hour via the inbox drain rather than only ever discovering them by polling.
+  Default is still the demo backend. Marketing/support actions (campaign
+  writes, social, ticket status, customer messaging) remain unbuilt — two of
+  those are genuine architecture gaps (see phase-02 report), not just
+  unscheduled work — so most ✅ rows are still proven against the demo
+  backend, and "(demo → live: Phase 02)" now means "readable, actionable, and
+  event-reactive live for core commerce; marketing/support actions pending."
 - **The learning loop's distiller is deterministic**, not the model — the
   versioned reflection prompt exists but isn't the live path.
 - **Gates were not re-run this session** (no `node_modules`); statuses reflect a

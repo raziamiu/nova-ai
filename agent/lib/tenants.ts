@@ -13,6 +13,9 @@
  * "personality" is data: the row below plus its brand/goals memory.
  */
 
+import { anthropic } from "@ai-sdk/anthropic";
+import type { LanguageModel } from "ai";
+
 export type TenantStatus = "active" | "paused";
 
 /** Billing plan → model tier. Selection happens once at session start. */
@@ -37,18 +40,18 @@ export interface TenantRecord {
 }
 
 /**
- * Gateway model id per plan tier. The core operator loop is Sonnet-class;
- * higher plans get an Opus-class model, entry plans a cheaper Haiku-class one.
- * Returned by `modelForPlan` and consumed by the dynamic model selector in
- * `agent.ts`.
+ * Direct Anthropic model per plan tier (via `ANTHROPIC_API_KEY`). The core
+ * operator loop is Sonnet-class; higher plans get an Opus-class model, entry
+ * plans a cheaper Haiku-class one. Returned by `modelForPlan` and consumed by
+ * the dynamic model selector in `agent.ts`.
  */
-const MODEL_BY_PLAN: Record<TenantPlan, string> = {
-  starter: "anthropic/claude-haiku-4-5",
-  growth: "anthropic/claude-sonnet-5",
-  scale: "anthropic/claude-opus-4-8",
+const MODEL_BY_PLAN: Record<TenantPlan, LanguageModel> = {
+  starter: anthropic("claude-haiku-4-5"),
+  growth: anthropic("claude-sonnet-5"),
+  scale: anthropic("claude-opus-4-8"),
 };
 
-export function modelForPlan(plan: TenantPlan | string | undefined): string | null {
+export function modelForPlan(plan: TenantPlan | string | undefined): LanguageModel | null {
   if (plan && plan in MODEL_BY_PLAN) {
     return MODEL_BY_PLAN[plan as TenantPlan];
   }
@@ -85,6 +88,22 @@ const TENANTS = new Map<string, TenantRecord>([
       plan: "scale",
       voiceSummary: "Direct, efficient, spec-driven — built for busy facilities buyers.",
       signature: "Nova — Beacon Supply Co",
+    },
+  ],
+  // Live Dakio dev tenant (Phase 02, local TUI testing against a real store).
+  [
+    "cmrl3wa6s0000132q7mdev915",
+    {
+      storeId: "cmrl3wa6s0000132q7mdev915",
+      name: "Mayer Doya Store",
+      vertical: "General commerce",
+      currency: "BDT",
+      locale: "en-BD",
+      timezone: "Asia/Dhaka",
+      status: "active",
+      plan: "growth",
+      voiceSummary: "Default voice — replace once the store's brand memory is set.",
+      signature: "Nova at Mayer Doya Store",
     },
   ],
 ]);

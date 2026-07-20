@@ -26,6 +26,7 @@ import type {
   CustomerMessage,
   Discount,
   ExpenseEntry,
+  InboxEvent,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
@@ -593,5 +594,25 @@ export class DemoStore implements StoreClient {
     };
     this.data.reports.push(created);
     return created;
+  }
+
+  // The demo backend has no external event source (no real Dakio webhooks/
+  // mutations to react to) — seeds simply start with an empty inbox unless a
+  // seed explicitly pre-populates `inboxEvents` for a scenario/eval.
+  async listInboxEvents(filter?: { processed?: boolean }): Promise<InboxEvent[]> {
+    const events = this.data.inboxEvents ?? [];
+    if (filter?.processed === undefined) return events;
+    return events.filter((e) => (filter.processed ? e.processedAt !== null : e.processedAt === null));
+  }
+
+  async markEventProcessed(id: string): Promise<InboxEvent> {
+    const events = (this.data.inboxEvents ??= []);
+    const event = this.mustFind(
+      events.find((e) => e.id === id),
+      "Inbox event",
+      id,
+    );
+    event.processedAt = this.now();
+    return event;
   }
 }

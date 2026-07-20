@@ -508,6 +508,25 @@ export interface NovaReport {
 }
 
 // ---------------------------------------------------------------------------
+// Inbox — inbound store events (Phase 2.3). Dakio enqueues these on real
+// commerce mutations (order created/updated, cart abandoned); Nova drains
+// unprocessed ones on its regular schedule cadence instead of only ever
+// discovering them by polling reads. Persisted store-side (Nova is stateless),
+// same as memory/actions/activity/reports.
+// ---------------------------------------------------------------------------
+
+export type InboxEventType = "order.created" | "order.updated" | "cart.abandoned";
+
+export interface InboxEvent {
+  id: string;
+  eventType: InboxEventType;
+  /** Shape depends on eventType — see `emitOrderCreated`/`emitOrderUpdated`/`emitCartAbandoned` in dakio-api's novaEvents.js. */
+  payload: Record<string, unknown>;
+  receivedAt: string;
+  processedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Seed container
 // ---------------------------------------------------------------------------
 
@@ -534,4 +553,6 @@ export interface StoreSeed {
   /** Phase 04 — optional so Phase 1–3 seeds don't need to declare them. */
   playbooks?: NovaPlaybook[];
   experiments?: NovaExperiment[];
+  /** Phase 2.3 — optional; the demo backend has no external event source, so seeds that omit it simply start with an empty inbox. */
+  inboxEvents?: InboxEvent[];
 }
