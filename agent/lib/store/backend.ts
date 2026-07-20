@@ -27,10 +27,13 @@ import type {
   Discount,
   ExpenseEntry,
   InboxEvent,
+  JobKind,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
   NovaExperiment,
+  NovaJob,
+  NovaJobDef,
   NovaPlaybook,
   NovaReport,
   Order,
@@ -46,6 +49,26 @@ import type {
 } from "../types";
 import type { StoreClient } from "./client";
 import { createSeed } from "./seed";
+import { lastOccurrenceAtOrBefore } from "../jobs/cron";
+import { randomUUID } from "node:crypto";
+
+// 1 = approval-surfacing/critical … 9 = lowest. Mirrors dakio-api's
+// novaJobs.js — no dedicated approval-surfacing job kind exists yet.
+const PRIORITY_BY_KIND: Record<JobKind, number> = {
+  morning_report: 3,
+  night_ops: 3,
+  weekly_strategy: 4,
+  reflection: 6,
+  cart_sweep: 5,
+  pulse: 9,
+};
+const LEASE_MINUTES = 10;
+const MAX_ATTEMPTS = 5;
+const CART_SWEEP_DEBOUNCE_MINUTES = 30;
+
+function backoffMinutes(attempts: number): number {
+  return Math.min(30, 2 ** attempts);
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -587,6 +610,13 @@ export class DemoStore implements StoreClient {
   }
 
   async addReport(report: Omit<NovaReport, "id" | "createdAt">): Promise<NovaReport> {
+    // A dedupeKey collision returns the ORIGINAL report (mirrors dakio-api's
+    // novaJobs-safety P2002 handling) — a job that reran after failing to
+    // mark itself done must not double-file.
+    if (report.dedupeKey) {
+      const existing = this.data.reports.find((r) => r.dedupeKey === report.dedupeKey);
+      if (existing) return existing;
+    }
     const created: NovaReport = {
       ...report,
       id: this.nextId("rpt"),
@@ -614,5 +644,153 @@ export class DemoStore implements StoreClient {
     );
     event.processedAt = this.now();
     return event;
+  }
+
+  // ---- Proactive job queue (Phase 05) ----
+  //
+  // Single in-process array — no SKIP LOCKED or transaction needed (there is
+  // no concurrent access within one JS event-loop tick), but the expand/lease
+  // sequencing mirrors dakio-api's novaJobs.js exactly so both backends
+  // behave identically to callers.
+
+  async listJobDefs(): Promise<NovaJobDef[]> {
+    return this.data.jobDefs ?? [];
+  }
+
+  async upsertJobDef(
+    kind: JobKind,
+    input: { cadence: string; tz: string; enabled?: boolean; config?: Record<string, unknown> },
+  ): Promise<NovaJobDef> {
+    lastOccurrenceAtOrBefore(input.cadence, input.tz, new Date()); // throws on invalid cadence/tz — fail closed, matching novaJobs.js
+    const defs = (this.data.jobDefs ??= []);
+    const existing = defs.find((d) => d.kind === kind);
+    const updated: NovaJobDef = {
+      kind,
+      cadence: input.cadence,
+      tz: input.tz,
+      enabled: input.enabled ?? true,
+      config: input.config ?? {},
+      updatedAt: this.now(),
+    };
+    if (existing) Object.assign(existing, updated);
+    else defs.push(updated);
+    return existing ?? updated;
+  }
+
+  private drainCartAbandonedEventsToJobs(now: Date): void {
+    const events = (this.data.inboxEvents ??= []);
+    const jobs = (this.data.jobs ??= []);
+    const pending = events.filter((e) => e.eventType === "cart.abandoned" && e.processedAt === null);
+    if (pending.length === 0) return;
+
+    const bucketMs = CART_SWEEP_DEBOUNCE_MINUTES * 60_000;
+    const buckets = new Map<number, typeof pending>();
+    for (const e of pending) {
+      const bucketStart = Math.floor(Date.parse(e.receivedAt) / bucketMs) * bucketMs;
+      const list = buckets.get(bucketStart) ?? [];
+      list.push(e);
+      buckets.set(bucketStart, list);
+    }
+
+    for (const [bucketStart, bucketEvents] of buckets) {
+      const dedupeKey = `cart_sweep:event-window:${new Date(bucketStart).toISOString()}`;
+      if (jobs.some((j) => j.dedupeKey === dedupeKey)) continue; // already expanded this window
+      jobs.push({
+        id: this.nextId("job"),
+        kind: "cart_sweep",
+        payload: { triggeredBy: "event", eventCount: bucketEvents.length },
+        dueAt: new Date(bucketStart + bucketMs).toISOString(),
+        priority: PRIORITY_BY_KIND.cart_sweep,
+        status: "due",
+        attempts: 0,
+        lastError: null,
+        dedupeKey,
+        leaseUntil: null,
+        leaseToken: null,
+      });
+    }
+    for (const e of pending) e.processedAt = now.toISOString();
+  }
+
+  private expandDueDefs(now: Date): void {
+    const defs = this.data.jobDefs ?? [];
+    const jobs = (this.data.jobs ??= []);
+    for (const def of defs) {
+      if (!def.enabled || def.cadence === "event") continue;
+      const occurrence = lastOccurrenceAtOrBefore(def.cadence, def.tz, now);
+      if (!occurrence || occurrence.getTime() > now.getTime()) continue;
+      const dedupeKey = `${def.kind}:${occurrence.toISOString()}`;
+      if (jobs.some((j) => j.dedupeKey === dedupeKey)) continue;
+      jobs.push({
+        id: this.nextId("job"),
+        kind: def.kind,
+        payload: def.config,
+        dueAt: occurrence.toISOString(),
+        priority: PRIORITY_BY_KIND[def.kind] ?? 5,
+        status: "due",
+        attempts: 0,
+        lastError: null,
+        dedupeKey,
+        leaseUntil: null,
+        leaseToken: null,
+      });
+    }
+  }
+
+  async claimDueJobs(limit: number): Promise<NovaJob[]> {
+    const now = new Date();
+    const jobs = (this.data.jobs ??= []);
+
+    // Watchdog: a stale lease (past its window) is due again.
+    for (const j of jobs) {
+      if (j.status === "leased" && j.leaseUntil && Date.parse(j.leaseUntil) < now.getTime()) {
+        j.status = "due";
+        j.leaseUntil = null;
+        j.leaseToken = null;
+      }
+    }
+
+    this.drainCartAbandonedEventsToJobs(now);
+    this.expandDueDefs(now);
+
+    const due = jobs
+      .filter((j) => j.status === "due" && Date.parse(j.dueAt) <= now.getTime())
+      .sort((a, b) => a.priority - b.priority || Date.parse(a.dueAt) - Date.parse(b.dueAt))
+      .slice(0, limit);
+
+    const leaseUntil = new Date(now.getTime() + LEASE_MINUTES * 60_000).toISOString();
+    for (const j of due) {
+      j.status = "leased";
+      j.attempts += 1;
+      j.leaseUntil = leaseUntil;
+      // Fresh token per lease — a re-lease of this same row (e.g. after the
+      // watchdog reclaims a slow job) gets a DIFFERENT token, so a stale
+      // caller's later complete/release (see below) is a safe no-op instead
+      // of overwriting a newer lease's outcome. Mirrors novaJobs.js exactly.
+      j.leaseToken = randomUUID();
+    }
+    return due;
+  }
+
+  async completeJob(id: string, leaseToken: string): Promise<void> {
+    const jobs = (this.data.jobs ??= []);
+    const job = jobs.find((j) => j.id === id);
+    if (!job || job.status !== "leased" || job.leaseToken !== leaseToken) return; // superseded lease — leave it alone
+    job.status = "done";
+    job.leaseUntil = null;
+  }
+
+  async releaseJob(id: string, leaseToken: string, error: string): Promise<void> {
+    const jobs = (this.data.jobs ??= []);
+    const job = jobs.find((j) => j.id === id);
+    if (!job || job.status !== "leased" || job.leaseToken !== leaseToken) return; // superseded lease — leave whatever currently owns it alone
+    job.lastError = error;
+    job.leaseUntil = null;
+    if (job.attempts >= MAX_ATTEMPTS) {
+      job.status = "failed";
+      return;
+    }
+    job.status = "due";
+    job.dueAt = new Date(Date.now() + backoffMinutes(job.attempts) * 60_000).toISOString();
   }
 }

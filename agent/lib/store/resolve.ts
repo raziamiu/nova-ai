@@ -39,16 +39,53 @@ function backendMode(): "demo" | "dakio" {
   return process.env.NOVA_STORE_BACKEND === "dakio" ? "dakio" : "demo";
 }
 
+let tokenMapCache: Record<string, string> | null = null;
+
 /**
- * Build the live Dakio HTTP client for a tenant. Phase 2.1 targets a single
- * dev store, so the service token comes from one env var; per-tenant token
- * provisioning (a token map / mint-on-demand) arrives with the Phase 03 fleet.
+ * Per-tenant service tokens as `NOVA_SERVICE_TOKENS='{"storeId":"token",...}'`
+ * (mint each with dakio-api's `scripts/nova-mint-token.mjs <tenantId>`).
+ *
+ * Phase 05 fix: every `DakioStoreClient` used to be built from the SAME
+ * single `NOVA_SERVICE_TOKEN`, regardless of which `storeId` was requested —
+ * a real cross-tenant hole once more than one tenant runs in the same
+ * deployment (every tenant's client silently resolved to whichever tenant
+ * the one token was minted for; dakio-api's own auth would have enforced
+ * THAT tenant correctly, but Nova would be reading/writing the wrong
+ * store's data without any error). `NOVA_SERVICE_TOKENS` is additive —
+ * `NOVA_SERVICE_TOKEN` alone still works for a single dev tenant.
  */
+function tokenMap(): Record<string, string> {
+  if (tokenMapCache) return tokenMapCache;
+  const raw = process.env.NOVA_SERVICE_TOKENS;
+  if (!raw) {
+    tokenMapCache = {};
+    return tokenMapCache;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("NOVA_SERVICE_TOKENS must be valid JSON: { \"storeId\": \"token\", ... }");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("NOVA_SERVICE_TOKENS must be a JSON object of { storeId: token }");
+  }
+  tokenMapCache = parsed as Record<string, string>;
+  return tokenMapCache;
+}
+
+/** Build the live Dakio HTTP client for a tenant, pinned to THAT tenant's own service token. */
 function makeDakioClient(storeId: string): DakioStoreClient {
   const baseUrl = process.env.DAKIO_API_URL;
-  const token = process.env.NOVA_SERVICE_TOKEN;
+  // Per-tenant token first; NOVA_SERVICE_TOKEN is the single-tenant fallback
+  // (kept for the existing one-dev-store setup, not a silent fleet default).
+  const token = tokenMap()[storeId] ?? process.env.NOVA_SERVICE_TOKEN;
   if (!baseUrl) throw new Error("NOVA_STORE_BACKEND=dakio requires DAKIO_API_URL");
-  if (!token) throw new Error("NOVA_STORE_BACKEND=dakio requires NOVA_SERVICE_TOKEN");
+  if (!token) {
+    throw new Error(
+      `NOVA_STORE_BACKEND=dakio requires a service token for store '${storeId}' — set it in NOVA_SERVICE_TOKENS or (single-tenant only) NOVA_SERVICE_TOKEN`,
+    );
+  }
   return new DakioStoreClient(storeId, { baseUrl, token });
 }
 

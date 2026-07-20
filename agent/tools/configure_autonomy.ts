@@ -46,8 +46,9 @@ export default defineTool({
       .describe("Guardrail overrides; unspecified guardrails keep their current values."),
   }),
   approval: (ctx: ApprovalContext) => {
+    // principalType !== "user" (not a literal `eve:app` match) — see approve_action.ts.
     const a = ctx.session.auth.current;
-    if (a?.authenticator === "app" && a.principalId === "eve:app") {
+    if (a?.principalType !== "user") {
       return { type: "denied" as const, reason: "Only the owner may change autonomy." };
     }
     const role = typeof a?.attributes?.role === "string" ? a.attributes.role : undefined;
@@ -57,8 +58,9 @@ export default defineTool({
     return "user-approval";
   },
   async execute({ level, guardrails }, ctx) {
+    const a = ctx.session.auth.current ?? ctx.session.auth.initiator;
     const { storeId, role } = requireStore(ctx);
-    if (!isOwnerRole(role)) {
+    if (a?.principalType !== "user" || !isOwnerRole(role)) {
       return { error: "Only the store owner or an admin can change autonomy." };
     }
     const client = storeFor(storeId);

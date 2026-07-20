@@ -4,11 +4,20 @@ import { approveAction } from "../lib/nova/actions";
 import { requireStore, isOwnerRole } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
-/** Deny scheduled runs and any non-owner/admin caller. */
+/**
+ * Deny scheduled/background runs and any non-owner/admin caller.
+ *
+ * `principalType !== "user"` (not a literal `eve:app` match) so this also
+ * denies the Phase 05 dispatcher's per-tenant job principal
+ * (`{authenticator:"nova-scheduler", principalType:"runtime"}` — see
+ * `agent/lib/jobs/principal.ts`), which doesn't match the old `eve:app`
+ * check at all. Trust-plane tools must deny every non-human caller, not just
+ * eve's own built-in schedule principal.
+ */
 function ownerOnly(ctx: ApprovalContext, verb: string) {
   const a = ctx.session.auth.current;
-  if (a?.authenticator === "app" && a.principalId === "eve:app") {
-    return { type: "denied" as const, reason: `Scheduled runs cannot ${verb} actions — only the owner can.` };
+  if (a?.principalType !== "user") {
+    return { type: "denied" as const, reason: `Scheduled or background runs cannot ${verb} actions — only the owner can.` };
   }
   const role = typeof a?.attributes?.role === "string" ? a.attributes.role : undefined;
   if (!isOwnerRole(role)) {
@@ -26,8 +35,9 @@ export default defineTool({
   approval: (ctx: ApprovalContext) => ownerOnly(ctx, "approve"),
   async execute({ actionId }, ctx) {
     // Re-check authorization at execution time: approval ≠ authorization.
+    const a = ctx.session.auth.current ?? ctx.session.auth.initiator;
     const { storeId, role } = requireStore(ctx);
-    if (!isOwnerRole(role)) {
+    if (a?.principalType !== "user" || !isOwnerRole(role)) {
       return { error: "Only the store owner or an admin can approve actions." };
     }
     try {

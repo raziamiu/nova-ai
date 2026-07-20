@@ -1,6 +1,6 @@
 ---
 name: reflection
-description: The nightly reflection procedure — distill the day's episodic log into durable, owner-visible semantic memory. Load this when running reflection (schedules/reflection.ts) or when asked to review what Nova should learn from recent decisions.
+description: The nightly reflection procedure — distill the day's episodic log into durable, owner-visible semantic memory. Load this when running the reflection job (agent/lib/jobs/prompts.ts, dispatched per-tenant by agent/schedules/dispatcher.ts) or when asked to review what Nova should learn from recent decisions.
 ---
 
 # Reflection

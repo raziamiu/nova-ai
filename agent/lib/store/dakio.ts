@@ -40,10 +40,13 @@ import type {
   Discount,
   ExpenseEntry,
   InboxEvent,
+  JobKind,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
   NovaExperiment,
+  NovaJob,
+  NovaJobDef,
   NovaPlaybook,
   NovaReport,
   Order,
@@ -561,5 +564,53 @@ export class DakioStoreClient implements StoreClient {
 
   async markEventProcessed(id: string): Promise<InboxEvent> {
     return this.request<InboxEvent>(`/api/v1/agent-data/inbox/${encodeURIComponent(id)}`, { method: "PATCH" });
+  }
+
+  // ==========================================================================
+  // Proactive job queue (Phase 05)
+  //
+  // No Idempotency-Key header on these — unlike commerce mutations, claim/
+  // complete/release are idempotent by construction: claim only leases
+  // currently-due rows (a retry just finds fewer or none left), and
+  // complete/release both recompute their result from the job's current
+  // server-side state rather than from client-supplied deltas, so replaying
+  // either is a harmless no-op / re-application of the same outcome.
+  // ==========================================================================
+
+  async listJobDefs(): Promise<NovaJobDef[]> {
+    const { jobDefs } = await this.get<{ jobDefs: NovaJobDef[] }>("/api/v1/agent-data/job-defs");
+    return jobDefs;
+  }
+
+  async upsertJobDef(
+    kind: JobKind,
+    input: { cadence: string; tz: string; enabled?: boolean; config?: Record<string, unknown> },
+  ): Promise<NovaJobDef> {
+    return this.request<NovaJobDef>(`/api/v1/agent-data/job-defs/${encodeURIComponent(kind)}`, {
+      method: "PUT",
+      body: input,
+    });
+  }
+
+  async claimDueJobs(limit: number): Promise<NovaJob[]> {
+    const { jobs } = await this.request<{ jobs: NovaJob[] }>("/api/v1/agent-data/jobs/claim", {
+      method: "POST",
+      body: { limit },
+    });
+    return jobs;
+  }
+
+  async completeJob(id: string, leaseToken: string, sessionId?: string): Promise<void> {
+    await this.request(`/api/v1/agent-data/jobs/${encodeURIComponent(id)}/complete`, {
+      method: "POST",
+      body: { leaseToken, sessionId },
+    });
+  }
+
+  async releaseJob(id: string, leaseToken: string, error: string): Promise<void> {
+    await this.request(`/api/v1/agent-data/jobs/${encodeURIComponent(id)}/release`, {
+      method: "POST",
+      body: { leaseToken, error },
+    });
   }
 }

@@ -504,6 +504,8 @@ export interface NovaReport {
   title: string;
   /** Markdown body, rendered by the Dakio dashboard. */
   body: string;
+  /** Phase 05 — a job-filed report passes its job's dedupeKey so a re-leased rerun re-files the SAME row instead of a duplicate. Omitted for ad hoc (non-job) reports. */
+  dedupeKey?: string | null;
   createdAt: string;
 }
 
@@ -524,6 +526,43 @@ export interface InboxEvent {
   payload: Record<string, unknown>;
   receivedAt: string;
   processedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Proactive job queue (Phase 05). Per-tenant daily rhythm: a JobDef is the
+// tenant's cadence config for a job kind (edited by the founder eventually —
+// Phase 06); a Job is one due/leased/done unit of work, expanded from a def's
+// occurrence or enqueued by the event→job mapper. Persisted store-side, same
+// as memory/actions/activity/reports/inbox — Nova itself holds no job state.
+// ---------------------------------------------------------------------------
+
+export type JobKind = "morning_report" | "pulse" | "cart_sweep" | "night_ops" | "weekly_strategy" | "reflection";
+export type JobStatus = "due" | "leased" | "done" | "failed" | "skipped";
+
+export interface NovaJobDef {
+  kind: JobKind;
+  /** 5-field cron string (minute hour dom month dow; dom/month must be '*'), interpreted in `tz`. */
+  cadence: string;
+  tz: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface NovaJob {
+  id: string;
+  kind: JobKind;
+  payload: Record<string, unknown>;
+  dueAt: string;
+  /** 1 = approval-surfacing/critical … 9 = lowest (pulse). */
+  priority: number;
+  status: JobStatus;
+  attempts: number;
+  lastError: string | null;
+  dedupeKey: string;
+  leaseUntil: string | null;
+  /** Fencing value for this specific lease — pass it back to completeJob/releaseJob so a stale (superseded) lease's call is a safe no-op. */
+  leaseToken: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -555,4 +594,7 @@ export interface StoreSeed {
   experiments?: NovaExperiment[];
   /** Phase 2.3 — optional; the demo backend has no external event source, so seeds that omit it simply start with an empty inbox. */
   inboxEvents?: InboxEvent[];
+  /** Phase 05 — optional so earlier-phase seeds don't need to declare them; DemoStore lazily initializes an empty queue. */
+  jobDefs?: NovaJobDef[];
+  jobs?: NovaJob[];
 }

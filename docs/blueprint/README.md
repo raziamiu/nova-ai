@@ -25,7 +25,7 @@ on the eve framework, from foundation to production fleet.
 | 02 | [Dakio integration](./02-dakio-integration.md) | One real dev store via Express APIs + webhooks | 🟢 all slices shipped (2.0 foundation, 2.1 live reads, 2.2 commerce mutations, 2.3 event-driven proactivity) — marketing/support gap groups remain parked |
 | 03 | [Multi-tenant core](./03-multi-tenant-core.md) | Two stores, one deployment, zero leakage | ✅ shipped |
 | 04 | [Memory & learning](./04-memory-and-learning.md) | Cross-session recall + nightly reflection | ✅ shipped |
-| 05 | [Proactive operations](./05-proactive-operations.md) | Per-tenant daily loop for a tenant fleet | ⬜ |
+| 05 | [Proactive operations](./05-proactive-operations.md) | Per-tenant daily loop for a tenant fleet | ✅ shipped |
 | 06 | [Dashboard experience](./06-dashboard-experience.md) | Full founder loop through the existing UI | ⬜ |
 | 07 | [Trust, safety & scale](./07-trust-safety-scale.md) | Red-team + compliance pass | ⬜ |
 | 08 | [Scale & production](./08-scale-observability-production.md) | Load-verified fleet, SLOs, rollout | ⬜ |

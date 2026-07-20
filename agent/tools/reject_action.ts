@@ -4,10 +4,11 @@ import { rejectAction } from "../lib/nova/actions";
 import { requireStore, isOwnerRole } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
+// principalType !== "user" (not a literal `eve:app` match) — see approve_action.ts.
 function ownerOnly(ctx: ApprovalContext, verb: string) {
   const a = ctx.session.auth.current;
-  if (a?.authenticator === "app" && a.principalId === "eve:app") {
-    return { type: "denied" as const, reason: `Scheduled runs cannot ${verb} actions — only the owner can.` };
+  if (a?.principalType !== "user") {
+    return { type: "denied" as const, reason: `Scheduled or background runs cannot ${verb} actions — only the owner can.` };
   }
   const role = typeof a?.attributes?.role === "string" ? a.attributes.role : undefined;
   if (!isOwnerRole(role)) {
@@ -25,8 +26,9 @@ export default defineTool({
   }),
   approval: (ctx: ApprovalContext) => ownerOnly(ctx, "reject"),
   async execute({ actionId, reason }, ctx) {
+    const a = ctx.session.auth.current ?? ctx.session.auth.initiator;
     const { storeId, role } = requireStore(ctx);
-    if (!isOwnerRole(role)) {
+    if (a?.principalType !== "user" || !isOwnerRole(role)) {
       return { error: "Only the store owner or an admin can reject actions." };
     }
     try {

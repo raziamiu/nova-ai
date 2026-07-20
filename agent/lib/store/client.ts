@@ -34,10 +34,13 @@ import type {
   Discount,
   ExpenseEntry,
   InboxEvent,
+  JobKind,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
   NovaExperiment,
+  NovaJob,
+  NovaJobDef,
   NovaPlaybook,
   NovaReport,
   Order,
@@ -188,4 +191,18 @@ export interface StoreClient {
   // Inbox — inbound store events (Phase 2.3)
   listInboxEvents(filter?: { processed?: boolean }): Promise<InboxEvent[]>;
   markEventProcessed(id: string): Promise<InboxEvent>;
+
+  // ---- Proactive job queue (Phase 05) ----
+
+  listJobDefs(): Promise<NovaJobDef[]>;
+  upsertJobDef(
+    kind: JobKind,
+    input: { cadence: string; tz: string; enabled?: boolean; config?: Record<string, unknown> },
+  ): Promise<NovaJobDef>;
+  /** Expands due job-defs and drains debounced events into jobs, then atomically leases up to `limit` due rows for this tenant. Each returned job carries its own fresh `leaseToken`. */
+  claimDueJobs(limit: number): Promise<NovaJob[]>;
+  /** `leaseToken` must be the value the job was claimed with — a stale (superseded) lease's call is a safe no-op, never overwriting a newer lease's outcome. */
+  completeJob(id: string, leaseToken: string, sessionId?: string): Promise<void>;
+  /** Requeues with backoff below the attempts cap, or marks `failed` at the cap. Same stale-lease-safe contract as completeJob. */
+  releaseJob(id: string, leaseToken: string, error: string): Promise<void>;
 }

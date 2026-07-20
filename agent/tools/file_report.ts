@@ -19,10 +19,16 @@ export default defineTool({
       .enum(NOVA_DEPARTMENTS)
       .optional()
       .describe("Attribution for the activity log; defaults to ceo."),
+    dedupeKey: z
+      .string()
+      .optional()
+      .describe(
+        "Pass the exact dedupeKey given in a proactive job's instructions, if any, so a rerun of the same job occurrence re-files this SAME report instead of a duplicate. Omit for an ad hoc report.",
+      ),
   }),
-  async execute({ kind, title, body, department }, ctx) {
+  async execute({ kind, title, body, department, dedupeKey }, ctx) {
     const client = storeFor(requireStore(ctx).storeId);
-    const report = await client.addReport({ kind, title, body });
+    const report = await client.addReport({ kind, title, body, dedupeKey });
     await recordActivity(client, {
       department: department ?? "ceo",
       kind: "report",

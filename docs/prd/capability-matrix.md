@@ -5,10 +5,12 @@ will deliver) it → concrete evidence (file / tool / test). This is the honest
 ledger — a row is ✅ only if the code named in Evidence backs it up.
 
 - **Status:** ✅ done · 🟡 partial · ⬜ planned
-- **Last updated:** 2026-07-20 (through Phase 04)
+- **Last updated:** 2026-07-20 (through Phase 05)
 - **Legend for the "(live)" caveat:** many rows are ✅/🟡 *against the in-memory
-  demo backend*. **Phase 02 (Dakio integration) is deferred**, so no capability
-  is yet backed by live Dakio data. Rows that need live data say **"(demo → live: Phase 02)"**.
+  demo backend* by default (`NOVA_STORE_BACKEND` defaults to `demo`). Phase 02
+  shipped a live path behind that env switch; rows tagged
+  **"(demo → live: Phase 02)"** are readable/actionable live for core commerce
+  when the switch is flipped, not automatically.
 
 ## Build status at a glance
 
@@ -18,7 +20,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 | 02 | One real dev store via Express APIs + webhooks | 🟢 **all slices shipped** (2.0 foundation, 2.1 live reads, 2.2 commerce mutations, 2.3 event-driven proactivity) — marketing/support gap groups remain parked | [phase-02](./capabilities/phase-02-dakio-integration.md) |
 | 03 | Two stores, one deployment, zero leakage | ✅ shipped | [phase-03](./capabilities/phase-03-multi-tenant-core.md) |
 | 04 | Cross-session recall + nightly reflection | ✅ shipped | [phase-04](./capabilities/phase-04-memory-and-learning.md) |
-| 05 | Per-tenant daily loop for a tenant fleet | ⬜ planned | — |
+| 05 | Per-tenant daily loop for a tenant fleet | ✅ shipped | [phase-05](./capabilities/phase-05-proactive-operations.md) |
 | 06 | Full founder loop through the existing UI | ⬜ planned | — |
 | 07 | Red-team + compliance pass | ⬜ planned | — |
 | 08 | Load-verified fleet, SLOs, rollout | ⬜ planned | — |
@@ -51,7 +53,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 | Confidence score / reason / expected impact | ✅ | 01 | `justificationSchema` on every action. |
 | Undo button | ✅ (demo) | 01 | `undoAction` + `undoers` registry (reversible types only). |
 | Owner approval flow (approve/reject) | ✅ (demo) | 01 | `approve_action` / `reject_action` tools. |
-| Kill switch (pause an employee) | ✅ (demo) | 03 | `isTenantActive`/`setTenantStatus` + `agent/hooks/tenant-guard.ts` (fail-closed). In-memory status. |
+| Kill switch (pause an employee) | ✅ (demo) | 03→05 | `isTenantActive`/`setTenantStatus` + `agent/hooks/tenant-guard.ts` (fail-closed). In-memory status. Phase 05: also enforced at job-claim time — `requireTenant` 403s a suspended tenant's `/jobs/claim` before the dispatcher's code path runs at all (live-verified). |
 | Role-gated trust plane (owner/admin only) | ✅ | 03 | `isOwnerRole` + least-privilege default; `evals/isolation/run.ts` [4]. |
 
 ## Multi-tenancy & security
@@ -80,7 +82,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 |---|---|---|---|
 | Nova never forgets (durable memory) | ✅ (demo) | 01→04 | `agent/lib/memory/service.ts`; 7 namespaces; per-turn injection. In-memory store. |
 | Semantic recall (right facts for the turn) | ✅ (demo) | 04 | `vector.ts` (cosine+recency+weight, K≤8, threshold 0.35) + `embed.ts` stub; `30-memory.ts`. Gateway/pgvector gated, unrun. |
-| Learns from experience (reflection loop) | 🟡 | 04 | `reflection.ts` (deterministic distiller) + schedule + `skills/reflection.md`. Model distiller wired but delegates to deterministic; single-tenant dev-dispatch. |
+| Learns from experience (reflection loop) | 🟡 | 04→05 | `reflection.ts` (deterministic distiller) + `skills/reflection.md`; now dispatched per-tenant via the `reflection` job kind (`agent/lib/jobs/prompts.ts`), not a single-tenant dev-dispatch schedule. Model distiller wired but delegates to deterministic. Phase 05: attribution (`runAttribution`, built in Phase 04) is now actually invoked in production via the new `run_attribution` tool as reflection's step 4 — previously only exercised by the eval harness. |
 | Learns from rejections immediately | ✅ (demo) | 04 | `learnFromRejection` fast-path from `reject_action`; `memory/run.ts` §3. |
 | Experiments (hypothesis → measured outcome) | ✅ (demo) | 04 | `experiments.ts` + `create_experiment` / `evaluate_experiments`; `memory/run.ts` §5. |
 | Learning is owner-visible + reversible | ✅ (demo) | 04 | `source`+`provenance` on every write; `forget` hard-deletes row+embedding. UI is Phase 06. |
@@ -94,7 +96,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 | Revenue Influenced | 🟡 | 01→04 | Heuristic in P1 (cart recovery 25%, else 0); Phase 04 `attribution.ts` rewrites cart recovery to measured order total. Other sources still heuristic. **(demo → live: Phase 02)** |
 | Anomaly radar (proactive alerts) | ✅ (demo) | 01 | `detectAnomalies` (7 domains); threshold heuristics. |
 | Morning / Night / Weekly / Pulse reports | ✅ (demo) | 01 | 5 schedules + `file_report` + skills. Output model-dependent; cron doesn't fire under `eve dev`. |
-| Daily proactive loop (fleet cadence) | ⬜ | 05 | Schedules are single-tenant/dev-dispatch; per-tenant dispatcher is Phase 05. |
+| Daily proactive loop (fleet cadence) | ✅ | 05 | `agent/schedules/dispatcher.ts` (the one authored schedule) + `NovaJobDef`/`NovaJob` (dakio-api) + `StoreClient.claimDueJobs`. Each of the 6 job kinds fires in its OWN tenant's local time (IANA-tz cron engine, DST-correct); events (`cart.abandoned`) debounce into jobs too. Live-verified against the real dev tenant. |
 
 ## Dashboard & long-term
 
@@ -122,7 +124,16 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
   event-reactive live for core commerce; marketing/support actions pending."
 - **The learning loop's distiller is deterministic**, not the model — the
   versioned reflection prompt exists but isn't the live path.
-- **Gates were not re-run this session** (no `node_modules`); statuses reflect a
-  static code audit + the phase-completion discipline in git. The deterministic
-  suites (`isolation`, `memory`) are the strongest current proof because they run
-  without a model; the Phase-1 evals need a gateway key.
+- **Phase 05's session had `node_modules` and re-ran everything**: `tsc`,
+  `eve build`, `eve info` (0 diagnostics), all three deterministic suites
+  (isolation/memory/jobs — 123 checks total), the full dakio-api suite +
+  every Nova integration test against a real local Postgres, AND a live
+  smoke test against the real dev tenant (seed→claim→lease→complete→
+  watchdog-recover→dedupe-verify, cleaned up after). An independent
+  adversarial review then found and fixed two real bugs (job lease-fencing;
+  a completion-ack failure misrouted into job-failure handling). Earlier
+  phases' statuses below Phase 05 still reflect a static code audit plus the
+  phase-completion discipline in git, not a fresh re-run this session.
+- The deterministic suites (`isolation`, `memory`, `jobs`) are the strongest
+  current proof for the phases they cover because they run without a model;
+  the Phase-1 evals need a gateway key.
