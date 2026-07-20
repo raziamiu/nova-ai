@@ -98,6 +98,11 @@ export function rankByRelevance(
   for (const entry of entries) {
     if (isExpired(entry, nowMs)) continue;
     const scored = scoreEntry(entry, queryEmbedding, nowMs);
+    // Semantic recall requires an actual semantic match. Without this, the
+    // recency (0.25) + weight (0.15) components alone reach 0.40 > threshold,
+    // so a recent entry with a null/zero embedding (async-worker lag, or a
+    // value that tokenizes to nothing) would leak in with zero relevance.
+    if (scored.similarity <= 0) continue;
     if (scored.score < RETRIEVAL.threshold) continue;
     const dedupeKey = `${entry.namespace}:${entry.key}`;
     const prior = best.get(dedupeKey);

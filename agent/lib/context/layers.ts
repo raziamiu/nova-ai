@@ -139,14 +139,16 @@ export async function buildRelevantMemory(storeId: string, hint?: string): Promi
   // Tier 2 — top-K semantic matches for this turn's task.
   const scored = hint && hint.trim().length > 0 ? await retrieveRelevant(storeId, hint) : [];
 
-  // Merge: always-in-view first, then vector hits, deduped by (namespace,key).
-  const merged = new Map<string, MemoryEntry>();
-  for (const m of always) merged.set(`${m.namespace}:${m.key}`, m);
-  for (const s of scored) merged.set(`${s.entry.namespace}:${s.entry.key}`, s.entry);
-
-  const relevant = [...merged.values()].sort(
-    (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
-  );
+  // Order matters under the budget: standing policy (Tier 1) renders FIRST so
+  // that if `clampToTokens` has to truncate, it drops the tail (semantic hits),
+  // never an always-in-view rule. Tier 1 is sorted newest-first among itself;
+  // Tier 2 keeps its relevance order and excludes anything already in Tier 1.
+  const alwaysKeys = new Set(always.map((m) => `${m.namespace}:${m.key}`));
+  const tier1 = [...always].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const tier2 = scored
+    .map((s) => s.entry)
+    .filter((e) => !alwaysKeys.has(`${e.namespace}:${e.key}`));
+  const relevant: MemoryEntry[] = [...tier1, ...tier2];
 
   const body =
     relevant.length > 0

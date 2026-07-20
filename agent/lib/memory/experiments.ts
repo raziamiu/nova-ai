@@ -100,16 +100,26 @@ export interface EvaluatedExperiment {
 }
 
 /**
- * Evaluate every running experiment for a tenant: measure, decide, persist the
+ * Evaluate running experiments for a tenant: measure, decide, persist the
  * status, and write the outcome to `experiments` memory with provenance. Called
  * from reflection (and available as a tool). Returns what it decided.
+ *
+ * `opts.limit` caps how many outcome memories may be written — reflection
+ * passes its remaining write budget so the ≤10-writes-per-run bound holds
+ * across the rejection + experiment steps combined. Omit for no cap.
  */
-export async function evaluateExperiments(storeId: string): Promise<EvaluatedExperiment[]> {
+export async function evaluateExperiments(
+  storeId: string,
+  opts: { limit?: number } = {},
+): Promise<EvaluatedExperiment[]> {
   const client = storeFor(storeId);
   const running = await client.listExperiments("running");
   const results: EvaluatedExperiment[] = [];
+  const limit = opts.limit ?? Infinity;
+  if (limit <= 0) return results;
 
   for (const experiment of running) {
+    if (results.length >= limit) break;
     const actual = await measure(storeId, experiment);
     const status = evaluateOutcome(experiment.metric, experiment.baseline, experiment.target, actual);
     if (status === "inconclusive" && actual === null) continue; // not measurable yet
@@ -121,13 +131,17 @@ export async function evaluateExperiments(storeId: string): Promise<EvaluatedExp
     });
     const verdict =
       status === "won" ? "won" : status === "lost" ? "lost" : "was inconclusive";
+    // Provenance always carries the enacting action ids; if an experiment was
+    // registered without any, fall back to the experiment id so no learned
+    // memory is ever written without a traceable origin.
+    const actionIds = experiment.actionIds.length > 0 ? experiment.actionIds : [experiment.id];
     const memory = await upsertVia(client, {
       namespace: "experiments",
       key: `experiment-${experiment.id}`,
       value: `${experiment.hypothesis} — ${verdict} (${experiment.metric}: baseline ${experiment.baseline}, target ${experiment.target}, actual ${actual ?? "n/a"}).`,
       source: "reflection",
       weight: status === "won" ? 1.0 : 0.7,
-      provenance: { actionIds: experiment.actionIds, note: "experiment evaluator" },
+      provenance: { actionIds, note: `experiment evaluator (${experiment.id})` },
     });
     results.push({ experiment: updated, memory });
   }

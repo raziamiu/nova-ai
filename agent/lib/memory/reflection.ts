@@ -22,7 +22,14 @@
 import type { ActionType, MemoryEntry } from "../types";
 import { storeFor } from "../store/resolve";
 import { recordActivity } from "../nova/activity";
-import { distill, rejectionReason, upsertVia, type ReflectionInput } from "./service";
+import {
+  distill,
+  rejectionMemoryKey,
+  rejectionReason,
+  runEmbedWorker,
+  upsertVia,
+  type ReflectionInput,
+} from "./service";
 import { evaluateExperiments, type EvaluatedExperiment } from "./experiments";
 import { runAttribution, type AttributionResult } from "./attribution";
 
@@ -64,6 +71,10 @@ async function runDeterministicReflection(input: ReflectionInput): Promise<Refle
   const client = storeFor(input.storeId);
   const writes: MemoryEntry[] = [];
 
+  // Off-peak: flush the embed outbox so the day's writes are recall-ready
+  // (in gateway mode, upserts leave embeddings for this async worker to fill).
+  await runEmbedWorker(client);
+
   // Group rejections by action type so a repeated objection becomes one rule.
   const byType = new Map<ActionType, { actionIds: string[]; titles: string[]; reasons: string[] }>();
   for (const { action } of input.rejections) {
@@ -96,10 +107,16 @@ async function runDeterministicReflection(input: ReflectionInput): Promise<Refle
       provenance: { actionIds: bucket.actionIds, note: "nightly reflection: rejection distillation" },
     });
     writes.push(entry);
+    // The distilled rule supersedes the fast-path preference candidate — drop
+    // the duplicate so memory stays lean (one objection, not two).
+    await client.deleteMemory("preferences", rejectionMemoryKey({ type }));
   }
 
   // Data-flywheel steps: evaluate experiments and attribute recovered revenue.
-  const experiments = await evaluateExperiments(input.storeId);
+  // Cap experiment writes to the remaining budget so the run stays ≤10 writes.
+  const experiments = await evaluateExperiments(input.storeId, {
+    limit: MAX_REFLECTION_WRITES - writes.length,
+  });
   for (const e of experiments) {
     if (writes.length >= MAX_REFLECTION_WRITES) break;
     writes.push(e.memory);

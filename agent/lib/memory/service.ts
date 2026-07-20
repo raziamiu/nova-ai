@@ -71,9 +71,16 @@ export async function upsert(storeId: string, entry: MemoryUpsert): Promise<Memo
 /**
  * Client-scoped write, used by call sites that already hold a tenant-bound
  * client (e.g. the rejection fast-path in the action pipeline).
+ *
+ * Stub mode embeds inline (free; keeps recall immediately consistent for tests
+ * and single-process dev). Gateway mode leaves the embedding for the async
+ * embed worker — writes never block on a model round trip (blueprint: "embed
+ * worker async (never blocks a turn)"). The M2 guard in `rankByRelevance`
+ * ensures an entry still in the outbox can't leak into recall meanwhile.
  */
 export async function upsertVia(client: StoreClient, entry: MemoryUpsert): Promise<MemoryEntry> {
-  const embedding = entry.embedding ?? (await embedText(embeddingInput(entry)));
+  const embedding =
+    entry.embedding ?? (usingGatewayEmbeddings() ? null : await embedText(embeddingInput(entry)));
   return client.upsertMemory({ ...entry, embedding });
 }
 
@@ -183,7 +190,7 @@ export function rejectionReason(action: ActionRecord): string | null {
 // ---------------------------------------------------------------------------
 
 /** Stable, readable key for the standing objection a rejection creates. */
-export function rejectionMemoryKey(action: ActionRecord): string {
+export function rejectionMemoryKey(action: Pick<ActionRecord, "type">): string {
   return `rejected-${action.type}`;
 }
 

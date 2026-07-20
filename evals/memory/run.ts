@@ -132,6 +132,14 @@ async function main(): Promise<void> {
   );
   check("an unrelated, ancient, zero-weight entry is dropped by the threshold", belowThreshold.length === 0);
   check("threshold + K constants match the blueprint", RETRIEVAL.threshold === 0.35 && RETRIEVAL.k === 8);
+  // A recent, full-weight, UN-embedded entry must NOT leak on recency+weight
+  // alone (0.25+0.15=0.40 would clear the 0.35 threshold without this guard).
+  const unembedded = rankByRelevance(
+    [{ namespace: "insights", key: "pending", value: "x", updatedAt: new Date(nowMs).toISOString(), weight: 1, embedding: null }],
+    eA,
+    nowMs,
+  );
+  check("a recent, full-weight, un-embedded entry does not leak (semantic match required)", unembedded.length === 0);
 
   // 2. Semantic cross-session recall.
   console.log("\n[2] Semantic cross-session recall (write session 1 → read session 2)");
@@ -199,6 +207,13 @@ async function main(): Promise<void> {
   check(
     "reflection recorded an owner-visible 'what I learned' note",
     activity.some((a) => a.title === "Reflection: what I learned"),
+  );
+  // n1: the distilled rule supersedes the fast-path preference candidate.
+  const prefsAfter = await recall.execute({ namespace: "preferences" }, ctxFor(AURORA));
+  const prefKeysAfter = "entries" in prefsAfter ? prefsAfter.entries.map((e) => e.key) : [];
+  check(
+    "reflection removed the now-superseded fast-path preference (deduped)",
+    !prefKeysAfter.includes("rejected-create_purchase_order"),
   );
 
   // 5. Experiments — evaluator measures, decides, records with provenance.
@@ -268,6 +283,39 @@ async function main(): Promise<void> {
   const [p, ops] = await Promise.all([buildTenantProfile(AURORA), buildLiveOps(AURORA)]);
   const total = estimateTokens(p) + estimateTokens(ops) + t3;
   check(`L1–L3 total ≤ 2200 tok (got ${total})`, total <= 2200);
+
+  // 9. Reflection write budget is enforced across BOTH steps (rejections +
+  //    experiments), not just the rejection loop — with many open experiments a
+  //    run must still emit ≤ MAX_REFLECTION_WRITES durable writes.
+  console.log("\n[9] Reflection write budget with many experiments (≤10)");
+  for (let i = 0; i < 15; i += 1) {
+    const a = await storeFor(AURORA).addAction({
+      type: "update_campaign",
+      department: "marketing",
+      title: `Tweak Blender push ${i}`,
+      payload: { campaignId: "cmp-blender" },
+      justification: { reason: "test", expectedImpact: "test", confidence: 0.5 },
+      riskClass: "low",
+      status: "executed",
+      outcome: "done",
+      undoable: true,
+      undoData: { campaignId: "cmp-blender" },
+      decidedAt: storeFor(AURORA).now(),
+      executedAt: storeFor(AURORA).now(),
+    });
+    await createExperiment(AURORA, {
+      hypothesis: `Budget-test hypothesis ${i}`,
+      metric: "roas7d",
+      baseline: 0,
+      target: 0,
+      actionIds: [a.id],
+    });
+  }
+  const runningBefore = (await storeFor(AURORA).listExperiments("running")).length;
+  const budgeted = await reflect(AURORA, 1);
+  check(`reflection stays ≤ ${MAX_REFLECTION_WRITES} writes despite ${runningBefore} open experiments`, budgeted.writes.length <= MAX_REFLECTION_WRITES);
+  const runningAfter = (await storeFor(AURORA).listExperiments("running")).length;
+  check("the write cap left some experiments unevaluated (cap actually bit)", runningAfter > 0 && runningAfter < runningBefore);
 
   // --- report ---
   console.log(`\n${"=".repeat(60)}`);
