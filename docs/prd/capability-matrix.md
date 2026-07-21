@@ -5,7 +5,7 @@ will deliver) it → concrete evidence (file / tool / test). This is the honest
 ledger — a row is ✅ only if the code named in Evidence backs it up.
 
 - **Status:** ✅ done · 🟡 partial · ⬜ planned
-- **Last updated:** 2026-07-20 (through Phase 05)
+- **Last updated:** 2026-07-21 (through Phase 05, plus Nova UI Build step 1)
 - **Legend for the "(live)" caveat:** many rows are ✅/🟡 *against the in-memory
   demo backend* by default (`NOVA_STORE_BACKEND` defaults to `demo`). Phase 02
   shipped a live path behind that env switch; rows tagged
@@ -21,7 +21,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 | 03 | Two stores, one deployment, zero leakage | ✅ shipped | [phase-03](./capabilities/phase-03-multi-tenant-core.md) |
 | 04 | Cross-session recall + nightly reflection | ✅ shipped | [phase-04](./capabilities/phase-04-memory-and-learning.md) |
 | 05 | Per-tenant daily loop for a tenant fleet | ✅ shipped | [phase-05](./capabilities/phase-05-proactive-operations.md) |
-| 06 | Full founder loop through the existing UI | ⬜ planned | — |
+| 06 | Full founder loop through the existing UI | 🟡 in progress — superseded by the richer "Nova UI Build" PRD; step 1 (ledger + live feed) shipped | [nova-ui-build-01](./capabilities/nova-ui-build-01-ledger-feed.md) |
 | 07 | Red-team + compliance pass | ⬜ planned | — |
 | 08 | Load-verified fleet, SLOs, rollout | ⬜ planned | — |
 
@@ -92,7 +92,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 
 | Capability (PRD) | Status | Phase | Evidence |
 |---|---|---|---|
-| Business Hours Saved metric | ✅ (demo) | 01 | `activity.ts` `summarizeWork` (`MINUTES_BY_ACTION`). |
+| Business Hours Saved metric | ✅ (demo → live read: Nova UI Build step 1) | 01 | `activity.ts` `summarizeWork` (`MINUTES_BY_ACTION`); merchant-readable live via `GET /api/nova/home`'s `hoursWorkedToday` (real `NovaActivity` sum, tenant-timezone-aware day boundary). |
 | Revenue Influenced | 🟡 | 01→04 | Heuristic in P1 (cart recovery 25%, else 0); Phase 04 `attribution.ts` rewrites cart recovery to measured order total. Other sources still heuristic. **(demo → live: Phase 02)** |
 | Anomaly radar (proactive alerts) | ✅ (demo) | 01 | `detectAnomalies` (7 domains); threshold heuristics. |
 | Morning / Night / Weekly / Pulse reports | ✅ (demo) | 01 | 5 schedules + `file_report` + skills. Output model-dependent; cron doesn't fire under `eve dev`. |
@@ -102,7 +102,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 
 | Capability (PRD) | Status | Phase | Evidence |
 |---|---|---|---|
-| Founder dashboard ("While you were away…", task feed) | ⬜ | 06 | No UI; `file_report`/`NovaReport` produce the data a dashboard would render. |
+| Founder dashboard ("While you were away…", task feed) | 🟡 | 06 (Nova UI Build, step 1) | UI exists (`dakio-merchant/src/pages/nova/`, Nova HQ) and its live feed + task count are now real — `GET /api/nova/feed`+`/home` (`dakio-api/src/routes/novaDashboard.js`) read `NovaActivity`, pushed live via SSE (`novaFeedBus.js`). Decision cards, autonomy, guardrails still mock — see [nova-ui-build-01](./capabilities/nova-ui-build-01-ledger-feed.md). |
 | Memory transparency UI (edit/delete learned facts) | ⬜ | 06 | Data model ready (`source`/`provenance`); no UI. |
 | Business partner evolution (new suppliers, segments, brands) | ⬜ | 05–08 | Aspirational; needs live data + fleet + expansion guardrails. |
 
@@ -134,6 +134,17 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
   a completion-ack failure misrouted into job-failure handling). Earlier
   phases' statuses below Phase 05 still reflect a static code audit plus the
   phase-completion discipline in git, not a fresh re-run this session.
+- **Nova UI Build step 1 (2026-07-21) found the PRD's own "BUILD" verdict for
+  the action ledger was wrong** — it already existed and was already live
+  (Phase 01/02), just never merchant-readable. This step added a read-only
+  API + SSE push + minimal UI wiring, zero new tables. Independent
+  adversarial review found and fixed 2 critical bugs (an infinite
+  redirect-loop regression; an unhandled-error path that could crash the
+  whole shared dakio-api process) plus 4 lesser ones — see
+  [nova-ui-build-01](./capabilities/nova-ui-build-01-ledger-feed.md) for the
+  full list. No browser/visual check was possible (no browser tool available
+  in that session) — verified via build + live API + a real captured SSE push
+  against the dev tenant instead.
 - The deterministic suites (`isolation`, `memory`, `jobs`) are the strongest
   current proof for the phases they cover because they run without a model;
   the Phase-1 evals need a gateway key.

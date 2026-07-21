@@ -1,5 +1,12 @@
 # Phase 06 — Dashboard Experience Integration
 
+> **Superseded by `docs/prd/PRD - Nova UI Build.md`.** That PRD documents an actual
+> shipped-prototype UI in `dakio-merchant/src/pages/nova/` (Nova HQ — desk/command
+> views, department rooms, decision cards, chat), richer and more specific than this
+> doc's assumptions, and gives its own wiring order (§8). Work against that PRD's
+> capability reports (`docs/prd/capabilities/nova-ui-build-*.md`) going forward; this
+> doc is kept for its risk/testing-strategy notes but its scope section is stale.
+
 **Prereq: Phases 03 (auth/context) + 05 (jobs produce reports).** Self-contained: wiring
 the ALREADY-BUILT Dakio dashboard UI to Nova — chat, streaming, approvals, task feed,
 morning report, memory transparency, and the "hours saved" metrics — plus notifications.
