@@ -103,7 +103,7 @@ const fixtureActionFields = (j: { reason: string; expectedImpact: string; confid
 async function seedPreparedPO(storeId: string, title: string): Promise<ActionRecord> {
   return storeFor(storeId).addAction({
     type: "create_purchase_order",
-    department: "supplier_manager",
+    department: "operations",
     title,
     payload: { supplierId: "sup-x", productId: "prod-y", quantity: 100 },
     ...fixtureActionFields({ reason: "restock", expectedImpact: "avoid stockout", confidence: 0.6 }),

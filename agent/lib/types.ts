@@ -5,7 +5,8 @@
  * orders, marketing, logistics, finance) plus everything Nova persists back
  * into the store (memory, activity, prepared actions, reports).
  *
- * All money values are USD dollars. All timestamps are ISO 8601 strings.
+ * All money values are ৳ (BDT), Dakio's currency. All timestamps are ISO 8601
+ * strings.
  */
 
 // ---------------------------------------------------------------------------
@@ -423,8 +424,8 @@ export const NOVA_DEPARTMENTS = [
   "support",
   "product_research",
   "inventory",
-  "supplier_manager",
-  "courier_manager",
+  "operations",
+  "shipping",
   "finance",
   "growth",
 ] as const;

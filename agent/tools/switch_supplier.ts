@@ -14,7 +14,7 @@ export default defineTool({
     department: z
       .enum(NOVA_DEPARTMENTS)
       .optional()
-      .describe("Attribution for the activity log; defaults to supplier_manager."),
+      .describe("Attribution for the activity log; defaults to operations."),
   }),
   async execute({ receipt, department, ...payload }, ctx) {
     const client = storeFor(requireStore(ctx).storeId);
@@ -27,7 +27,7 @@ export default defineTool({
     const title = `Switch "${productName}" to supplier ${supplierName}`;
     return performAction(client, {
       type: "switch_supplier",
-      department: department ?? "supplier_manager",
+      department: department ?? "operations",
       title,
       payload,
       receipt,

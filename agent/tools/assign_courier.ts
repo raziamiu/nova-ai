@@ -14,7 +14,7 @@ export default defineTool({
     department: z
       .enum(NOVA_DEPARTMENTS)
       .optional()
-      .describe("Attribution for the activity log; defaults to courier_manager."),
+      .describe("Attribution for the activity log; defaults to shipping."),
   }),
   async execute({ receipt, department, ...payload }, ctx) {
     const client = storeFor(requireStore(ctx).storeId);
@@ -23,7 +23,7 @@ export default defineTool({
     const title = `Assign ${courierName} to order ${payload.orderId}`;
     return performAction(client, {
       type: "assign_courier",
-      department: department ?? "courier_manager",
+      department: department ?? "shipping",
       title,
       payload,
       receipt,

@@ -1003,7 +1003,7 @@ export function createSeed(nowMs: number): StoreSeed {
       minutesSaved: 24, revenueInfluence: 7920, actionId: null,
     },
     {
-      id: "act-109", at: hoursAgo(12), department: "courier_manager", kind: "analysis",
+      id: "act-109", at: hoursAgo(12), department: "shipping", kind: "analysis",
       title: "Reviewed SwiftShip performance",
       detail: "79% on-time, 11% RTO trailing rate (3 RTOs in the last 30 days). Recommending region-by-region migration to Meridian/Atlas.",
       minutesSaved: 20, revenueInfluence: 0, actionId: null,
