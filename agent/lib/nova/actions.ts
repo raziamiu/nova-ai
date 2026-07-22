@@ -187,6 +187,12 @@ async function executeNow(
     decidedAt: client.now(),
     executedAt: client.now(),
   });
+  // by:nova attribution — stamp the door record with this action's id so the
+  // door renders the chip + receipt drawer. Metadata, never authority: a
+  // failure here must not fail an already-executed action.
+  if (execution.targetRef) {
+    await client.attributeDoorRecord(execution.targetRef, record.id).catch(() => {});
+  }
   await recordActivity(client, {
     department: request.department,
     kind: "action",
@@ -232,6 +238,9 @@ export async function approveAction(
     decidedAt: client.now(),
     executedAt: client.now(),
   });
+  if (execution.targetRef) {
+    await client.attributeDoorRecord(execution.targetRef, actionId).catch(() => {});
+  }
   await recordActivity(client, {
     department: record.department,
     kind: "action",

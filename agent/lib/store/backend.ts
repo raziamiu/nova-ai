@@ -615,6 +615,11 @@ export class DemoStore implements StoreClient {
     return action;
   }
 
+  async attributeDoorRecord(_targetRef: string, _actionId: string): Promise<void> {
+    // The in-memory demo store has no door tables to stamp; the live backend
+    // (dakio.ts → POST /agent-data/attribute) persists the link.
+  }
+
   async listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]> {
     const matching = this.data.reports
       .filter((r) => filter?.kind === undefined || r.kind === filter.kind)

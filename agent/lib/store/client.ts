@@ -184,6 +184,13 @@ export interface StoreClient {
       Pick<ActionRecord, "status" | "outcome" | "undoData" | "undoable" | "decidedAt" | "executedAt">
     >,
   ): Promise<ActionRecord>;
+  /**
+   * by:nova attribution (Stage 0): stamp the door record a just-executed
+   * action touched (`targetRef` = "type:id") with the action id, so the door
+   * UI can render the chip + receipt drawer. Metadata, never authority —
+   * implementations must not throw on unattributable refs.
+   */
+  attributeDoorRecord(targetRef: string, actionId: string): Promise<void>;
 
   listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]>;
   addReport(report: Omit<NovaReport, "id" | "createdAt">): Promise<NovaReport>;

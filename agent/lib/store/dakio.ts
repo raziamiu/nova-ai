@@ -565,6 +565,13 @@ export class DakioStoreClient implements StoreClient {
     return this.actionFromWire(row);
   }
 
+  async attributeDoorRecord(targetRef: string, actionId: string): Promise<void> {
+    await this.request("/api/v1/agent-data/attribute", {
+      method: "POST",
+      body: { targetRef, novaActionId: actionId },
+    });
+  }
+
   async listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]> {
     const { reports } = await this.get<{ reports: NovaReport[] }>("/api/v1/agent-data/reports", {
       kind: filter?.kind,
