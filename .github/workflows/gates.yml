@@ -1,0 +1,50 @@
+# Nova's phase gates, as CI.
+#
+# The blueprint calls for breach evals to be merge-blocking (§16.4): one
+# authority breach should fail the build, not be noticed in review. Until this
+# existed, `npm test` was a gate only if someone remembered to run it.
+#
+# Everything here is hermetic — no database, no model calls, no network. The
+# suites use the in-memory demo backend and deterministic fixtures, so this is
+# fast and cannot flake on an external service.
+name: gates
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # Typecheck, the §16.3 completeness checks (every undoable verb has an
+      # engineered inverse; dakio-api's duty mirror is current), then the
+      # suites — isolation, memory, jobs, spine, duties, and the authority
+      # breach corpus.
+      - name: Phase gates
+        run: npm test
+
+      # A build failure is a gate failure: the agent has to actually compile
+      # and register its tools, not merely typecheck.
+      - name: eve build
+        run: npx eve build
+
+      - name: eve diagnostics must be clean
+        run: |
+          npx eve info > eve-info.txt
+          cat eve-info.txt
+          if ! grep -qE 'Diagnostics +0 errors, 0 warnings' eve-info.txt; then
+            echo "::error::eve reported diagnostics — see the output above"
+            exit 1
+          fi

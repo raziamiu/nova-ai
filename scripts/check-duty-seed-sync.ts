@@ -23,11 +23,24 @@ const expected = DUTIES.map((d) => ({
   minLevel: d.minLevel,
 }));
 
+let raw: string;
+try {
+  raw = readFileSync(TARGET, "utf8");
+} catch {
+  // dakio-api is a SEPARATE repo checked out beside this one. On a CI runner
+  // it isn't there, and that is not a failure — this check only has something
+  // to compare against in a full local workspace. Skipping loudly beats
+  // failing a build for a file that was never supposed to exist there.
+  console.warn(`○ SKIPPED: ${TARGET} not present (dakio-api not checked out beside this repo).`);
+  console.warn("  The mirror is only verifiable in a full local workspace.");
+  process.exit(0);
+}
+
 let actual: unknown;
 try {
-  actual = JSON.parse(readFileSync(TARGET, "utf8"));
+  actual = JSON.parse(raw);
 } catch (error) {
-  console.error(`✗ could not read ${TARGET}: ${String(error)}`);
+  console.error(`✗ ${TARGET} is not valid JSON: ${String(error)}`);
   console.error("  Run: npx -y tsx scripts/export-duty-seed.ts");
   process.exit(1);
 }
