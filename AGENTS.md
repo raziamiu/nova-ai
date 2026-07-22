@@ -9,15 +9,19 @@ package docs are unavailable, use https://eve.dev/docs as a fallback.
 ## What Nova is
 
 Nova is Dakio's **AI Business Operator** — one proactive digital employee per
-commerce store. The product vision lives in `docs/prd/nova-prd.md`; the phased
-engineering plan in `docs/blueprint/`. Read the PRD to understand the north
-star, the blueprint for how each phase gets there.
+commerce store. The canonical product spec is `docs/prd/PRD - Nova Master
+Build.md` (it supersedes and absorbs the original vision doc
+`docs/prd/nova-prd.md`, kept for narrative); the phased engineering plan is
+`docs/blueprint/` (v2: phases 06–15 map the PRD's delivery Stages 0–9). Read
+the Master Build PRD to understand the target, the blueprint for how each
+phase gets there.
 
 ## Capability tracking (do this at the end of every phase)
 
 The PRD is the promise; the code is the reality. `docs/prd/` keeps them honest:
 
-- `docs/prd/nova-prd.md` — the vision (north star; changes rarely).
+- `docs/prd/PRD - Nova Master Build.md` — the canonical spec (Stages 0–9).
+- `docs/prd/nova-prd.md` — the original vision (absorbed; kept for narrative).
 - `docs/prd/capability-matrix.md` — the master table: every PRD capability →
   status (✅ done / 🟡 partial / ⬜ planned) → phase → evidence (file/tool/test).
 - `docs/prd/capabilities/phase-NN-*.md` — one report per phase: new

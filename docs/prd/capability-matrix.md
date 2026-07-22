@@ -21,9 +21,7 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 | 03 | Two stores, one deployment, zero leakage | ✅ shipped | [phase-03](./capabilities/phase-03-multi-tenant-core.md) |
 | 04 | Cross-session recall + nightly reflection | ✅ shipped | [phase-04](./capabilities/phase-04-memory-and-learning.md) |
 | 05 | Per-tenant daily loop for a tenant fleet | ✅ shipped | [phase-05](./capabilities/phase-05-proactive-operations.md) |
-| 06 | Full founder loop through the existing UI | 🟡 in progress — superseded by the richer "Nova UI Build" PRD; step 1 (ledger + live feed) shipped | [nova-ui-build-01](./capabilities/nova-ui-build-01-ledger-feed.md) |
-| 07 | Red-team + compliance pass | ⬜ planned | — |
-| 08 | Load-verified fleet, SLOs, rollout | ⬜ planned | — |
+| 06–15 (v2) | Blueprint v2: one phase per Master Build PRD Stage 0–9 (Spine → Law → Consent → Proof → Craft → Conversation → Reach → Presence → Team → Launch) | ⬜ planned — UI Build step 1 (ledger + live feed) shipped and counts toward Stage 0 | [blueprint v2](../blueprint/README.md) · [nova-ui-build-01](./capabilities/nova-ui-build-01-ledger-feed.md) |
 
 > **Build order was 1 → 3 → 4.** Phase 2 was jumped; only its async-`StoreClient`
 > refactor ("2a", `98beca3`) was pulled forward to unblock 3 and 4. See the

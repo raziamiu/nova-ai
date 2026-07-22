@@ -1,248 +1,238 @@
-# Nova — Master System Architecture
+# Nova — Master System Architecture (v2)
 
 **Document 00 of the Nova Engineering Blueprint** · Audience: architects & tech leads.
-Phase documents 01–08 are self-contained; this document is the map that connects them.
+Phase documents are self-contained; this document is the map that connects them.
+v2 aligns the architecture to the **Master Build PRD** (`docs/prd/PRD - Nova Master
+Build.md`, canonical) and to what phases 01–05 actually shipped. Where v1 assumptions
+were wrong (eve subagent auth, schedule parking, PRD §14 readiness verdicts), this
+document records the corrections.
 
-Nova is Dakio's AI Business Operator: one dedicated, proactive digital employee per store,
-operating 24/7 across ten departments, gated by owner-controlled autonomy. This document
-defines the system components, how they connect, where knowledge lives, and how work
-executes — for **millions of tenant stores** on a single Nova platform.
+Nova is Dakio's AI Business Operator: one dedicated, proactive digital employee per
+store — 10 department agents coordinated by CEO-Nova — operating 24/7 through
+owner-controlled authority, for millions of tenant stores on one deployment.
 
 ---
 
-## 1. System components
+## 1. The five load-bearing primitives (PRD §4) and where they live
+
+Everything reduces to five concepts. Each is first-class in the backend, not UI
+decoration:
+
+| Primitive | Implementation | Repo | Phase |
+|---|---|---|---|
+| **Duty** (65, per department, one door each) | `NovaDuty` registry + seed `agent/lib/duties.ts`; statuses `ACTIVE / NEEDS DOOR / LOCKED Lx / PAUSED`; coverage rollups | dakio-api + nova-ai | 07 |
+| **Door** (the Dakio surface where output lands, `by: nova`) | door registry (module key ↔ merchant route ↔ pending-badge query); visible attribution in door UIs; Nova modules (Campaign Manager, Content Studio, …) | dakio-merchant + dakio-api | 06 (attribution) → 09–12 (modules) |
+| **Action + Receipt** (E-8) | shipped `NovaAction`/`NovaActivity` ledger, reshaped: `receipt{evidence[], before, after, confidence, expected_impact}`, `undo_deadline` (24h), `undone_at`, actor/verb/target_ref, append-only, exportable | dakio-api + `agent/lib/nova/actions.ts` | shipped, reshaped in 06 |
+| **Decision** (E-9) | new `NovaDecision`, split out of `status=prepared` actions: FIFO queue, `surfaced_in[]` fan-out, Approve / Later / Reject / frozen / expired, `bundle_ref` | dakio-api | 08 |
+| **Authority** (level × mode × guardrails) | `evaluateAuthority` seam extending shipped `gateAction`: L0–L4 ladder + earned level, per-agent/door mode, versioned guardrails + no-touch matcher, founder-only verbs, per-duty min level; refusals are logged, explainable events | nova-ai + dakio-api | shipped core, v2 in 07 |
+
+**The one rule (PRD §3), restated as the pipeline every phase preserves:**
+`authority check → execute → append ledger entry with receipt → land behind a door`.
+The model layer never mutates Dakio directly; `performAction()` is the sole mutation
+path and receipts are schema-enforced at the API layer (§16.2, phase 06).
+
+## 2. System components
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│ DAKIO PLATFORM                                                             │
-│  ┌──────────────┐   ┌───────────────────────┐   ┌───────────────────────┐  │
-│  │ Dashboard UI │   │ Dakio Core (Express)  │   │ Dakio Event Bus       │  │
-│  │ (done)       │   │ Store APIs + AgentData│   │ (webhooks/queue)      │  │
-│  └──────┬───────┘   └──────────┬────────────┘   └──────────┬────────────┘  │
-└─────────┼──────────────────────┼───────────────────────────┼───────────────┘
-          │ chat/stream/approve  │ tenant-scoped HTTPS       │ events
-┌─────────▼──────────────────────▼───────────────────────────▼───────────────┐
-│ NOVA SERVICE (one eve app deployment, serves ALL tenants)                  │
-│                                                                            │
-│  Channels          Harness (eve runtime)            Tool Layer             │
-│  ├ dashboard  ──►  ┌─────────────────────────┐  ┌──────────────────────┐   │
-│  ├ webhooks   ──►  │ durable sessions/turns  │──│ 38+ typed tools      │   │
-│  └ internal   ──►  │ context assembly        │  │ (all tenant-scoped)  │   │
-│                    │ department subagents ×10│  └─────────┬────────────┘   │
-│  Dispatcher        └─────────────────────────┘            │                │
-│  (per-tenant cron) Action Pipeline: gate → execute/prepare/block → undo    │
-└───────────────────────────────────────────────────────────┼────────────────┘
-                                                            │
-        ┌──────────────┬──────────────┬─────────────────────┼──────────────┐
-        │ Postgres     │ pgvector     │ Redis               │ Model Gateway│
-        │ (Nova state: │ (semantic    │ (context cache,     │ (Anthropic   │
-        │ memory, jobs,│ memory)      │ rate/cost budgets)  │ via Vercel   │
-        │ actions log) │              │                     │ AI Gateway)  │
-        └──────────────┴──────────────┴─────────────────────┴──────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ DAKIO PLATFORM                                                               │
+│ ┌───────────────────┐ ┌──────────────────────────┐ ┌──────────────────────┐  │
+│ │ dakio-merchant    │ │ dakio-api (Express+Prisma│ │ Voice stack (READY)  │  │
+│ │ Nova HQ + doors   │ │  + Postgres): store APIs,│ │ ElevenLabs+Twilio    │  │
+│ │ (desk, rooms,     │ │ agent-data, Nova* models,│ │ voiceCallService.js  │  │
+│ │ chat, wizard…)    │ │ jobs, SSE feed bus       │ │ + post-call webhook  │  │
+│ └───────┬───────────┘ └───────────┬──────────────┘ └──────────┬───────────┘  │
+└─────────┼─────────────────────────┼───────────────────────────┼──────────────┘
+   chat/stream/approve      tenant-scoped HTTPS          call sessions (13/14)
+┌─────────▼─────────────────────────▼───────────────────────────▼──────────────┐
+│ NOVA SERVICE (one eve app, serves ALL tenants)                               │
+│  Channels: eve (JWT auth, L4 ctx) · internal (dispatcher receive)            │
+│  Root agent = CEO-Nova ── 10 department subagents (typed outputSchema)       │
+│  Context engine L0–L5 · dynamic skills (playbooks) · dynamic model tiering   │
+│  Action pipeline: evaluateAuthority → execute/decision/refuse → receipt      │
+│  Dispatcher schedule (1/min) → per-tenant NovaJob queue (tz-aware, leased)   │
+└──────────────────────────────────────────────────────────────────────────────┘
+   Postgres (Dakio-hosted Nova* tables: ledger, decisions, duties, memory,
+   jobs, briefs, calls…) · embeddings outbox · SSE feed bus (LISTEN/NOTIFY at 15)
 ```
 
-| Component | Responsibility | Built on |
+| Component | Responsibility | Status |
 |---|---|---|
-| **Nova Agent Core** | Persona, orchestration, department subagents, tools | eve (filesystem-first agent) |
-| **StoreClient layer** | ONLY path to tenant business data; demo backend today, Dakio HTTP client in prod | authored TypeScript (`agent/lib/store/`) |
-| **Action Pipeline** | Autonomy gate → execute/prepare/block; justification; undo; audit | authored (`agent/lib/nova/actions.ts`) |
-| **Context Engine** | Assembles per-tenant, per-turn model context (no static tenant prompts) | eve dynamic instructions + Redis cache |
-| **Memory Service** | Episodic/semantic/procedural memory, reflection, forgetting | Postgres + pgvector, nightly jobs |
-| **Proactive Engine** | Per-tenant schedules + event-driven triggers | eve schedule dispatcher pattern + Dakio webhooks |
-| **Trust Plane** | Prepared-action queue, approvals, guardrails, kill switch, audit | Postgres + dashboard APIs |
-| **Observability** | Traces, token/cost metering per tenant, SLOs | eve instrumentation → OTel |
+| Nova Agent Core (eve) | persona, CEO-Nova routing, 10 dept subagents, 43+ tools | shipped |
+| StoreClient layer | ONLY data path; demo + live Dakio HTTP impls | shipped (campaign/social/messaging writes land 09/10/12) |
+| Action pipeline | authority gate → executed/decision/refused; receipts; undo | shipped, E-8/E-9 reshape 06–08 |
+| Duty & door registry | 65 duties, statuses, coverage; door bindings + badges | 07 |
+| Decision service | queue, approve/later/freeze transactions, fan-out, bundles | 08 |
+| Context engine | per-tenant L0–L5 assembly, no static tenant prompts | shipped |
+| Memory service | semantic/episodic/procedural + reflection + attribution | shipped; receipted corrections + call injection 13 |
+| Proactive engine | dispatcher + per-tenant jobs + event inbox | shipped; night shift v2 outputs 09 |
+| Voice stack | wire Dakio's live ElevenLabs pipeline; `NovaCallSession` receipts | 13 (negotiation calls 14) |
+| Trust plane | trust/earned levels, promotion offers, per-agent trust | 08 → 14 |
+| Observability & economics | OTel, per-tenant metering, SLOs | 15 |
 
-## 2. Agent orchestration
+## 3. Agent orchestration (v2 corrections included)
 
-- **One root agent ("Nova")** owns the conversation, the persona, and accountability.
-- **Ten department subagents** (`ceo, marketing, sales, support, product_research,
-  inventory, supplier_manager, courier_manager, finance, growth`) are eve subagents:
-  isolated context windows, scoped toolsets, own instructions. Root delegates
-  multi-step department work; handles quick lookups itself.
-- Why subagents (vs one giant toolset): context isolation (department work doesn't
-  pollute the founder conversation), parallelism (eve runs concurrent subagent calls),
-  per-department model tiering, and independent evallability.
-- eve reality to respect: **subagents inherit nothing** — tools are shared by
-  re-exporting root tool modules; procedures shared via `lib/` imports. Delegation is
-  NOT a security boundary; every tool re-derives tenancy and autonomy itself.
-- Orchestration for fan-out jobs (e.g. nightly ops across departments) stays
-  model-driven within a session; deterministic cross-tenant fan-out lives OUTSIDE the
-  model in the Dispatcher (§7).
+- **Root agent IS CEO-Nova** (PRD's 11th agent): owns the founder conversation, routes
+  chat to departments, merges night-shift reports, owns E-1 identity. The v1 `ceo`
+  subagent folds into root instructions (phase 07).
+- **10 department subagents** (canonical org, phase 07 rename): `marketing, sales,
+  support, product_research, inventory, shipping, finance, operations, growth` + root.
+  Subagent `description` fields are the routing table; the built-in `agent` self-copy
+  tool is disabled on root so all delegation goes through named departments (11).
+- **Typed handoffs:** subagent calls pass `outputSchema` so department runs return
+  structured results (PlanItems, grades, memos, research scores) — no prose parsing.
+  v1 under-used this; night shift v2 (09) depends on it.
+- **Programmatic fan-out:** eve's root-only `Workflow` tool (QuickJS orchestration,
+  `maxSubagents` cap, approval-safe, one durable step) is available for night-shift
+  per-department fan-out and benchmark map-reduce (09/14). Deterministic cross-tenant
+  fan-out stays OUTSIDE the model in the dispatcher (shipped).
+- **eve reality (corrected):** subagents inherit nothing — tools by re-export,
+  procedures via `lib/`, guardrails re-declared per agent dir; delegation is NOT a
+  security boundary. **And: `ctx.session.auth.current/.initiator` are BOTH null inside
+  declared-subagent sessions** (internal runtime path — eve auth guide). v1's claim
+  that auth flows to subagents is wrong; see §6 for the tenancy fix.
 
-## 3. Context management (dynamic, never static)
+## 4. Context management (unchanged core, new layers)
 
-Static markdown is allowed for exactly one thing: Nova's invariant persona and operating
-contract. Everything tenant-specific is assembled at runtime:
+| Layer | Content | Refresh | Phase |
+|---|---|---|---|
+| L0 persona core | CEO-Nova identity, principles, authority contract, ৳/bn-en style | deploy | shipped (৳ in 06) |
+| L1 tenant profile | store, vertical, currency, brand voice, goals | session, cached 24h | shipped |
+| L2 live ops | authority state (level/mode/guardrails/locks), decision queue digest, alerts | per turn | shipped, extends 07/08 |
+| L3 relevant memory | top-K semantic + episodic recall | per turn | shipped |
+| L4 page/task context | `x-dakio-client-context` (page, entity, selection) + adaptive chips | per message | shipped, chips 11 |
+| L5 everything else | tools, on demand | live | shipped |
+| Dynamic skills | per-tenant seasonal playbooks, promoted routines | session | 13/14 |
 
-| Layer | Content | Source | Refresh | Budget |
-|---|---|---|---|---|
-| L0 Persona core | identity, principles, autonomy contract, style | authored `instructions.md` | deploy | ~700 tok |
-| L1 Tenant profile | store name, vertical, currency, plan, brand voice, goals | Dakio API + memory | `session.started`, cached 24h | ~400 tok |
-| L2 Live ops state | autonomy level+guardrails, pending approvals, active alerts digest | Nova DB | `turn.started`, no cache | ~300 tok |
-| L3 Relevant memory | top-K semantic + recent episodic relevant to current task | pgvector similarity | `turn.started` | ~500 tok |
-| L4 Page/task context | current dashboard page, selected entity, active workflow | client `clientContext` per message | per message | ~150 tok |
-| L5 Everything else | catalog, orders, campaigns, finance… | tools, on demand | live | unbounded, tool-paged |
-
-Implementation: eve **dynamic instructions** (`defineDynamic` on `session.started` /
-`turn.started`) render L1–L3; the channel's `onMessage` maps client-provided page
-context into L4; tools are L5. All injected values are labeled as **data, not
-instructions** (prompt-injection trust boundary). Details: Phase 03.
-
-## 4. Memory architecture (the intelligence layers beyond Dakio data)
-
-| Layer | Why it exists | Stored where | Written by | Retrieved how | At inference |
-|---|---|---|---|---|---|
-| Working memory | current-task scratch state | eve `defineState` (per-session, durable across turns) | tools/hooks | in-process handle | implicit |
-| Conversation history | dialogue continuity | eve sessions (Workflow SDK) | harness | harness replay + compaction | automatic |
-| Episodic memory | "what happened & what we did": every action, decision, outcome | Postgres `nova_actions`, `nova_activity` | Action Pipeline (automatic) | tools (`list_actions`, `get_activity_report`) + reflection jobs | L3 when relevant; trust UI always |
-| Semantic memory | durable facts: goals, brand voice, preferences, rules, customer notes | Postgres `nova_memory` (+pgvector embedding) | `remember` tool + reflection distillation | keyed recall + top-K similarity | L1 (stable) + L3 (relevant) |
-| Procedural memory | how Nova performs recurring jobs | authored eve skills + per-tenant playbook skills (dynamic) | engineering + reflection promotions | eve `load_skill` | on demand |
-| Decision history | approvals/rejections → preference learning | `nova_actions` (status transitions) | trust plane | reflection jobs | distilled into semantic rules |
-| Business knowledge | commerce expertise (benchmarks, playbooks) | versioned skill packs | engineering | `load_skill` | on demand |
-| Planning state | today's focus, weekly commitments | `nova_memory` namespace `goals` | strategy schedules | L1 injection | every turn |
-| Execution logs | debugging, audit, billing | OTel traces + eve event stream → warehouse | instrumentation | ops tooling | never |
-
-Two eve limitations drive this design (both documented in eve's own guidance):
-`defineState` is **per-session only** and **never crosses the subagent boundary** —
-therefore all cross-session intelligence lives in external storage behind
-tenant-scoped tools; and nothing in eve is a vector store — semantic retrieval is our
-own service. Details: Phase 04.
+All injected values are labeled data-not-instructions (prompt-injection boundary).
 
 ## 5. Data flow
 
-**Interactive turn**: Dashboard → Nova channel (Dakio JWT) → auth maps to
-`SessionAuthContext{ attributes.storeId }` → context engine assembles L0–L4 → model →
-tool calls (each tool re-derives `storeId` from session auth, calls Dakio API /
-Nova DB) → action pipeline for mutations → streamed reply + events → dashboard.
+- **Interactive turn:** dashboard → eve channel (Dakio JWT → `storeId/role/plan`
+  attributes) → context L0–L4 → CEO-Nova → dept delegation / tools → mutations through
+  the action pipeline → receipts → SSE fan-out to feed/desk/doors → streamed reply.
+- **Proactive (night shift, PRD §9):** dispatcher (the one authored schedule) claims
+  due per-tenant `NovaJob`s → `receive()` into the internal channel per job → night
+  session: CEO-Nova fans out per-department analysis (typed outputs) → in-guardrail
+  actions with receipts, over-authority proposals as **decisions**, PlanItems, grades,
+  memos → 06:00 store-time brief assembles from the ledger. Tonight's plan (13)
+  previews it; the next brief scores planned-vs-done.
+- **Event-driven:** Dakio mutations emit into `NovaInbox` (same-process, ~20 call
+  sites) → debounced into jobs → same pipeline. Webhooks never invoke the model
+  synchronously.
+- **Voice (13/14):** call tools → dakio-api voiceCallService (ElevenLabs+Twilio,
+  live today for order verification) → post-call webhook → `NovaCallSession` →
+  every call is a ledger action; recording + transcript are the receipt; voice
+  Approve/Later executes the same `NovaDecision` records as taps.
 
-**Proactive run**: Dispatcher cron fires → claims due tenant jobs from `nova_jobs` →
-`receive()` into the internal channel with a synthetic tenant principal → same context
-assembly → same tools → outcomes land as reports/prepared actions in Nova DB →
-dashboard surfaces them; push/email via notification service. **No approval can park a
-scheduled run** (eve constraint) — the prepared-action queue absorbs everything needing
-a human.
+## 6. Multi-tenant isolation (with the v2 tenancy fix)
 
-**Event-driven**: Dakio webhook (order.created, cart.abandoned, ticket.opened) →
-webhook channel route (HMAC-verified) → debounced/deduped into `nova_jobs` → dispatcher
-path above. Events are queued, never model-invoked synchronously — protects the model
-budget from event storms.
+- Tenancy ONLY from verified auth (`requireStore`), never model input. Shipped:
+  Dakio-JWT channel auth, session-tenant pinning hook, kill switch (fail-closed,
+  enforced at turn start AND job claim).
+- **Subagent tenancy fix (06):** because eve gives subagent sessions no auth, a
+  server-side **session→tenant registry** is written at root session start; inside a
+  subagent, `requireStore` resolves via `ctx.session.parent.rootSessionId` lookup.
+  The `NOVA_DEV_STORE_ID` dev fallback stops masking this in dev; a regression test
+  proves department delegation resolves tenancy with the fallback unset.
+- eve route auth does NOT enforce session ownership (any principal may POST to any
+  sessionId) — the pinning hook is the enforcement and stays under test.
+- Data: every Nova table `tenantId`-keyed (+ RLS as defense-in-depth at 15); per-tenant
+  budgets/rate caps in the tool layer + dispatcher (15); per-tenant kill switch.
 
-## 6. Multi-tenant isolation
+## 7. Authority & trust plane (PRD §5, §11)
 
-- **Identity**: tenancy comes ONLY from verified auth (`ctx.session.auth.current.attributes.storeId`),
-  set by the channel auth layer from Dakio-signed JWTs. Model input is never trusted
-  for tenancy. One `requireStore(ctx)` guard used by every tool.
-- **Data**: every Nova table keyed by `store_id` (+ Postgres RLS as defense-in-depth);
-  Dakio APIs called with tenant-scoped service tokens; Redis keys prefixed `t:{storeId}:`.
-- **Compute/cost**: per-tenant token budgets, action rate limits, and concurrency caps
-  enforced in the tool layer + dispatcher (eve's limits are per-session, not per-tenant —
-  our metering wraps it).
-- **Configuration**: autonomy level, guardrails, quiet hours, brand voice — all rows in
-  Nova DB, injected per turn. No per-tenant code, no per-tenant prompts on disk.
-- **Blast radius**: per-tenant kill switch (`nova_tenants.status = paused`) checked in
-  `turn.started` hook + dispatcher; one tenant's failure never blocks the fleet.
+- **Ladder:** L0 Observe / L1 Suggest / L2 Draft / L3 Operator / L4 Acting CEO
+  (canonical names over the shipped 0–4 semantics; L1 and L2 get distinct behavior).
+  **Default at hire = L3** (FR-1) with `earned_level` locking L4 until trust is earned
+  from the ledger — this supersedes v1's level-2 default and old phase 08's
+  L2-default rollout; platform caution lives in earned levels, not lower defaults.
+- **Per-agent mode** (Manual / Assisted / Autonomous, default Assisted): per door in
+  07, per department agent in 14; mode changes act immediately on pending decisions.
+- **Guardrails (E-2):** versioned rows; canonical trio (daily spend cap ৳500–20,000,
+  max discount %, no-touch lock list) + the shipped six caps as platform superset.
+  A no-touch lock freezes matching pending decisions immediately.
+- **Founder-only verbs** (bulk refunds, guardrail edits, promotion acceptance,
+  contract signing): propose-only at every level on every path; refusal = logged
+  explainable event + escalation decision card.
+- **Trust** is computed from the ledger (approvals-weighted with undo penalties —
+  placeholder per PRD §18; formula is an open product decision due before 08 ships).
+  Queue-clear + threshold → Nova offers its own L3→L4 promotion. Per-agent trust from
+  each agent's ledger slice in 14.
 
-## 7. AI execution pipeline
+## 8. Memory & learning (shipped; H1.2 deltas)
 
-```
-trigger (chat | schedule | event)
-  → tenant resolution (auth / job row)          [hard fail if missing]
-  → kill-switch + budget check                  [cheap, Redis]
-  → context assembly (L0–L4)
-  → model turn (root Nova)
-      ↳ tool calls (reads)                      [tenant-scoped]
-      ↳ subagent delegation (departments)       [isolated context]
-      ↳ mutations → Action Pipeline:
-           gate(autonomy, guardrails, risk)
-           → executed  (+undo snapshot, +activity, +audit)
-           → prepared  (queue for owner)
-           → blocked   (explained)
-  → outputs: reply / report / notifications
-  → metering + traces
-```
+Shipped (04): namespaced semantic memory + embeddings, reflection, rejection
+fast-path, experiments, attribution. v2 deltas: teach/forget routed through the action
+pipeline so **corrections are receipted** (13); memory + BrandProfile injected into
+**call scripts** (13); founder memory UI (12/13); `NovaPlaybook` (procedural skill
+promotions) renamed **`NovaRoutine`** in 06 to free "playbook" for PRD E-19 seasonal
+bundles. Owner memory deletes stay HARD deletes (privacy ruling; documented deviation
+from PRD §12's blanket soft-delete — all new entities do get soft-delete).
 
-Model tiering (via eve dynamic model selection + per-subagent models): routine/bulk
-work (support drafts, pulse scans) → Haiku-class; core operator loop → Sonnet-class
-(`anthropic/claude-sonnet-5`); strategy (weekly/CEO synthesis) → Opus-class. Selection
-at `session.started` per job type; never mid-conversation.
+## 9. EVE capability map (v2 — corrected verdicts)
 
-## 8. Long-term learning
-
-Learning = data flywheel, not fine-tuning (v1):
-1. Every action stores justification + outcome (episodic).
-2. Owner approvals/rejections are preference signals; rejection reasons are distilled
-   into `rules`/`preferences` memory by nightly **reflection jobs** (scheduled model
-   runs that read the week's episodic log and write/update semantic entries).
-3. Experiment outcomes (campaigns, pricing) are written to `experiments` memory with
-   success criteria evaluated against actuals.
-4. Promotions: recurring successful procedures become per-tenant playbook skills.
-5. Fleet-level (privacy-safe, aggregated) benchmarks feed the shared knowledge packs.
-Guardrail: reflection writes are themselves autonomy-gated artifacts — visible and
-editable by the owner (memory UI), never silent behavior drift.
-
-## 9. Scalability
-
-- Nova service is stateless serverless (Vercel/Node 24); eve sessions are durable via
-  Workflow SDK backing store — horizontal scale by default. For self-hosted scale-out,
-  pin `@workflow/world-postgres`.
-- Hot paths cached: tenant profile (24h), business snapshot (60s), anomaly scan (5m).
-- Dispatcher shards by `store_id` hash; N dispatcher lanes; at-least-once with
-  idempotent jobs (idempotency key = `job_id`).
-- Cost ceilings: per-tenant daily token budget by plan; degrade gracefully (skip pulse
-  runs before skipping morning report; never skip approvals surfacing).
-- Millions of tenants ⇒ the binding constraint is **model spend**, not compute:
-  aggressive tiering + snapshot caching + event debouncing are first-class features.
-
-## 10. Security
-
-- AuthN: Dakio-signed JWT (JWKS) at the channel; `placeholderAuth` never ships.
-- AuthZ: role attributes (owner vs staff) gate trust-plane tools (approve/reject/undo,
-  autonomy config). eve approval-parks add interactive confirmation for owner-only ops.
-- Approval ≠ authorization: policies re-checked inside `execute` at run time.
-- Injection defense: customer messages/reviews/webhooks and memory values are labeled
-  untrusted data in context; instructions require flag-don't-follow; high-risk tools
-  ignore instruction-like content provenance (Phase 07).
-- Secrets: only in Nova app runtime env; never in sandbox (sandbox networking
-  `deny-all`; Nova needs no code execution).
-- Audit: immutable action log with actor (nova|owner|schedule), justification,
-  before/after snapshots.
-
-## 11. Extensibility
-
-- New department = new subagent directory (instructions + tool re-exports). No core changes.
-- New action = payload schema + executor + undoer + risk class entry. The gate,
-  queue, audit, and UI pick it up automatically.
-- New data source = new connection (eve MCP/OpenAPI connection) or StoreClient method.
-- New channel (WhatsApp founder chat, Slack) = eve channel file; same sessions.
-- Skill packs are versioned content — shippable without deploys (dynamic skills).
-
-## 12. EVE capability map (summary; each phase doc carries its own details)
-
-| Need | EVE fit | Verdict |
+| Need | eve fit | Verdict |
 |---|---|---|
-| Durable sessions, streaming, HITL parks | native | ✅ use as-is |
-| Typed tools + approval policies | native (`defineTool`, approvals) | ✅ use as-is |
-| Department agents | subagents | ✅ use (share via re-export/lib) |
-| Dynamic per-tenant context | dynamic instructions/skills/model | ✅ use — core of tenancy |
-| Persona | static instructions.md | ✅ minimal core only |
-| Cross-session memory | ❌ `defineState` is per-session | build: Postgres/pgvector service |
-| Per-tenant scheduling | ❌ schedules are static, root-only, UTC, no HITL parks | build: dispatcher + `nova_jobs` (eve's documented dynamic-scheduling pattern) |
-| Approvals in background runs | ❌ task-mode can't park | build: prepared-action queue (already core to PRD trust system) |
-| Vector retrieval / reflection | ❌ none | build: memory service + scheduled reflection |
-| Per-tenant cost metering | ❌ per-session limits only | build: Redis budgets + instrumentation |
-| Observability | instrumentation hooks | ✅ wire to OTel |
+| Durable sessions, streaming, subagent event proxying | native | ✅ shipped on |
+| Typed tools + approval fns | native | ✅ shipped on |
+| Department agents + typed results | subagents + `outputSchema` | ✅ use (outputSchema new in v2 plans) |
+| Programmatic fan-out | root-only `Workflow` tool | ✅ new — use in 09/14 |
+| Dynamic per-tenant context/skills/models/tools | `defineDynamic` | ✅ core of tenancy; dynamic tools = authority hard-gating option |
+| Auth in subagent sessions | ❌ null (`auth.current`/`initiator`) | build: session→tenant registry (06) |
+| Approval parks in background runs | markdown schedules can't; **handler-form sessions CAN park** | keep decision queue anyway (product needs it); v1's "eve can't park" rationale corrected |
+| Per-tenant scheduling | ❌ static root-only crons | shipped: dispatcher + `NovaJob` (eve's documented pattern) |
+| Cross-session memory / vectors | ❌ none | shipped: memory service |
+| Per-tenant metering | ❌ per-session limits only | build (15): OTel `step.started` runtimeContext tenant stamping + ledger |
+| Remote agents | `defineRemoteAgent` (park-until-callback) | optional escape hatch for heavy/voice services |
+| Self-host (Railway) | `eve start` Nitro cron; proxy `/.well-known/workflow/`; `@workflow/world-postgres@5.0.0-beta.x` pin | 15 runbook |
 
-## 13. Phase roadmap
+## 10. Stage ↔ phase roadmap
 
-| # | Phase | Milestone (testable) | Doc |
-|---|---|---|---|
-| 01 | Foundation Agent Core *(shipped)* | Nova operates a demo store end-to-end in `eve dev` | `01-foundation-agent-core.md` |
-| 02 | Dakio Integration | Nova operates one real dev store via Express APIs + webhooks | `02-dakio-integration.md` |
-| 03 | Multi-Tenant Core | Two stores, one deployment, zero leakage, dynamic context | `03-multi-tenant-core.md` |
-| 04 | Memory & Learning | Cross-session recall + nightly reflection, measurable | `04-memory-and-learning.md` |
-| 05 | Proactive Operations | Per-tenant daily loop + event triggers for a tenant fleet | `05-proactive-operations.md` |
-| 06 | Dashboard Experience | Chat, task feed, approvals, reports wired to the done UI | `06-dashboard-experience.md` |
-| 07 | Trust, Safety & Autonomy at Scale | Guardrail engine, audit, budgets, kill switch, injection defense | `07-trust-safety-scale.md` |
-| 08 | Scale, Observability & Production | Load-tested fleet, SLOs, cost dashboards, rollout | `08-scale-observability-production.md` |
+| Phase | PRD Stage | Gate (abbreviated; full text in each doc) |
+|---|---|---|
+| 06 Spine | 0 | coupon-as-Nova → door+feed ≤3s w/ receipt → undo; export |
+| 07 Law | 1 | refusal + downgrade + freeze, all server-enforced; 65 duties live |
+| 08 Consent | 2 | one decision record, every surface, zero drift; Later/freeze |
+| 09 Proof | 3 | night shift → brief → approve → live campaign → undo; ×2 stores — **milestone** |
+| 10 Craft | 4 | in-voice draft → revise → approve → scheduled publish |
+| 11 Conversation | 5 | 10/10 grounded chat, one refusal escalated |
+| 12 Reach | 6 | all doors live; zero `NEEDS DOOR` |
+| 13 Presence | 7 | the founder's whole day by voice, zero taps |
+| 14 Team | 8 | promote agent, Eid playbook one-tap, negotiation listen-in, benchmarks |
+| 15 Launch | 9 | 30-day ≥20-store pilot at GA criteria |
 
-Each phase ends green (typecheck + `eve build` + phase test suite) before the next begins.
+Sequential 06→08 (each is the next one's substrate); from 09 ≤50% overlap allowed but
+no gate demo may depend on unfinished later work (PRD §15).
+
+## 11. Naming reconciliation (v1 ↔ PRD)
+
+| Shipped v1 name | PRD concept | Disposition |
+|---|---|---|
+| `ActionRecord` / `NovaAction`+`NovaActivity` | E-8 Action + receipt / feed line | reshape (06) |
+| prepared action + approve/reject tools | E-9 Decision + desk | split into `NovaDecision` (08); Reject kept alongside Later |
+| autonomy levels 0–4 | L0–L4 named ladder | rename + earned levels (07) |
+| `DEFAULT_GUARDRAILS` six caps | E-2 trio + platform superset | versioned `NovaGuardrails` (07) |
+| `supplier_manager` / `courier_manager` subagents | Operations / Shipping departments | rename + data migration (07) |
+| `ceo` subagent | CEO-Nova (root) | fold into root (07) |
+| night/reflection job kinds | night shift (§9) | keep as scheduler slots; typed outputs (09) |
+| `NovaReport` kind=morning | E-16 Brief | structured `NovaBrief` (09) |
+| `NovaPlaybook` (procedural promotions) | — (collides with E-19) | rename `NovaRoutine` (06) |
+| `nova_experiments` | E-15 Experiment | extend (12) |
+| brand/goals memory namespaces | E-12 BrandProfile / E-16 Goal | structured entities (10/12), memory stays the narrative layer |
+| `detectAnomalies` + pulse | §13 watchdog (detection half) | escalation ladder call/push/card (13) |
+| `usd()` formatting | ৳ minor units, store display currency | `money()` refactor (06) |
+
+## 12. Corrections to PRD §14 readiness verdicts (ground truth wins)
+
+The PRD's backend matrix audited only Dakio's pre-existing systems. Against the whole
+codebase: **Action ledger + receipts** — not BUILD; shipped and merchant-live
+(`nova-ui-build-01` documented this exact error). **Memory store** — shipped (04)
+minus receipted corrections + call injection. **Chat/agent runtime** — substrate
+shipped (eve sessions, 10 subagents, dispatcher); router identity/signing/intents
+remain. **Authority engine** — level+guardrail gate shipped; mode axis, no-touch,
+earned levels, founder-only classification remain. **Campaign Manager** — the PRD's
+"Autopilot executes ads" PARTIAL is contradicted by `02-findings` (Meta `ads_read`
+only, no stored Campaign model, no ROAS source); phase 09 opens with the §18
+discovery spike and a designed propose-only fallback. Voice stack READY is confirmed
+(ElevenLabs+Twilio live in dakio-api for order verification, zero Nova wiring).
