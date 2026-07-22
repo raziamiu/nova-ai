@@ -33,7 +33,8 @@ I'll pick it up from here.
 
 | # | Status | What to do | How far I got |
 |---|---|---|---|
-| H-6 | ⬜ | **Visually check the merchant Coupons page**: `by:nova` chip renders on Nova-authored coupons, clicking it opens the receipt drawer with evidence/before/after, and the sidebar presence dots appear. | *Pending — I'll fill in what I could and couldn't verify when I build it.* |
+| H-6 | ⬜ | **Sanity-check the Coupons UI on a real screen** (yours, not headless) at desktop and phone width. | Mostly done, and further than expected. I drove headless Chrome against the local API with a seeded Nova-authored coupon and confirmed from the live DOM: the chip renders, the drawer opens with why / expected impact / 2 evidence rows with metrics / before→after diff / confidence / undo window / ledger id, and the nav dot lands on Coupons. It caught a real bug — the lime dot was invisible on the lime *active* nav item; fixed with a `color` prop (now ink-on-lime). Left for you: it's still a headless render at two fixed widths, so judgement calls (does the chip crowd the code on a small phone, is the drawer's density right) want human eyes. |
+| H-8 | ⬜ | **Delete the seeded demo coupon when you're done looking at it.** Coupon `WINBACK10` ("Lapsed-buyer winback") + its NovaAction exist in your **local** DB (`localhost:5433`, tenant *Mayer Doya Store*) so the chip has something to attach to. Nothing was written to Railway. | Deliberately left in place so you can see the feature immediately. Delete the coupon in the UI and the action row with `DELETE FROM "NovaAction" WHERE title LIKE 'Create 10%% winback%%'`. |
 
 ## Pre-existing problems I found but did not touch
 
