@@ -40,7 +40,7 @@ I'll pick it up from here.
 
 | # | Status | What | Detail |
 |---|---|---|---|
-| H-7 | ⬜ | **`dakio-api`'s `npm test` is broadly red — ~55 failing tests — and cannot currently serve as a gate.** This is worth a decision, not a shrug. | **Not caused by Nova work.** Every failure is a test that mocks `prisma.js` under `--experimental-test-module-mocks`; they all die at import with *"The requested module '@prisma/client' does not provide an export named 'PrismaClient'"* (and its knock-on *"...'./prisma.js' does not provide an export named 'default'"*). Prisma 5.22 ships CJS, and node's ESM named-export detection isn't resolving it under that flag. **Proven pre-existing**: I checked out the previous commit's schema, regenerated the client, and the failure reproduced identically — then restored. Affects auth, OTP, meta, orders, leads, suppliers, expenses, email preview, and more. Every suite that does *not* mock prisma is green, including all six Nova suites. Likely fixes: import `PrismaClient` via a CJS-safe default (`import pkg from '@prisma/client'; const { PrismaClient } = pkg`), or move to prisma 6 / `prisma-client` generator. |
+| H-7 | RESOLVED | ~~dakio-api npm test broadly red~~ | **Fixed, 55 failures to 0.** Root cause was  being called with an  key Node ignores (it wants /), so every prisma-mocking test died at import. 170 call sites across 37 files converted and verified per-file. Two genuine failures fixed separately: an NTFS-impossible 0600 permission assertion now skips loudly on Windows, and the OTP fail-closed test now asserts both real contracts instead of one the product superseded. |
 
 ---
 
@@ -65,6 +65,15 @@ Nothing has been pushed to `main` in any repo since the policy took effect.
 (demo/eval data only) was allowed to finish on `main` before the split.
 
 ---
+
+## Judgement calls I made that you may want to revisit
+
+These were mine to make to keep moving, but they are the kind of call you might
+decide differently. Nothing here is blocking.
+
+| # | What | My reasoning |
+|---|---|---|
+| J-1 | **The OTP dev bypass is now pinned by a test rather than flagged as a bug.** In any environment where  is not exactly , a failed verification email returns the OTP inline (HTTP 200) and leaves the  record live, instead of failing closed. | I judged this intentional and internally consistent, not a leak: the SUCCESS path already returns  in non-production, so the failure branch discloses nothing new in the same environment, and deleting a record whose code *was* delivered (inline) would break the flow the bypass exists for.  is load-bearing, documented deploy config. But it is a security-shaped guarantee resting on one env var, so if you would rather it fail closed everywhere, say so and I will invert it. |
 
 ## Standing context for whoever picks this up
 
