@@ -33,6 +33,11 @@ import type {
   CustomerMessage,
   Discount,
   ExpenseEntry,
+  GrowBroadcast,
+  GrowCampaign,
+  GrowGoal,
+  GrowIdea,
+  GrowPost,
   InboxEvent,
   JobKind,
   MemoryEntry,
@@ -103,6 +108,24 @@ export interface StoreClient {
   listDiscounts(activeOnly?: boolean): Promise<Discount[]>;
   createDiscount(discount: Omit<Discount, "id" | "createdAt">): Promise<Discount>;
   updateDiscount(id: string, patch: { active: boolean }): Promise<Discount>;
+
+  // ---- Grow Lab (read-only, Phase 06) ----
+  //
+  // The six founder-facing Grow modules. Read-only here on purpose: Grow
+  // WRITES land through the action pipeline into the store's shared
+  // `growService`, so a Nova-authored campaign obeys exactly the same rules a
+  // founder's does. Wiring those writes is Stage 3+ (phases 09–12); until
+  // then Nova can see the doors and reason about them, not act in them.
+  //
+  // Every row carries `createdBy`/`novaActionId` — Nova must be able to tell
+  // its own rows from the founder's before it proposes anything.
+
+  listGrowCampaigns(status?: GrowCampaign["status"]): Promise<GrowCampaign[]>;
+  listGrowPosts(status?: GrowPost["status"]): Promise<GrowPost[]>;
+  listGrowBroadcasts(): Promise<GrowBroadcast[]>;
+  listGrowIdeas(status?: GrowIdea["status"]): Promise<GrowIdea[]>;
+  /** The target for `month` ('YYYY-MM'), or the current month when omitted. */
+  getGrowGoal(month?: string): Promise<GrowGoal | null>;
 
   // Support & messaging
   listSupportTickets(status?: TicketStatus): Promise<SupportTicket[]>;

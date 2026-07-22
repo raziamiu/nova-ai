@@ -178,6 +178,122 @@ export interface Discount {
 
 export type TicketStatus = "open" | "waiting_on_customer" | "escalated" | "resolved";
 
+/* ── Grow Lab ────────────────────────────────────────────────────────────
+ *
+ * The six founder-facing Grow modules (Campaigns, Content Studio, Broadcast,
+ * Research, Growth, Goals) — real Dakio rows, read via `/api/v1/store/grow/*`.
+ *
+ * These are deliberately distinct from {@link Campaign} and {@link SocialPost}
+ * above: those model Meta ad insights, these model the merchant's own Grow Lab
+ * records. Same words, different things — the `Grow` prefix keeps them apart.
+ *
+ * Every row carries `createdBy` and `novaActionId` so Nova can tell its own
+ * work from the founder's and link a row back to the receipt explaining it.
+ * Attribution is metadata: a null `novaActionId` never means a row is invalid.
+ */
+
+/** Who authored a Grow row. Nova's rows are always explained by a receipt. */
+export type GrowAuthor = "founder" | "nova";
+
+export interface GrowCampaign {
+  id: string;
+  name: string;
+  /** Sales | Awareness | Launch */
+  goal: string;
+  status: "Draft" | "Scheduled" | "Live" | "Paused" | "Ended";
+  productIds: string[];
+  /** FB | IG | WA | SMS | EMAIL */
+  channels: string[];
+  startsAt: string | null;
+  endsAt: string | null;
+  /**
+   * Planned spend in ৳. Dakio has no ads-management scope, so this figure is
+   * never actually spent — never describe it as money that went out.
+   */
+  budget: number | null;
+  createdBy: GrowAuthor;
+  novaActionId: string | null;
+  createdAt: string;
+}
+
+export interface GrowPost {
+  id: string;
+  /** REEL | PHOTO | CAROUSEL | STORY | TEXT */
+  type: string;
+  title: string;
+  caption: string;
+  mediaUrl: string | null;
+  /** IG | FB — only FB can actually publish today. */
+  channels: string[];
+  scheduledAt: string | null;
+  publishedAt: string | null;
+  status: "Draft" | "Scheduled" | "Published" | "Failed";
+  campaignId: string | null;
+  /** Set once a real publish happened, e.g. `{ fb: "123_456" }`. */
+  externalIds: Record<string, string> | null;
+  /** Columns exist; no insights ingester writes them yet, so null ≠ zero. */
+  metrics: Record<string, number> | null;
+  createdBy: GrowAuthor;
+  novaActionId: string | null;
+  createdAt: string;
+}
+
+export interface GrowBroadcast {
+  id: string;
+  name: string;
+  audienceKey: string;
+  audienceLabel: string;
+  /** WA | SMS | EMAIL */
+  channel: string;
+  message: string;
+  scheduledAt: string | null;
+  sentAt: string | null;
+  /**
+   * Never "Sent" today: Dakio has no merchant→customer channel, so broadcasts
+   * are prepared and held. Do not report one as delivered.
+   */
+  status: "Draft" | "Scheduled" | "Sending" | "Sent" | "Failed";
+  recipientCount: number;
+  /** Held back by the 7-day cool-off the product promises. */
+  skippedCount: number;
+  deliveredCount: number;
+  readCount: number;
+  ordersCount: number;
+  revenue: number;
+  createdBy: GrowAuthor;
+  novaActionId: string | null;
+  createdAt: string;
+}
+
+export interface GrowIdea {
+  id: string;
+  /** trend | product */
+  kind: string;
+  label: string;
+  source: string | null;
+  note: string | null;
+  supplier: string | null;
+  costPrice: number | null;
+  sellPrice: number | null;
+  status: "saved" | "queued" | "imported" | "dismissed";
+  /** Set once the idea became a real draft Product. */
+  productId: string | null;
+  importedAt: string | null;
+  createdBy: GrowAuthor;
+  novaActionId: string | null;
+  createdAt: string;
+}
+
+/** One month's target. Actuals are Nova's own arithmetic over orders. */
+export interface GrowGoal {
+  id: string;
+  /** 'YYYY-MM' in store-local (Bangladesh) time. */
+  month: string;
+  revenueGoal: number;
+  ordersGoal: number;
+  createdAt: string;
+}
+
 export interface SupportTicket {
   id: string;
   customerId: string;
@@ -648,4 +764,14 @@ export interface StoreSeed {
   /** Phase 05 — optional so earlier-phase seeds don't need to declare them; DemoStore lazily initializes an empty queue. */
   jobDefs?: NovaJobDef[];
   jobs?: NovaJob[];
+  /**
+   * Phase 06 — Grow Lab. Optional: the demo store has no Grow modules seeded,
+   * so Nova sees them genuinely empty rather than pretending a founder had
+   * been working in them.
+   */
+  growCampaigns?: GrowCampaign[];
+  growPosts?: GrowPost[];
+  growBroadcasts?: GrowBroadcast[];
+  growIdeas?: GrowIdea[];
+  growGoals?: GrowGoal[];
 }

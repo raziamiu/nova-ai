@@ -24,6 +24,8 @@ import {
   resetSessionTenants,
 } from "../../agent/lib/tenancy/registry";
 import { storeFor, resetStores } from "../../agent/lib/store/resolve";
+import { DemoStore } from "../../agent/lib/store/backend";
+import { createSeed } from "../../agent/lib/store/seed";
 import type { TenantContext } from "../../agent/lib/tenant";
 
 const AURORA = "store-aurora";
@@ -192,6 +194,42 @@ async function main(): Promise<void> {
   check("approved execution got its undo window", !!approvedRecord?.undoDeadline);
   const undoneApproved = await undoAction(client, prepared.actionId);
   check("approved-then-undone round-trips", undoneApproved.detail.length > 0);
+
+  // 6. Grow Lab reads — Nova can see the doors it will later work in.
+  //
+  // The point of these checks is the EMPTY case: a store nobody has worked in
+  // must read as genuinely empty, so Nova says "nothing in Content Studio yet"
+  // instead of inventing a founder's backlog. Filtering must also be real, so
+  // a status filter can't quietly return everything.
+  console.log("\n[6] Grow Lab reads");
+  const growCampaigns = await client.listGrowCampaigns();
+  check("grow campaigns read as an array", Array.isArray(growCampaigns));
+  check("demo store has no Grow rows to invent", growCampaigns.length === 0);
+  check("grow posts read empty, not undefined", (await client.listGrowPosts()).length === 0);
+  check("grow broadcasts read empty", (await client.listGrowBroadcasts()).length === 0);
+  check("grow ideas read empty", (await client.listGrowIdeas()).length === 0);
+  check("no month goal is null, not a zeroed goal", (await client.getGrowGoal()) === null);
+
+  // Seeded rows prove the filters actually filter (and that authorship survives).
+  const seeded = new DemoStore({
+    ...createSeed(Date.now()),
+    growCampaigns: [
+      {
+        id: "gc-1", name: "Founder campaign", goal: "Sales", status: "Live",
+        productIds: [], channels: ["FB"], startsAt: null, endsAt: null, budget: 5000,
+        createdBy: "founder", novaActionId: null, createdAt: new Date().toISOString(),
+      },
+      {
+        id: "gc-2", name: "Nova campaign", goal: "Sales", status: "Draft",
+        productIds: [], channels: ["FB"], startsAt: null, endsAt: null, budget: null,
+        createdBy: "nova", novaActionId: "act-42", createdAt: new Date().toISOString(),
+      },
+    ],
+  });
+  check("status filter narrows the list", (await seeded.listGrowCampaigns("Live")).length === 1);
+  const novaRow = (await seeded.listGrowCampaigns("Draft"))[0];
+  check("Nova's own row is distinguishable by author", novaRow?.createdBy === "nova");
+  check("Nova's row links back to its receipt", novaRow?.novaActionId === "act-42");
 
   // --- summary ---------------------------------------------------------------
   console.log("\n" + "=".repeat(60));

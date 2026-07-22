@@ -6,6 +6,8 @@
  *     inbox) ↔ `/api/v1/agent-data/*`
  *   - commerce reads (products/customers/orders/carts/discounts/expenses/
  *     suppliers/purchase-orders/campaigns/couriers/trending) ← `/api/v1/store/*`
+ *   - Grow Lab reads (campaigns/posts/broadcasts/ideas/goals) ←
+ *     `/api/v1/store/grow/*` (Phase 06; writes stay with the action pipeline)
  *
  * The backend returns already-Nova-shaped JSON, so this client is a thin
  * adapter: fetch → unwrap. All impedance (Decimal→number, status maps, derived
@@ -39,6 +41,11 @@ import type {
   CustomerMessage,
   Discount,
   ExpenseEntry,
+  GrowBroadcast,
+  GrowCampaign,
+  GrowGoal,
+  GrowIdea,
+  GrowPost,
   InboxEvent,
   JobKind,
   MemoryEntry,
@@ -321,6 +328,41 @@ export class DakioStoreClient implements StoreClient {
       method: "PATCH",
       body: patch,
     });
+  }
+
+  // ==========================================================================
+  // Grow Lab (read) — the six founder-facing modules, live from Dakio.
+  //
+  // Read-only by design; Grow writes go through the action pipeline into the
+  // backend's shared `growService`, so a Nova-authored row obeys the same
+  // rules a founder's does. Filtering is server-side (the backend indexes
+  // `[tenantId, status]`), so the status argument is a query param, not a
+  // client-side filter over a full fetch.
+  // ==========================================================================
+
+  async listGrowCampaigns(status?: GrowCampaign["status"]): Promise<GrowCampaign[]> {
+    const { campaigns } = await this.get<{ campaigns: GrowCampaign[] }>("/api/v1/store/grow/campaigns", { status });
+    return campaigns;
+  }
+
+  async listGrowPosts(status?: GrowPost["status"]): Promise<GrowPost[]> {
+    const { posts } = await this.get<{ posts: GrowPost[] }>("/api/v1/store/grow/posts", { status });
+    return posts;
+  }
+
+  async listGrowBroadcasts(): Promise<GrowBroadcast[]> {
+    const { broadcasts } = await this.get<{ broadcasts: GrowBroadcast[] }>("/api/v1/store/grow/broadcasts");
+    return broadcasts;
+  }
+
+  async listGrowIdeas(status?: GrowIdea["status"]): Promise<GrowIdea[]> {
+    const { ideas } = await this.get<{ ideas: GrowIdea[] }>("/api/v1/store/grow/ideas", { status });
+    return ideas;
+  }
+
+  async getGrowGoal(month?: string): Promise<GrowGoal | null> {
+    const { goal } = await this.get<{ goal: GrowGoal | null }>("/api/v1/store/grow/goals", { month });
+    return goal;
   }
 
   // ==========================================================================

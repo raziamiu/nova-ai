@@ -26,6 +26,11 @@ import type {
   CustomerMessage,
   Discount,
   ExpenseEntry,
+  GrowBroadcast,
+  GrowCampaign,
+  GrowGoal,
+  GrowIdea,
+  GrowPost,
   InboxEvent,
   JobKind,
   MemoryEntry,
@@ -267,6 +272,37 @@ export class DemoStore implements StoreClient {
     };
     this.data.discounts.push(created);
     return created;
+  }
+
+  // ---- Grow Lab (read-only) ----
+  //
+  // The demo seed ships no Grow rows, so these read empty. That is the honest
+  // state for a demo store nobody has worked in — Nova should say "nothing in
+  // Content Studio yet", not invent a founder's backlog. Seeds may populate
+  // the optional collections when a scenario needs them.
+
+  async listGrowCampaigns(status?: GrowCampaign["status"]): Promise<GrowCampaign[]> {
+    const rows = this.data.growCampaigns ?? [];
+    return status === undefined ? rows : rows.filter((c) => c.status === status);
+  }
+
+  async listGrowPosts(status?: GrowPost["status"]): Promise<GrowPost[]> {
+    const rows = this.data.growPosts ?? [];
+    return status === undefined ? rows : rows.filter((p) => p.status === status);
+  }
+
+  async listGrowBroadcasts(): Promise<GrowBroadcast[]> {
+    return this.data.growBroadcasts ?? [];
+  }
+
+  async listGrowIdeas(status?: GrowIdea["status"]): Promise<GrowIdea[]> {
+    const rows = this.data.growIdeas ?? [];
+    return status === undefined ? rows : rows.filter((i) => i.status === status);
+  }
+
+  async getGrowGoal(month?: string): Promise<GrowGoal | null> {
+    const key = month ?? this.now().slice(0, 7);
+    return (this.data.growGoals ?? []).find((g) => g.month === key) ?? null;
   }
 
   async updateDiscount(id: string, patch: { active: boolean }): Promise<Discount> {
