@@ -15,6 +15,10 @@ on the eve framework, from the shipped v1 foundation to the full
 
 ## How to use these documents
 
+- **New to Nova, or just want the story?** Read **[`TOUR.md`](./TOUR.md)** — ~10 minutes,
+  plain language, no entity codes, walks the whole arc from what shipped to Stage 9. Keep
+  **[`GLOSSARY.md`](./GLOSSARY.md)** open beside it: it decodes `E-8`, `FR-2.4`, `§16.3`,
+  `L0–L4`, "door", `NEEDS DOOR`, and the framework vocabulary.
 - **`00-master-architecture.md`** is the map: the five PRD primitives and how they land
   on eve + the three repos, orchestration, context, memory, authority, data flow,
   tenancy, the corrected eve capability verdicts, and the Stage↔Phase roadmap. Read it
