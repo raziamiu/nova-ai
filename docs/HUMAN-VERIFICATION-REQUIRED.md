@@ -40,7 +40,7 @@ I'll pick it up from here.
 
 | # | Status | What | Detail |
 |---|---|---|---|
-| H-7 | RESOLVED | ~~dakio-api npm test broadly red~~ | **Fixed, 55 failures to 0.** Root cause was  being called with an  key Node ignores (it wants /), so every prisma-mocking test died at import. 170 call sites across 37 files converted and verified per-file. Two genuine failures fixed separately: an NTFS-impossible 0600 permission assertion now skips loudly on Windows, and the OTP fail-closed test now asserts both real contracts instead of one the product superseded. |
+| H-7 | ✅ RESOLVED | ~~`dakio-api` `npm test` broadly red~~ | **Fixed — 55 failures to 0** (commit `b68d0b2`). Root cause: `t.mock.module` was called with an `exports:` key that Node ignores (it wants `namedExports:` / `defaultExport:`), so every prisma-mocking test received an empty mock and died at import. 170 call sites across 37 files converted, each file verified on its own. Two genuine failures fixed separately: an NTFS-impossible `0600` permission assertion now skips loudly on Windows (the guarantee is real on the Linux deploy target), and the OTP fail-closed test now asserts both real contracts instead of one the product had superseded — see **J-1**. |
 
 ---
 
@@ -73,7 +73,7 @@ decide differently. Nothing here is blocking.
 
 | # | What | My reasoning |
 |---|---|---|
-| J-1 | **The OTP dev bypass is now pinned by a test rather than flagged as a bug.** In any environment where  is not exactly , a failed verification email returns the OTP inline (HTTP 200) and leaves the  record live, instead of failing closed. | I judged this intentional and internally consistent, not a leak: the SUCCESS path already returns  in non-production, so the failure branch discloses nothing new in the same environment, and deleting a record whose code *was* delivered (inline) would break the flow the bypass exists for.  is load-bearing, documented deploy config. But it is a security-shaped guarantee resting on one env var, so if you would rather it fail closed everywhere, say so and I will invert it. |
+| J-1 | **The OTP dev bypass is now pinned by a test rather than flagged as a bug.** In any environment where `NODE_ENV` is not exactly `"production"`, a failed verification email returns the OTP inline (HTTP 200) and leaves the `EmailOtp` record live, instead of failing closed. `src/routes/auth.js:104-118`. | Judged intentional and internally consistent rather than a leak: the SUCCESS path already returns `devOtp` in non-production, so the failure branch discloses nothing the success branch doesn't in the same environment; and deleting a record whose code *was* delivered (inline, in the response) would break the very flow the bypass exists to enable. Git backs this — the test predates the bypass (`1954c8e`), and `d0bd276` added it deliberately under its own feature name. `NODE_ENV=production` is load-bearing, documented deploy config. **But** it is a security-shaped guarantee resting on a single env var, so if you'd rather it fail closed everywhere, that's a one-line inversion — say the word. The test now pins BOTH paths, so neither can drift unnoticed. |
 
 ## Standing context for whoever picks this up
 
