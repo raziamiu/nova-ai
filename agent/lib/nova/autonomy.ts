@@ -72,8 +72,8 @@ export interface GateDecision {
 
 type GuardrailCheck =
   | { result: "allow" }
-  | { result: "needs_approval"; why: string }
-  | { result: "block"; why: string };
+  | { result: "needs_approval"; why: string; rule: string; whyBn?: string }
+  | { result: "block"; why: string; rule: string; whyBn?: string };
 
 /**
  * Hard business limits. "block" means Nova may never do it, even with
@@ -92,6 +92,7 @@ async function checkGuardrails(
       if (percentOff > guardrails.maxDiscountPct) {
         return {
           result: "block",
+          rule: "max_discount_pct",
           why: `Discount of ${percentOff}% exceeds the ${guardrails.maxDiscountPct}% guardrail.`,
         };
       }
@@ -102,12 +103,13 @@ async function checkGuardrails(
       const newPrice = Number(payload.newPrice ?? 0);
       const product = await client.getProduct(productId);
       if (!product) {
-        return { result: "block", why: `Unknown product: ${productId}` };
+        return { result: "block", rule: "unknown_product", why: `Unknown product: ${productId}` };
       }
       const changePct = Math.abs((newPrice - product.price) / product.price) * 100;
       if (changePct > guardrails.maxPriceChangePct) {
         return {
           result: "needs_approval",
+          rule: "max_price_change_pct",
           why: `Price change of ${changePct.toFixed(1)}% exceeds the ${guardrails.maxPriceChangePct}% autonomous limit.`,
         };
       }
@@ -115,6 +117,7 @@ async function checkGuardrails(
       if (marginPct < guardrails.minMarginPct) {
         return {
           result: "block",
+          rule: "min_margin_pct",
           why: `New price leaves ${marginPct.toFixed(1)}% margin, below the ${guardrails.minMarginPct}% floor.`,
         };
       }
@@ -125,7 +128,7 @@ async function checkGuardrails(
       if (budget === undefined || budget === null) return { result: "allow" };
       const campaign = await client.getCampaign(String(payload.campaignId ?? ""));
       if (!campaign) {
-        return { result: "block", why: `Unknown campaign: ${String(payload.campaignId)}` };
+        return { result: "block", rule: "unknown_campaign", why: `Unknown campaign: ${String(payload.campaignId)}` };
       }
       const changePct =
         campaign.dailyBudget > 0
@@ -134,6 +137,7 @@ async function checkGuardrails(
       if (changePct > guardrails.maxBudgetChangePct) {
         return {
           result: "needs_approval",
+          rule: "max_budget_change_pct",
           why: `Budget change of ${changePct.toFixed(0)}% exceeds the ${guardrails.maxBudgetChangePct}% autonomous limit.`,
         };
       }
@@ -146,7 +150,7 @@ async function checkGuardrails(
       if (total > guardrails.maxAutoPurchaseOrderTotal) {
         return {
           result: "needs_approval",
-          why: `PO total ৳${total.toFixed(2)} exceeds the ৳${guardrails.maxAutoPurchaseOrderTotal} autonomous limit.`,
+          why: `PO total ৳${total.toFixed(2)} exceeds the ৳${guardrails.maxAutoPurchaseOrderTotal} autonomous limit.`, rule: "max_auto_purchase_order_total",
         };
       }
       return { result: "allow" };
@@ -156,7 +160,31 @@ async function checkGuardrails(
   }
 }
 
-/** Decide what happens to an action under the current autonomy config. */
+/**
+ * The platform superset, exposed to the Stage 1 authority seam.
+ *
+ * These six numeric caps predate the canonical guardrail trio and remain the
+ * outermost bound a tenant cannot loosen past. `evaluateAuthority` calls this
+ * LAST, inside itself — deliberately not as a second gate running alongside,
+ * which is how two gates drift into disagreeing about the same action.
+ */
+export async function checkGuardrailsForAuthority(
+  client: StoreClient,
+  guardrails: Guardrails,
+  type: ActionType,
+  payload: Record<string, unknown>,
+): Promise<GuardrailCheck> {
+  return checkGuardrails(client, guardrails, type, payload);
+}
+
+/**
+ * Decide what happens to an action under the current autonomy config.
+ *
+ * @deprecated Stage 1 replaced this with `evaluateAuthority` in `authority.ts`,
+ * which judges level × mode × guardrails × no-touch × founder-only verb × duty
+ * in one place and names the rule that fired. Kept while the older callers and
+ * the demo-backend path migrate; do not add new callers.
+ */
 export async function gateAction(
   client: StoreClient,
   config: AutonomyConfig,

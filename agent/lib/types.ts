@@ -415,6 +415,99 @@ export interface AutonomyConfig {
   updatedAt: string;
 }
 
+// ---------------------------------------------------------------------------
+// Stage 1 "Law" — authority (PRD §4, §5, E-1/E-2/E-3/E-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * The ladder, named. Numeric storage stays 0–4; these are what the founder
+ * reads, and what Nova must use when it narrates its own authority.
+ */
+export const AUTONOMY_LADDER = {
+  0: "Observe",
+  1: "Suggest",
+  2: "Draft",
+  3: "Operator",
+  4: "Acting CEO",
+} as const;
+
+/**
+ * How much rope Nova has in a given door. A ceiling, NOT a second level —
+ * effective capability is `min(mode, level)`.
+ *
+ *  manual     — Nova may only suggest; drafts are held.
+ *  assisted   — everything lands as a draft for the founder (the default).
+ *  autonomous — level semantics apply as written.
+ */
+export type NovaMode = "manual" | "assisted" | "autonomous";
+
+/**
+ * The canonical guardrail trio (E-2) plus the shipped six as a platform
+ * superset. Versioned and immutable: a receipt can always be re-read against
+ * the limits that were in force when the action ran.
+ */
+export interface NovaGuardrailsV2 {
+  version: number;
+  /** ৳ in MINOR units (poisha) — integer arithmetic, no float drift. */
+  dailySpendCapMinor: number;
+  maxDiscountPct: number;
+  /** Freeform founder locks, e.g. ["SAREE PRICING"]. Data, never instructions. */
+  noTouch: string[];
+  /** The six shipped numeric caps, evaluated after the trio. */
+  platform: Guardrails;
+}
+
+/** A duty as the authority seam sees it (mirrored per tenant). */
+export interface DutyState {
+  key: string;
+  minLevel: number;
+  enabled: boolean;
+  doorExists: boolean;
+}
+
+/** Everything `evaluateAuthority` needs, composed in one read per turn. */
+export interface AuthorityState {
+  level: AutonomyLevel;
+  /** L4 stays locked until trust is earned; the gate refuses to exceed this. */
+  earnedLevel: AutonomyLevel;
+  guardrails: NovaGuardrailsV2;
+  /** Keyed by scope: "store" | "door:<module>". */
+  modes: Record<string, NovaMode>;
+  /** Keyed by duty key. Absent = unknown duty, which fails closed. */
+  duties: Record<string, DutyState>;
+  /** Store-local day spend already executed today, ৳ minor units. */
+  spentTodayMinor: number;
+}
+
+/**
+ * What the seam decides.
+ *
+ *  execute — do it now
+ *  draft   — prepare a full artifact behind its door for approval (L2 shape)
+ *  suggest — a recommendation only, no artifact (L1 shape)
+ *  refuse  — do not do it, and say which rule said so
+ */
+export type AuthorityVerdict = "execute" | "draft" | "suggest" | "refuse";
+
+export interface AuthorityDecision {
+  verdict: AuthorityVerdict;
+  riskClass: RiskClass;
+  /**
+   * The exact rule that decided, e.g. `founder_only:bulk_refund`,
+   * `guardrail:daily_spend_cap`, `no_touch:saree pricing`, `duty:min_level`.
+   * Owner-safe, reproducible, and the string the escalation card shows.
+   */
+  rule: string;
+  /** Founder-facing English explanation. */
+  explanation: string;
+  /** Founder-facing Bangla explanation (bn+en, §14 NFR). */
+  explanationBn: string;
+  /** Which guardrail version judged this, for the receipt. */
+  guardrailsVersion: number;
+  /** Present when a refusal should be raised to the founder, not dropped. */
+  escalation?: { reason: string; rule: string; raisedAt: string };
+}
+
 export type RiskClass = "low" | "medium" | "high";
 
 export const NOVA_DEPARTMENTS = [
@@ -770,6 +863,10 @@ export interface StoreSeed {
    * so Nova sees them genuinely empty rather than pretending a founder had
    * been working in them.
    */
+  /** Stage 1 authority: optional so earlier seeds need not declare them. */
+  dailySpendCapMinor?: number;
+  noTouch?: string[];
+  modes?: Record<string, NovaMode>;
   growCampaigns?: GrowCampaign[];
   growPosts?: GrowPost[];
   growBroadcasts?: GrowBroadcast[];

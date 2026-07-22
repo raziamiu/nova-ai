@@ -25,6 +25,7 @@ import type {
   ActionRecord,
   ActionStatus,
   ActivityEntry,
+  AuthorityState,
   AutonomyConfig,
   Campaign,
   CartRecoveryState,
@@ -158,6 +159,14 @@ export interface StoreClient {
   // ---- Nova agent data (the store persists these too) ----
 
   getAutonomy(): Promise<AutonomyConfig>;
+  /**
+   * Stage 1: everything the authority seam needs, composed in ONE read per
+   * turn — level, earned ceiling, guardrails (versioned), door modes, duty
+   * states, and today's committed spend. Implementations MUST throw rather
+   * than return a partial state: `evaluateAuthority` fails closed on error,
+   * and a silently-empty state would read as "no locks, no limits".
+   */
+  getAuthority(): Promise<AuthorityState>;
   setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig>;
 
   listMemory(namespace?: MemoryNamespace): Promise<MemoryEntry[]>;

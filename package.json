@@ -16,8 +16,9 @@
     "test:jobs": "npx --yes tsx evals/jobs/run.ts",
     "test:spine": "npx --yes tsx evals/spine/run.ts",
     "test:duties": "npx --yes tsx evals/duties/run.ts",
+    "test:authority": "npx --yes tsx evals/authority/run.ts",
     "check:undo": "npx --yes tsx scripts/check-undo-coverage.ts",
-    "test": "npm run typecheck && npm run check:undo && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties"
+    "test": "npm run typecheck && npm run check:undo && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",

@@ -33,6 +33,7 @@ import type {
   ActionRecord,
   ActionStatus,
   ActivityEntry,
+  AuthorityState,
   AutonomyConfig,
   Campaign,
   CartRecoveryState,
@@ -451,6 +452,22 @@ export class DakioStoreClient implements StoreClient {
   async getAutonomy(): Promise<AutonomyConfig> {
     const { autonomy } = await this.get<{ autonomy: AutonomyConfig | null }>("/api/v1/agent-data/config");
     return autonomy ?? { level: 2, guardrails: DEFAULT_GUARDRAILS, updatedAt: this.now() };
+  }
+
+  /**
+   * Stage 1 authority state — one composed read per turn.
+   *
+   * Deliberately NOT defensive: if the backend can't answer, this throws and
+   * `evaluateAuthority` fails closed. Substituting a default here would mean
+   * an outage silently reads as "no locks, no limits", which is the one
+   * failure mode this whole seam exists to prevent.
+   */
+  async getAuthority(): Promise<AuthorityState> {
+    const { authority } = await this.get<{ authority: AuthorityState }>("/api/v1/agent-data/authority");
+    if (!authority || typeof authority.level !== "number" || !authority.guardrails) {
+      throw new Error("Dakio returned an incomplete authority state");
+    }
+    return authority;
   }
 
   async setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig> {

@@ -18,6 +18,7 @@ import type {
   ActionRecord,
   ActionStatus,
   ActivityEntry,
+  AuthorityState,
   AutonomyConfig,
   Campaign,
   CartRecoveryState,
@@ -53,6 +54,8 @@ import type {
   TrendingProduct,
 } from "../types";
 import type { StoreClient } from "./client";
+import { DUTIES, DOORS } from "../duties";
+import { SPEND_MINOR } from "../nova/authority";
 import { createSeed } from "./seed";
 import { lastOccurrenceAtOrBefore } from "../jobs/cron";
 import { randomUUID } from "node:crypto";
@@ -272,6 +275,47 @@ export class DemoStore implements StoreClient {
     };
     this.data.discounts.push(created);
     return created;
+  }
+
+  /**
+   * Stage 1 authority state, composed from the demo seed.
+   *
+   * The demo store starts with no locks and no per-door modes — a founder who
+   * has configured nothing. Guardrails come from the seeded autonomy config so
+   * the demo and the gate agree, and `spentTodayMinor` is summed from actions
+   * actually executed today rather than tracked separately, which keeps it
+   * honest when a test time-travels a record.
+   */
+  async getAuthority(): Promise<AuthorityState> {
+    const autonomy = this.data.autonomy;
+    const startOfDay = new Date(this.now().slice(0, 10) + "T00:00:00.000Z").getTime();
+    let spentTodayMinor = 0;
+    for (const a of this.data.actions) {
+      if (a.status !== "executed" || !a.executedAt) continue;
+      if (Date.parse(a.executedAt) < startOfDay) continue;
+      const spend = SPEND_MINOR[a.type];
+      if (spend) spentTodayMinor += Math.max(0, spend(a.payload as Record<string, unknown>) || 0);
+    }
+    return {
+      level: autonomy.level,
+      // No trust formula until phase 08 — the ceiling simply tracks the level.
+      earnedLevel: autonomy.level,
+      guardrails: {
+        version: 1,
+        dailySpendCapMinor: this.data.dailySpendCapMinor ?? 500_000,
+        maxDiscountPct: autonomy.guardrails.maxDiscountPct,
+        noTouch: this.data.noTouch ?? [],
+        platform: autonomy.guardrails,
+      },
+      modes: this.data.modes ?? { store: "autonomous" },
+      duties: Object.fromEntries(
+        DUTIES.map((d) => [
+          d.key,
+          { key: d.key, minLevel: d.minLevel, enabled: true, doorExists: DOORS[d.door]?.exists ?? false },
+        ]),
+      ),
+      spentTodayMinor,
+    };
   }
 
   // ---- Grow Lab (read-only) ----

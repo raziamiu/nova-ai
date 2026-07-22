@@ -22,7 +22,7 @@ import type {
 } from "../types";
 import type { StoreClient } from "../store/client";
 import type { ReceiptInput } from "./schemas";
-import { gateAction } from "./autonomy";
+import { evaluateAuthority } from "./authority";
 import { executors, undoers } from "./executors";
 import { recordActivity } from "./activity";
 import { learnFromRejection } from "../memory/service";
@@ -73,19 +73,43 @@ function justificationOf(receipt: ActionReceipt) {
   };
 }
 
-/** Gate, then execute / queue / block. Used by every action tool. */
+/**
+ * Gate, then execute / queue / block. Used by every action tool.
+ *
+ * Since Stage 1 the judgement comes from `evaluateAuthority` — one seam that
+ * weighs founder-only verbs, no-touch locks, the duty roster, door mode, level,
+ * and guardrails, and names the rule that decided. The four verdicts collapse
+ * onto three stored statuses:
+ *
+ *   execute → executed
+ *   draft   → prepared, `stage: "draft"`      (a full artifact to approve)
+ *   suggest → prepared, `stage: "suggestion"` (a recommendation only)
+ *   refuse  → blocked
+ *
+ * L1 and L2 both prepare, but they are observably different records — which is
+ * the point of the split, and what phase 08's Decision authoring consumes.
+ */
 export async function performAction(
   client: StoreClient,
   request: ActionRequest,
 ): Promise<PerformResult> {
-  const config = await client.getAutonomy();
-  const decision = await gateAction(client, config, request.type, request.payload);
+  const authority = await evaluateAuthority(client, {
+    type: request.type,
+    payload: request.payload,
+    dutyKey: request.dutyRef ?? undefined,
+  });
+  const decision = {
+    verdict: authority.verdict === "execute" ? "execute" : authority.verdict === "refuse" ? "block" : "prepare",
+    riskClass: authority.riskClass,
+    explanation: authority.explanation,
+  } as const;
+  const stage = authority.verdict === "suggest" ? "suggestion" : "draft";
 
   if (decision.verdict === "block") {
     // A refusal is an explained, receipted event — its evidence is the rule
     // that fired (PRD §13 non-negotiables).
     const receipt = buildReceipt(request.receipt, null, null, [
-      { source: "authority_gate", note: decision.explanation },
+      { source: "authority_gate", note: decision.explanation, metric: "rule", value: authority.rule },
     ]);
     const record = await client.addAction({
       type: request.type,
@@ -130,7 +154,9 @@ export async function performAction(
       receipt,
       riskClass: decision.riskClass,
       status: "prepared",
-      outcome: null,
+      // L1 "suggestion" vs L2 "draft" — the same status, deliberately
+      // different records (PRD §5.1).
+      outcome: stage === "suggestion" ? "suggestion" : null,
       undoable: false,
       undoData: null,
       actor: "nova",
@@ -145,7 +171,10 @@ export async function performAction(
     return {
       status: "prepared",
       actionId: record.id,
-      detail: `${decision.explanation} The action is fully prepared — the owner can approve it with approve_action("${record.id}").`,
+      detail:
+        stage === "suggestion"
+          ? `${decision.explanation} This is a recommendation only — nothing was drafted.`
+          : `${decision.explanation} The action is fully prepared — the owner can approve it with approve_action("${record.id}").`,
       undoable: false,
     };
   }
