@@ -23,6 +23,7 @@ import type {
 import type { StoreClient } from "../store/client";
 import type { ReceiptInput } from "./schemas";
 import { evaluateAuthority } from "./authority";
+import { authorDecision } from "./decisions";
 import { executors, undoers } from "./executors";
 import { recordActivity } from "./activity";
 import { learnFromRejection } from "../memory/service";
@@ -132,6 +133,17 @@ export async function performAction(
       decidedAt: client.now(),
       executedAt: null,
     });
+    // A refusal Nova wants the founder to know about becomes an ESCALATION
+    // card. Not every refusal: only the ones the seam flagged as needing a
+    // human, so ordinary guardrail trims do not fill the desk with noise.
+    if (authority.escalation) {
+      await client
+        .addDecision(authorDecision(client, record, authority))
+        .catch(() => {
+          /* The refusal is already recorded and enforced; failing to ALSO
+             surface it must not turn a safe refusal into an error. */
+        });
+    }
     return {
       status: "blocked",
       actionId: record.id,
@@ -168,6 +180,15 @@ export async function performAction(
       decidedAt: null,
       executedAt: null,
     });
+    // The founder answers a Decision, not a raw prepared row: one record that
+    // every surface renders, so approving on the desk clears it in the room and
+    // the door too.
+    await client
+      .addDecision(authorDecision(client, record, authority))
+      .catch(() => {
+        /* The action is prepared and safe either way; a desk-card failure must
+           not lose the work Nova already did. */
+      });
     return {
       status: "prepared",
       actionId: record.id,

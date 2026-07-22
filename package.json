@@ -16,10 +16,11 @@
     "test:jobs": "npx --yes tsx evals/jobs/run.ts",
     "test:spine": "npx --yes tsx evals/spine/run.ts",
     "test:duties": "npx --yes tsx evals/duties/run.ts",
+    "test:decisions": "npx --yes tsx evals/decisions/run.ts",
     "test:authority": "npx --yes tsx evals/authority/run.ts",
     "check:duty-seed": "npx --yes tsx scripts/check-duty-seed-sync.ts",
     "check:undo": "npx --yes tsx scripts/check-undo-coverage.ts",
-    "test": "npm run typecheck && npm run check:undo && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority"
+    "test": "npm run typecheck && npm run check:undo && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority && npm run test:decisions"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",

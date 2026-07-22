@@ -25,6 +25,7 @@ import type {
   Courier,
   Customer,
   CustomerMessage,
+  DecisionRecord,
   Discount,
   ExpenseEntry,
   GrowBroadcast,
@@ -316,6 +317,46 @@ export class DemoStore implements StoreClient {
       ),
       spentTodayMinor,
     };
+  }
+
+  // ---- Decisions (E-9) ----
+
+  async listDecisions(filter?: { status?: DecisionRecord["status"]; tag?: string; limit?: number }): Promise<DecisionRecord[]> {
+    const rows = (this.data.decisions ?? [])
+      .filter((d) => (filter?.status === undefined || d.status === filter.status) && (filter?.tag === undefined || d.tag === filter.tag))
+      // Pinned first, then FIFO. A founder should meet the urgent ask before
+      // the queue buries it, but order is otherwise the order they were asked.
+      .sort((a, b) => a.priority - b.priority || a.queuePos - b.queuePos);
+    return filter?.limit ? rows.slice(0, filter.limit) : rows;
+  }
+
+  async addDecision(input: Omit<DecisionRecord, "id" | "createdAt" | "queuePos" | "status" | "decidedBy" | "decidedAt" | "bundleRef" | "frozenByLock">): Promise<DecisionRecord> {
+    const all = this.data.decisions ?? (this.data.decisions = []);
+    const created: DecisionRecord = {
+      ...input,
+      id: this.nextId("dec"),
+      bundleRef: null,
+      status: "queued",
+      queuePos: all.reduce((max, d) => Math.max(max, d.queuePos), 0) + 1,
+      frozenByLock: null,
+      decidedBy: null,
+      decidedAt: null,
+      createdAt: this.now(),
+    };
+    all.push(created);
+    return created;
+  }
+
+  async updateDecision(id: string, patch: Partial<Pick<DecisionRecord, "status" | "surfacedIn" | "queuePos" | "frozenByLock" | "decidedBy" | "decidedAt">>): Promise<DecisionRecord> {
+    const decision = this.mustFind((this.data.decisions ?? []).find((d) => d.id === id), "Decision", id);
+    // "Later" sends a card to the BACK of the queue rather than dropping it —
+    // the founder deferred it, they did not decline it.
+    if (patch.status === "later" && patch.queuePos === undefined) {
+      const all = this.data.decisions ?? [];
+      decision.queuePos = all.reduce((max, d) => Math.max(max, d.queuePos), 0) + 1;
+    }
+    Object.assign(decision, patch);
+    return decision;
   }
 
   async setNoTouch(locks: string[]): Promise<string[]> {

@@ -40,6 +40,7 @@ import type {
   Courier,
   Customer,
   CustomerMessage,
+  DecisionRecord,
   Discount,
   ExpenseEntry,
   GrowBroadcast,
@@ -468,6 +469,27 @@ export class DakioStoreClient implements StoreClient {
       throw new Error("Dakio returned an incomplete authority state");
     }
     return authority;
+  }
+
+  // ==========================================================================
+  // Decisions (E-9, Stage 2)
+  // ==========================================================================
+
+  async listDecisions(filter?: { status?: DecisionRecord["status"]; tag?: string; limit?: number }): Promise<DecisionRecord[]> {
+    const { decisions } = await this.get<{ decisions: DecisionRecord[] }>("/api/v1/agent-data/decisions", {
+      status: filter?.status,
+      tag: filter?.tag,
+      limit: filter?.limit,
+    });
+    return decisions;
+  }
+
+  async addDecision(decision: Omit<DecisionRecord, "id" | "createdAt" | "queuePos" | "status" | "decidedBy" | "decidedAt" | "bundleRef" | "frozenByLock">): Promise<DecisionRecord> {
+    return this.request<DecisionRecord>("/api/v1/agent-data/decisions", { method: "POST", body: decision });
+  }
+
+  async updateDecision(id: string, patch: Partial<Pick<DecisionRecord, "status" | "surfacedIn" | "queuePos" | "frozenByLock" | "decidedBy" | "decidedAt">>): Promise<DecisionRecord> {
+    return this.request<DecisionRecord>(`/api/v1/agent-data/decisions/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
   }
 
   async setNoTouch(locks: string[]): Promise<string[]> {

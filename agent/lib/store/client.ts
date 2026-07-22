@@ -32,6 +32,7 @@ import type {
   Courier,
   Customer,
   CustomerMessage,
+  DecisionRecord,
   Discount,
   ExpenseEntry,
   GrowBroadcast,
@@ -173,6 +174,14 @@ export interface StoreClient {
    * the limits that judged it; this never edits the current row in place.
    */
   setNoTouch(locks: string[]): Promise<string[]>;
+
+  // ---- Decisions (E-9, Stage 2) ----
+  //
+  // One record per gated action, rendered on every surface. The store owns
+  // queue position and status transitions so two surfaces cannot disagree.
+  listDecisions(filter?: { status?: DecisionRecord["status"]; tag?: string; limit?: number }): Promise<DecisionRecord[]>;
+  addDecision(decision: Omit<DecisionRecord, "id" | "createdAt" | "queuePos" | "status" | "decidedBy" | "decidedAt" | "bundleRef" | "frozenByLock">): Promise<DecisionRecord>;
+  updateDecision(id: string, patch: Partial<Pick<DecisionRecord, "status" | "surfacedIn" | "queuePos" | "frozenByLock" | "decidedBy" | "decidedAt">>): Promise<DecisionRecord>;
   setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig>;
 
   listMemory(namespace?: MemoryNamespace): Promise<MemoryEntry[]>;

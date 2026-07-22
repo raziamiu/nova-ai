@@ -832,6 +832,39 @@ export interface NovaJob {
 // Seed container
 // ---------------------------------------------------------------------------
 
+
+/**
+ * E-9 Decision — a gated action, asked as a question the founder can answer.
+ *
+ * One record, rendered on every surface. `surfacedIn` records WHERE it has
+ * been shown so a single approve can clear it everywhere at once; duplicating the
+ * decision per surface is how two copies end up disagreeing about whether it
+ * was already answered.
+ */
+export interface DecisionRecord {
+  id: string;
+  tag: NovaDepartment;
+  kind: "proposal" | "escalation" | "promotion";
+  impactLabel: string;
+  title: string;
+  paramsLine: string;
+  why: string;
+  /** The E-8 action this asks about; payload, receipt and undo live there. */
+  actionId: string;
+  bundleRef: string | null;
+  status: "queued" | "approved" | "later" | "rejected" | "frozen" | "expired" | "undone";
+  queuePos: number;
+  surfacedIn: string[];
+  /** 1 = pinned (escalation or high risk), 5 = normal. */
+  priority: number;
+  /** Which no-touch lock froze it — a founder must be told which. */
+  frozenByLock: string | null;
+  expiresAt: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
 export interface StoreSeed {
   products: Product[];
   trendingProducts: TrendingProduct[];
@@ -869,6 +902,8 @@ export interface StoreSeed {
   dailySpendCapMinor?: number;
   noTouch?: string[];
   modes?: Record<string, NovaMode>;
+  /** Stage 2 decisions; the demo store starts with an empty desk. */
+  decisions?: DecisionRecord[];
   growCampaigns?: GrowCampaign[];
   growPosts?: GrowPost[];
   growBroadcasts?: GrowBroadcast[];
