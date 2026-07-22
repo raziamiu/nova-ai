@@ -274,10 +274,10 @@ async function main(): Promise<void> {
   const attrActivity = await attrStore.listActivity();
   const recovered = attrActivity.find((a) => a.id === "act-recovered");
   const unrecovered = attrActivity.find((a) => a.id === "act-unrecovered");
-  check("attribution rewrote the recovered cart's influence to the order total", recovered?.revenueInfluence === 150);
+  check("attribution rewrote the recovered cart's influence to the order total", recovered?.revenueInfluence === 18000);
   check("the rewritten influence is marked measured with provenance", recovered?.revenueBasis === "measured" && !!recovered?.revenueProvenance);
-  check("the unrecovered cart keeps its estimate (not overwritten)", unrecovered?.revenueInfluence === 20 && unrecovered?.revenueBasis === "estimated");
-  check("attribution reports the measured recovered revenue", attribution.measuredRevenue === 150);
+  check("the unrecovered cart keeps its estimate (not overwritten)", unrecovered?.revenueInfluence === 2400 && unrecovered?.revenueBasis === "estimated");
+  check("attribution reports the measured recovered revenue", attribution.measuredRevenue === 18000);
 
   // 7. Tenant isolation of recall / vectors.
   console.log("\n[7] Tenant isolation (A's memory never in B's recall)");
@@ -361,11 +361,11 @@ function attributionSeed(): StoreSeed {
       { id: "cust-B", name: "Bo", email: "b@x.com", segment: "new", ordersCount: 0, lifetimeValue: 0, lastOrderAt: null, notes: "", createdAt: iso(40) },
     ],
     orders: [
-      { id: "ord-A", customerId: "cust-A", items: [], subtotal: 150, discount: 0, shipping: 0, total: 150, status: "paid", courierId: null, placedAt: iso(1), deliveredAt: null, region: "north" },
+      { id: "ord-A", customerId: "cust-A", items: [], subtotal: 18000, discount: 0, shipping: 0, total: 18000, status: "paid", courierId: null, placedAt: iso(1), deliveredAt: null, region: "north" },
     ],
     abandonedCarts: [
-      { id: "cart-recovered", customerId: "cust-A", items: [], value: 120, abandonedAt: iso(3), recoveryState: "message_sent", recoveryMessage: "come back" },
-      { id: "cart-unrecovered", customerId: "cust-B", items: [], value: 80, abandonedAt: iso(3), recoveryState: "message_sent", recoveryMessage: "come back" },
+      { id: "cart-recovered", customerId: "cust-A", items: [], value: 14400, abandonedAt: iso(3), recoveryState: "message_sent", recoveryMessage: "come back" },
+      { id: "cart-unrecovered", customerId: "cust-B", items: [], value: 9600, abandonedAt: iso(3), recoveryState: "message_sent", recoveryMessage: "come back" },
     ],
     campaigns: [],
     socialPosts: [],
@@ -383,15 +383,15 @@ function attributionSeed(): StoreSeed {
         maxPriceChangePct: 25,
         maxBudgetChangePct: 50,
         minMarginPct: 20,
-        maxAutoPurchaseOrderTotal: 500,
-        maxAutoRefundTotal: 100,
+        maxAutoPurchaseOrderTotal: 60_000,
+        maxAutoRefundTotal: 12_000,
       },
       updatedAt: iso(10),
     },
     memory: [],
     activity: [
-      { id: "act-recovered", at: iso(3), department: "sales", kind: "action", title: "Cart recovery to Ann", detail: "sent", minutesSaved: 8, revenueInfluence: 30, actionId: null, relatedId: "cart-recovered", revenueBasis: "estimated" },
-      { id: "act-unrecovered", at: iso(3), department: "sales", kind: "action", title: "Cart recovery to Bo", detail: "sent", minutesSaved: 8, revenueInfluence: 20, actionId: null, relatedId: "cart-unrecovered", revenueBasis: "estimated" },
+      { id: "act-recovered", at: iso(3), department: "sales", kind: "action", title: "Cart recovery to Ann", detail: "sent", minutesSaved: 8, revenueInfluence: 3600, actionId: null, relatedId: "cart-recovered", revenueBasis: "estimated" },
+      { id: "act-unrecovered", at: iso(3), department: "sales", kind: "action", title: "Cart recovery to Bo", detail: "sent", minutesSaved: 8, revenueInfluence: 2400, actionId: null, relatedId: "cart-unrecovered", revenueBasis: "estimated" },
     ],
     actions: [],
     reports: [],

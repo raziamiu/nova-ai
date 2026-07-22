@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     type: "update_price",
     department: "finance",
     title: "Reprice carafe set",
-    payload: { productId: "prod-carafe", newPrice: 34 },
+    payload: { productId: "prod-carafe", newPrice: 4080 },
     receipt: RECEIPT,
   });
   check("level-4 low-risk action executed", executed.status === "executed", executed.detail);
@@ -182,7 +182,7 @@ async function main(): Promise<void> {
     type: "update_price",
     department: "finance",
     title: "Reprice diffuser",
-    payload: { productId: "prod-diffuser", newPrice: 29 },
+    payload: { productId: "prod-diffuser", newPrice: 3480 },
     receipt: RECEIPT,
   });
   check("level-2 action is prepared", prepared.status === "prepared", prepared.detail);

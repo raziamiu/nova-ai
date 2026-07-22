@@ -47,8 +47,8 @@ const BEACON_GUARDRAILS: Guardrails = {
   maxPriceChangePct: 10,
   maxBudgetChangePct: 40,
   minMarginPct: 18,
-  maxAutoPurchaseOrderTotal: 6000,
-  maxAutoRefundTotal: 250,
+  maxAutoPurchaseOrderTotal: 720_000,
+  maxAutoRefundTotal: 30_000,
 };
 
 export function createBeaconSeed(nowMs: number): StoreSeed {
@@ -67,76 +67,85 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     new Date(nowMs - daysAgo * DAY).toISOString().slice(0, 10);
   const r2 = (n: number): number => Math.round(n * 100) / 100;
 
+  /**
+   * Freight, in ৳. Unlike Aurora's flat home-delivery fee, B2B freight really
+   * does scale with order value (pallets, LTL), so these convert straight
+   * across at the same rate as the rest of the seed and the shipping-to-
+   * subtotal ratio is preserved exactly.
+   */
+  const FREE_FREIGHT_OVER = 30000;
+  const FLAT_FREIGHT = 2940;
+
   // ---- Products (10) — bulk industrial/janitorial ---------------------------
 
   const products: Product[] = [
     {
       id: "bprod-gloves", sku: "BCN-GLV-100", name: "Nitrile Gloves (Case/1000)", category: "Safety",
       description: "5-mil powder-free nitrile exam gloves, blue, case of 1000.",
-      price: 89.0, compareAtPrice: null, cost: 52, stock: 640, reorderPoint: 200,
+      price: 10680, compareAtPrice: null, cost: 6240, stock: 640, reorderPoint: 200,
       supplierId: "bsup-guardian", status: "active", rating: 4.6, reviewCount: 84,
       weeklyVelocity: [55, 60, 58, 62, 66, 70, 72, 75], tags: ["ppe", "bestseller"], createdAt: iso(300),
     },
     {
       id: "bprod-degreaser", sku: "BCN-DEG-05", name: "Industrial Degreaser (5 gal)", category: "Cleaning Chemicals",
       description: "Concentrated citrus degreaser, 5-gallon pail, dilutes 1:20.",
-      price: 74.5, compareAtPrice: null, cost: 38.4, stock: 118, reorderPoint: 60,
+      price: 8940, compareAtPrice: null, cost: 4608, stock: 118, reorderPoint: 60,
       supplierId: "bsup-chemworks", status: "active", rating: 4.5, reviewCount: 51,
       weeklyVelocity: [18, 19, 20, 21, 22, 23, 24, 25], tags: ["chemical"], createdAt: iso(260),
     },
     {
       id: "bprod-towel", sku: "BCN-TWL-CS", name: "Centerpull Paper Towels (Case/6)", category: "Paper",
       description: "2-ply centerpull hardwound towels, 600 ft/roll, 6 rolls per case.",
-      price: 42.0, compareAtPrice: null, cost: 24.8, stock: 30, reorderPoint: 80,
+      price: 5040, compareAtPrice: null, cost: 2976, stock: 30, reorderPoint: 80,
       supplierId: "bsup-northmill", status: "active", rating: 4.4, reviewCount: 132,
       weeklyVelocity: [40, 42, 44, 45, 47, 48, 50, 52], tags: ["paper", "bestseller"], createdAt: iso(280),
     },
     {
       id: "bprod-liner", sku: "BCN-LNR-45", name: "Trash Can Liners 45gal (Case/100)", category: "Waste",
       description: "1.5-mil low-density can liners, 45 gallon, 100 per case.",
-      price: 38.9, compareAtPrice: null, cost: 21.6, stock: 210, reorderPoint: 90,
+      price: 4668, compareAtPrice: null, cost: 2592, stock: 210, reorderPoint: 90,
       supplierId: "bsup-northmill", status: "active", rating: 4.3, reviewCount: 77,
       weeklyVelocity: [28, 29, 30, 31, 32, 33, 34, 35], tags: ["waste"], createdAt: iso(240),
     },
     {
       id: "bprod-mop", sku: "BCN-MOP-24", name: "Microfiber Mop System (24 in)", category: "Equipment",
       description: "Aluminum frame flat mop with 3 microfiber pads.",
-      price: 54.0, compareAtPrice: 64.0, cost: 22.5, stock: 96, reorderPoint: 25,
+      price: 6480, compareAtPrice: 7680, cost: 2700, stock: 96, reorderPoint: 25,
       supplierId: "bsup-guardian", status: "active", rating: 4.7, reviewCount: 39,
       weeklyVelocity: [7, 8, 8, 9, 9, 10, 10, 11], tags: ["equipment"], createdAt: iso(150),
     },
     {
       id: "bprod-sanitizer", sku: "BCN-SAN-1G", name: "Hand Sanitizer Gel (4×1 gal)", category: "Cleaning Chemicals",
       description: "70% ethyl alcohol gel, 1-gallon pump bottles, 4 per case.",
-      price: 63.0, compareAtPrice: null, cost: 55.0, stock: 340, reorderPoint: 40,
+      price: 7560, compareAtPrice: null, cost: 6600, stock: 340, reorderPoint: 40,
       supplierId: "bsup-chemworks", status: "active", rating: 4.1, reviewCount: 44,
       weeklyVelocity: [3, 3, 2, 2, 2, 1, 1, 1], tags: ["chemical", "overstock"], createdAt: iso(200),
     },
     {
       id: "bprod-tissue", sku: "BCN-TIS-CS", name: "2-Ply Toilet Tissue (Case/96)", category: "Paper",
       description: "Standard roll 2-ply bath tissue, 500 sheets, 96 rolls per case.",
-      price: 58.0, compareAtPrice: null, cost: 33.2, stock: 145, reorderPoint: 70,
+      price: 6960, compareAtPrice: null, cost: 3984, stock: 145, reorderPoint: 70,
       supplierId: "bsup-northmill", status: "active", rating: 4.5, reviewCount: 96,
       weeklyVelocity: [24, 25, 26, 27, 28, 29, 30, 31], tags: ["paper"], createdAt: iso(270),
     },
     {
       id: "bprod-disinfectant", sku: "BCN-DIS-CS", name: "Disinfectant Wipes (Case/12)", category: "Cleaning Chemicals",
       description: "EPA-registered disinfecting wipes, 160-count canisters, 12 per case.",
-      price: 68.0, compareAtPrice: null, cost: 41.0, stock: 88, reorderPoint: 50,
+      price: 8160, compareAtPrice: null, cost: 4920, stock: 88, reorderPoint: 50,
       supplierId: "bsup-chemworks", status: "active", rating: 4.6, reviewCount: 61,
       weeklyVelocity: [15, 16, 17, 18, 19, 20, 21, 22], tags: ["chemical"], createdAt: iso(190),
     },
     {
       id: "bprod-broom", sku: "BCN-BRM-36", name: "Push Broom 36 in (Case/6)", category: "Equipment",
       description: "Heavy-duty coarse/fine push broom head with handle, 6 per case.",
-      price: 96.0, compareAtPrice: null, cost: 44.0, stock: 62, reorderPoint: 15,
+      price: 11520, compareAtPrice: null, cost: 5280, stock: 62, reorderPoint: 15,
       supplierId: "bsup-guardian", status: "active", rating: 4.4, reviewCount: 28,
       weeklyVelocity: [4, 4, 5, 5, 5, 6, 6, 6], tags: ["equipment"], createdAt: iso(160),
     },
     {
       id: "bprod-floorpad", sku: "BCN-PAD-20", name: 'Floor Buffing Pads 20" (Case/5)', category: "Equipment",
       description: "Red spray-buff floor pads, 20 inch, 5 per case.",
-      price: 34.0, compareAtPrice: null, cost: 16.0, stock: 54, reorderPoint: 20,
+      price: 4080, compareAtPrice: null, cost: 1920, stock: 54, reorderPoint: 20,
       supplierId: "bsup-guardian", status: "active", rating: 4.2, reviewCount: 19,
       weeklyVelocity: [6, 6, 7, 7, 8, 8, 9, 9], tags: ["equipment"], createdAt: iso(140),
     },
@@ -158,10 +167,10 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
       id: "bsup-guardian", name: "Guardian Industrial", country: "US",
       reliabilityScore: 0.94, qualityScore: 0.92, currentDelayDays: 0,
       offers: [
-        { productId: "bprod-gloves", unitCost: 52, leadTimeDays: 7 },
-        { productId: "bprod-mop", unitCost: 22.5, leadTimeDays: 9 },
-        { productId: "bprod-broom", unitCost: 44, leadTimeDays: 9 },
-        { productId: "bprod-floorpad", unitCost: 16, leadTimeDays: 8 },
+        { productId: "bprod-gloves", unitCost: 6240, leadTimeDays: 7 },
+        { productId: "bprod-mop", unitCost: 2700, leadTimeDays: 9 },
+        { productId: "bprod-broom", unitCost: 5280, leadTimeDays: 9 },
+        { productId: "bprod-floorpad", unitCost: 1920, leadTimeDays: 8 },
       ],
       notes: "Primary PPE and equipment supplier. Domestic, fast, reliable.",
     },
@@ -169,9 +178,9 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
       id: "bsup-chemworks", name: "ChemWorks Distribution", country: "US",
       reliabilityScore: 0.86, qualityScore: 0.9, currentDelayDays: 3,
       offers: [
-        { productId: "bprod-degreaser", unitCost: 38.4, leadTimeDays: 12 },
-        { productId: "bprod-sanitizer", unitCost: 55, leadTimeDays: 10 },
-        { productId: "bprod-disinfectant", unitCost: 41, leadTimeDays: 11 },
+        { productId: "bprod-degreaser", unitCost: 4608, leadTimeDays: 12 },
+        { productId: "bprod-sanitizer", unitCost: 6600, leadTimeDays: 10 },
+        { productId: "bprod-disinfectant", unitCost: 4920, leadTimeDays: 11 },
       ],
       notes: "Chemical line. Freight-class shipping running 3 days behind this month.",
     },
@@ -179,9 +188,9 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
       id: "bsup-northmill", name: "Northmill Paper Co.", country: "CA",
       reliabilityScore: 0.9, qualityScore: 0.88, currentDelayDays: 0,
       offers: [
-        { productId: "bprod-towel", unitCost: 24.8, leadTimeDays: 6 },
-        { productId: "bprod-liner", unitCost: 21.6, leadTimeDays: 8 },
-        { productId: "bprod-tissue", unitCost: 33.2, leadTimeDays: 7 },
+        { productId: "bprod-towel", unitCost: 2976, leadTimeDays: 6 },
+        { productId: "bprod-liner", unitCost: 2592, leadTimeDays: 8 },
+        { productId: "bprod-tissue", unitCost: 3984, leadTimeDays: 7 },
       ],
       notes: "Paper goods. Minimum order 40 cases.",
     },
@@ -191,15 +200,15 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
 
   const couriers = [
     {
-      id: "bcour-ridgeline", name: "Ridgeline Freight", costPerShipment: 18.5, avgDeliveryDays: 3.1,
+      id: "bcour-ridgeline", name: "Ridgeline Freight", costPerShipment: 2220, avgDeliveryDays: 3.1,
       onTimeRate: 0.95, rtoRate: 0.01, regions: ["northeast", "midwest", "southeast"],
     },
     {
-      id: "bcour-haulpro", name: "HaulPro LTL", costPerShipment: 14.2, avgDeliveryDays: 4.6,
+      id: "bcour-haulpro", name: "HaulPro LTL", costPerShipment: 1704, avgDeliveryDays: 4.6,
       onTimeRate: 0.81, rtoRate: 0.06, regions: ["midwest", "southeast", "west"],
     },
     {
-      id: "bcour-metrovan", name: "MetroVan Same-Day", costPerShipment: 26.0, avgDeliveryDays: 1.2,
+      id: "bcour-metrovan", name: "MetroVan Same-Day", costPerShipment: 3120, avgDeliveryDays: 1.2,
       onTimeRate: 0.97, rtoRate: 0.02, regions: ["northeast"],
     },
   ];
@@ -236,10 +245,10 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
   type Row = [number, number, [string, number][], Order["status"], string | null, string, number];
   const rows: Row[] = [
     // Prior weeks
-    [26, 201, [["bprod-gloves", 4], ["bprod-towel", 6]], "delivered", "bcour-ridgeline", "northeast", 20],
+    [26, 201, [["bprod-gloves", 4], ["bprod-towel", 6]], "delivered", "bcour-ridgeline", "northeast", 2400],
     [24, 203, [["bprod-tissue", 5], ["bprod-liner", 4]], "delivered", "bcour-ridgeline", "northeast", 0],
     [22, 204, [["bprod-degreaser", 8], ["bprod-gloves", 3]], "delivered", "bcour-haulpro", "midwest", 0],
-    [20, 202, [["bprod-towel", 10], ["bprod-tissue", 6]], "delivered", "bcour-ridgeline", "midwest", 30],
+    [20, 202, [["bprod-towel", 10], ["bprod-tissue", 6]], "delivered", "bcour-ridgeline", "midwest", 3600],
     [18, 205, [["bprod-gloves", 6], ["bprod-disinfectant", 3]], "delivered", "bcour-metrovan", "northeast", 0],
     [16, 206, [["bprod-towel", 4]], "rto", "bcour-haulpro", "west", 0],
     [15, 201, [["bprod-liner", 6], ["bprod-degreaser", 3]], "delivered", "bcour-ridgeline", "northeast", 0],
@@ -252,7 +261,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     [7, 207, [["bprod-liner", 2], ["bprod-towel", 2]], "delivered", "bcour-haulpro", "southeast", 0],
     // Last week
     [6, 203, [["bprod-tissue", 6], ["bprod-disinfectant", 3]], "delivered", "bcour-ridgeline", "southeast", 0],
-    [5, 204, [["bprod-gloves", 8]], "delivered", "bcour-haulpro", "midwest", 40],
+    [5, 204, [["bprod-gloves", 8]], "delivered", "bcour-haulpro", "midwest", 4800],
     [4.5, 201, [["bprod-towel", 12], ["bprod-liner", 8]], "delivered", "bcour-ridgeline", "northeast", 0],
     [4, 206, [["bprod-disinfectant", 2]], "delivered", "bcour-haulpro", "west", 0],
     [3, 202, [["bprod-tissue", 5], ["bprod-towel", 5]], "fulfilled", "bcour-ridgeline", "midwest", 0],
@@ -266,7 +275,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
   const orders: Order[] = rows.map(([daysAgo, custNo, its, status, courierId, region, discount], i) => {
     const items = its.map(([pid, q]) => item(pid, q));
     const subtotal = r2(items.reduce((s, it) => s + it.quantity * it.unitPrice, 0));
-    const shipping = status === "cancelled" ? 0 : subtotal >= 250 ? 0 : 24.5;
+    const shipping = status === "cancelled" ? 0 : subtotal >= FREE_FREIGHT_OVER ? 0 : FLAT_FREIGHT;
     const placedMs = nowMs - daysAgo * DAY;
     const transitDays = courierId ? (courierDays.get(courierId) ?? 3) : 3;
     const hasArrived = ["delivered", "rto", "refunded", "refund_requested"].includes(status);
@@ -322,7 +331,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
   const campaigns: Campaign[] = [
     {
       id: "bcmp-search", name: "Google Search — Janitorial Supply", channel: "google", status: "active",
-      dailyBudget: 60, productIds: ["bprod-gloves", "bprod-towel", "bprod-liner"], startedAt: iso(70),
+      dailyBudget: 7200, productIds: ["bprod-gloves", "bprod-towel", "bprod-liner"], startedAt: iso(70),
       notes: "High-intent bottom-funnel search for facilities buyers.",
       dailyStats: stats([
         [59, 3200, 176, 4, 356], [60, 3300, 181, 5, 402], [58, 3150, 173, 4, 331],
@@ -334,7 +343,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     },
     {
       id: "bcmp-lin", name: "LinkedIn — Facilities Managers", channel: "meta", status: "active",
-      dailyBudget: 44, productIds: ["bprod-mop", "bprod-broom", "bprod-degreaser"], startedAt: iso(40),
+      dailyBudget: 5280, productIds: ["bprod-mop", "bprod-broom", "bprod-degreaser"], startedAt: iso(40),
       notes: "Account-based prospecting to multi-site facilities managers (run via the meta adapter).",
       dailyStats: stats([
         [44, 8200, 96, 1, 74], [44, 8100, 94, 1, 96], [44, 8300, 98, 0, 0],
@@ -346,7 +355,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     },
     {
       id: "bcmp-email", name: "Reorder Reminder Flow", channel: "email", status: "active",
-      dailyBudget: 5, productIds: ["bprod-gloves", "bprod-tissue", "bprod-towel"], startedAt: iso(25),
+      dailyBudget: 600, productIds: ["bprod-gloves", "bprod-tissue", "bprod-towel"], startedAt: iso(25),
       notes: "Automated net-30 reorder reminders keyed to each account's cycle.",
       dailyStats: stats([
         [5, 2100, 210, 6, 540], [5, 2150, 215, 7, 602], [5, 2050, 205, 6, 486],
@@ -423,48 +432,48 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
   const purchaseOrders: PurchaseOrder[] = [
     {
       id: "bpo-9001", supplierId: "bsup-northmill", productId: "bprod-towel", quantity: 120,
-      unitCost: 24.8, total: 2976, status: "in_transit", createdAt: iso(6), expectedAt: inDays(1),
+      unitCost: 2976, total: 357120, status: "in_transit", createdAt: iso(6), expectedAt: inDays(1),
     },
     {
       id: "bpo-9002", supplierId: "bsup-guardian", productId: "bprod-gloves", quantity: 200,
-      unitCost: 52, total: 10400, status: "received", createdAt: iso(18), expectedAt: iso(11),
+      unitCost: 6240, total: 1248000, status: "received", createdAt: iso(18), expectedAt: iso(11),
     },
   ];
 
   const expenses: ExpenseEntry[] = [];
   let expId = 0;
   for (let d = 30; d >= 1; d--) {
-    expenses.push({ id: `bexp-${++expId}`, date: day(d), category: "ads", amount: r2(105 + ((d * 9) % 15)), note: "Google / LinkedIn / email spend" });
-    expenses.push({ id: `bexp-${++expId}`, date: day(d), category: "shipping", amount: r2(60 + ((d * 13) % 25)), note: "Freight/LTL invoices" });
-    expenses.push({ id: `bexp-${++expId}`, date: day(d), category: "fees", amount: r2(18 + ((d * 5) % 12)), note: "Payment + net-30 factoring fees" });
+    expenses.push({ id: `bexp-${++expId}`, date: day(d), category: "ads", amount: r2(12600 + ((d * 9) % 15) * 120), note: "Google / LinkedIn / email spend" });
+    expenses.push({ id: `bexp-${++expId}`, date: day(d), category: "shipping", amount: r2(7200 + ((d * 13) % 25) * 120), note: "Freight/LTL invoices" });
+    expenses.push({ id: `bexp-${++expId}`, date: day(d), category: "fees", amount: r2(2160 + ((d * 5) % 12) * 120), note: "Payment + net-30 factoring fees" });
   }
-  expenses.push({ id: `bexp-${++expId}`, date: day(14), category: "software", amount: 260, note: "Dakio + QuickBooks + freight portal" });
-  expenses.push({ id: `bexp-${++expId}`, date: day(9), category: "refunds", amount: 42, note: "Towel billing adjustment (bord-5009 pending)" });
+  expenses.push({ id: `bexp-${++expId}`, date: day(14), category: "software", amount: 31200, note: "Dakio + QuickBooks + freight portal" });
+  expenses.push({ id: `bexp-${++expId}`, date: day(9), category: "refunds", amount: 5040, note: "Towel billing adjustment (bord-5009 pending)" });
 
   // ---- Trending products (4) ------------------------------------------------
 
   const trendingProducts: TrendingProduct[] = [
     {
       id: "btrend-01", name: "Foaming Hand Soap (4×1 gal)", category: "Cleaning Chemicals",
-      demandScore: 80, competitionScore: 46, estimatedUnitCost: 21, suggestedPrice: 44.99,
+      demandScore: 80, competitionScore: 46, estimatedUnitCost: 2520, suggestedPrice: 5399,
       estimatedMarginPct: 53.3, source: "Distributor demand index",
       insight: "Recurring consumable; natural attach to existing sanitizer accounts.",
     },
     {
       id: "btrend-02", name: "Wet Floor Sign (6pk)", category: "Safety",
-      demandScore: 68, competitionScore: 30, estimatedUnitCost: 11, suggestedPrice: 27.99,
+      demandScore: 68, competitionScore: 30, estimatedUnitCost: 1320, suggestedPrice: 3359,
       estimatedMarginPct: 60.7, source: "Search trends",
       insight: "Low competition compliance item; lifts AOV on janitorial baskets.",
     },
     {
       id: "btrend-03", name: "HEPA Vacuum Bags (Case/50)", category: "Equipment",
-      demandScore: 72, competitionScore: 52, estimatedUnitCost: 33, suggestedPrice: 69.99,
+      demandScore: 72, competitionScore: 52, estimatedUnitCost: 3960, suggestedPrice: 8399,
       estimatedMarginPct: 52.9, source: "Reorder analytics",
       insight: "High repeat rate; pairs with the equipment buyers already on file.",
     },
     {
       id: "btrend-04", name: "Microfiber Cloths (Case/144)", category: "Paper",
-      demandScore: 75, competitionScore: 58, estimatedUnitCost: 28, suggestedPrice: 59.99,
+      demandScore: 75, competitionScore: 58, estimatedUnitCost: 3360, suggestedPrice: 7199,
       estimatedMarginPct: 53.3, source: "Search trends",
       insight: "Crowded but steady; competitive at case volume for our hospitality accounts.",
     },
@@ -480,7 +489,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     },
     {
       namespace: "goals", key: "reorder-target",
-      value: "Grow monthly reorder rate to 65% of active accounts and lift average order value above $500 by Q4 2026.",
+      value: "Grow monthly reorder rate to 65% of active accounts and lift average order value above ৳60,000 by Q4 2026.",
       updatedAt: iso(40),
     },
     {
@@ -490,7 +499,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     },
     {
       namespace: "rules", key: "freight-cutoff",
-      value: "Same-day freight only for orders placed before 2pm ET. Free freight at $250 order value; below that, flat $24.50.",
+      value: "Same-day freight only for orders placed before 2pm ET. Free freight at ৳30,000 order value; below that, flat ৳2,940.",
       updatedAt: iso(35),
     },
     {
@@ -515,7 +524,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     {
       id: "bact-102", at: hoursAgo(7), department: "finance", kind: "alert",
       title: "Margin watch — hand sanitizer",
-      detail: "Sanitizer gel margin is 12.7% at $63 on $55 cost, below the 18% floor, and velocity has collapsed to ~1/wk. Overstock clearance candidate.",
+      detail: "Sanitizer gel margin is 12.7% at ৳7,560 on ৳6,600 cost, below the 18% floor, and velocity has collapsed to ~1/wk. Overstock clearance candidate.",
       minutesSaved: 5, revenueInfluence: 0, actionId: null,
     },
     {
@@ -528,7 +537,7 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
       id: "bact-104", at: hoursAgo(22), department: "sales", kind: "communication",
       title: "Reorder nudge — Riverside Diner",
       detail: "At-risk account, 58 days since last order. Sent a reorder reminder with the standard NET30VOL code.",
-      minutesSaved: 8, revenueInfluence: 116, actionId: null,
+      minutesSaved: 8, revenueInfluence: 13920, actionId: null,
     },
   ];
 
@@ -540,15 +549,15 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     {
       id: "baction-9101", type: "create_purchase_order", department: "inventory",
       title: "Reorder 160 cases Centerpull Towels from Northmill",
-      payload: { supplierId: "bsup-northmill", productId: "bprod-towel", quantity: 160, unitCost: 24.8 },
+      payload: { supplierId: "bsup-northmill", productId: "bprod-towel", quantity: 160, unitCost: 2976 },
       justification: {
         reason: "Towels are 30 cases against an 80 reorder point and 52 cases/week velocity — under two weeks of cover even with the in-transit PO. Northmill lead time is 6 days.",
-        expectedImpact: "Keeps Summit and Cedar Ridge fill rate at 100% through the reorder cycle; avoids ~$1,800 in bumped orders.",
+        expectedImpact: "Keeps Summit and Cedar Ridge fill rate at 100% through the reorder cycle; avoids ~৳2,16,000 in bumped orders.",
         confidence: 0.82,
       },
       receipt: {
         reason: "Towels are 30 cases against an 80 reorder point and 52 cases/week velocity — under two weeks of cover even with the in-transit PO. Northmill lead time is 6 days.",
-        expectedImpact: "Keeps Summit and Cedar Ridge fill rate at 100% through the reorder cycle; avoids ~$1,800 in bumped orders.",
+        expectedImpact: "Keeps Summit and Cedar Ridge fill rate at 100% through the reorder cycle; avoids ~৳2,16,000 in bumped orders.",
         confidence: 0.82,
         evidence: [
           { source: "inventory bprod-towel", note: "30 cases vs 80 reorder point, 52/week velocity", metric: "stock", value: 30 },
@@ -565,16 +574,16 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
       title: 'Pause "LinkedIn — Facilities Managers"',
       payload: { campaignId: "bcmp-lin", status: "paused" },
       justification: {
-        reason: "14-day ROAS is under 1.0 (spend $44/day, thin conversions) while search and the reorder flow return 6×+. Prospecting isn't converting at current AOV.",
-        expectedImpact: "Frees ~$44/day to shift into the converting search campaign; no downside to reorder revenue.",
+        reason: "14-day ROAS is under 1.0 (spend ৳5,280/day, thin conversions) while search and the reorder flow return 6×+. Prospecting isn't converting at current AOV.",
+        expectedImpact: "Frees ~৳5,280/day to shift into the converting search campaign; no downside to reorder revenue.",
         confidence: 0.8,
       },
       receipt: {
-        reason: "14-day ROAS is under 1.0 (spend $44/day, thin conversions) while search and the reorder flow return 6×+. Prospecting isn't converting at current AOV.",
-        expectedImpact: "Frees ~$44/day to shift into the converting search campaign; no downside to reorder revenue.",
+        reason: "14-day ROAS is under 1.0 (spend ৳5,280/day, thin conversions) while search and the reorder flow return 6×+. Prospecting isn't converting at current AOV.",
+        expectedImpact: "Frees ~৳5,280/day to shift into the converting search campaign; no downside to reorder revenue.",
         confidence: 0.8,
         evidence: [
-          { source: "campaign bcmp-lin", note: "ROAS <1.0 at $44/day over 14d", metric: "roas14d", window: "14d" },
+          { source: "campaign bcmp-lin", note: "ROAS <1.0 at ৳5,280/day over 14d", metric: "roas14d", window: "14d" },
         ],
         before: null, after: null,
       },

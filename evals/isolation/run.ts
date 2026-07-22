@@ -119,7 +119,7 @@ async function main(): Promise<void> {
     {
       name: "Isolation Probe Campaign",
       channel: "meta",
-      dailyBudget: 25,
+      dailyBudget: 3000,
       productIds: [aProducts[0].id],
       startNow: true,
       notes: "isolation-suite probe",

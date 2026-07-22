@@ -11,7 +11,7 @@
  *    prepared action action-8001 already queued)
  *  - exactly 14 abandoned carts in various recovery states
  *  - stockout risks (blender, yoga mat) incl. a delayed supplier + a cheaper
- *    alternative supplier (prepared PO action-8002 queued, over the $2.5k cap)
+ *    alternative supplier (prepared PO action-8002 queued, over the ৳3,00,000 cap)
  *  - dead stock (ceramic vase set), a thin-margin product (carafe set)
  *  - a bad courier (SwiftShip: 79% on-time, 11% RTO)
  *  - an overdue refund ticket (>12h), pre-seeded memory, overnight activity
@@ -64,139 +64,159 @@ export function createSeed(nowMs: number): StoreSeed {
     new Date(nowMs - daysAgo * DAY).toISOString().slice(0, 10);
   const r2 = (n: number): number => Math.round(n * 100) / 100;
 
+  /**
+   * Delivery, in ৳.
+   *
+   * The threshold converts straight across with the rest of the seed, which
+   * keeps the free-vs-paid split exactly where it was (60 of 136 orders) so
+   * the demo shows both outcomes at the same rate it always did.
+   *
+   * The FEE is the one figure deliberately NOT scaled: converting the old
+   * $5.95 rate lands at ৳714, which no Bangladeshi store charges. Home
+   * delivery here is a small flat fee, not a fraction of basket value, so it
+   * is set at the real market rate. That drops shipping from ~4.3% of
+   * subtotal to ~0.2% — an intended consequence of charging a real price, not
+   * a rescaling error.
+   *
+   * Nothing in the autonomy gate reads shipping, so neither figure can move a
+   * guardrail verdict — verified by `scripts/money-audit.ts`.
+   */
+  const FREE_SHIPPING_OVER = 9000;
+  const FLAT_DELIVERY = 120;
+
   // ---- Products (19) -------------------------------------------------------
 
   const products: Product[] = [
     {
       id: "prod-blender", sku: "AUR-BLD-01", name: "Portable Blender Pro", category: "Kitchen",
       description: "USB-C rechargeable 500ml personal blender. Crushes ice, cleans itself.",
-      price: 49.99, compareAtPrice: 59.99, cost: 18.5, stock: 35, reorderPoint: 40,
+      price: 5999, compareAtPrice: 7199, cost: 2220, stock: 35, reorderPoint: 40,
       supplierId: "sup-shenzhen", status: "active", rating: 4.7, reviewCount: 214,
       weeklyVelocity: [22, 26, 28, 31, 34, 36, 38, 41], tags: ["bestseller", "summer"], createdAt: iso(160),
     },
     {
       id: "prod-yogamat", sku: "AUR-YGA-01", name: "EcoFlex Yoga Mat", category: "Wellness",
       description: "6mm natural rubber mat with alignment lines. Non-slip, plastic-free.",
-      price: 39.99, compareAtPrice: null, cost: 11, stock: 12, reorderPoint: 25,
+      price: 4799, compareAtPrice: null, cost: 1320, stock: 12, reorderPoint: 25,
       supplierId: "sup-lotus", status: "active", rating: 4.6, reviewCount: 142,
       weeklyVelocity: [14, 15, 16, 17, 18, 18, 19, 18], tags: ["wellness"], createdAt: iso(220),
     },
     {
       id: "prod-vase", sku: "AUR-VSE-03", name: "Ceramic Vase Set (3pc)", category: "Home Decor",
       description: "Hand-glazed stoneware vases in sand, clay, and cream.",
-      price: 64.99, compareAtPrice: null, cost: 24, stock: 80, reorderPoint: 15,
+      price: 7799, compareAtPrice: null, cost: 2880, stock: 80, reorderPoint: 15,
       supplierId: "sup-artisan", status: "active", rating: 4.2, reviewCount: 31,
       weeklyVelocity: [2, 1, 1, 0, 1, 0, 1, 0], tags: ["decor"], createdAt: iso(190),
     },
     {
       id: "prod-candle-amber", sku: "AUR-CDL-01", name: "Amber & Oak Soy Candle", category: "Aromatherapy",
       description: "60-hour soy candle, amber, oakmoss, and vanilla.",
-      price: 24.99, compareAtPrice: null, cost: 6.2, stock: 140, reorderPoint: 40,
+      price: 2999, compareAtPrice: null, cost: 744, stock: 140, reorderPoint: 40,
       supplierId: "sup-artisan", status: "active", rating: 4.8, reviewCount: 326,
       weeklyVelocity: [25, 24, 26, 28, 27, 29, 30, 31], tags: ["bestseller", "gift"], createdAt: iso(300),
     },
     {
       id: "prod-candle-linen", sku: "AUR-CDL-02", name: "Fresh Linen Soy Candle", category: "Aromatherapy",
       description: "60-hour soy candle, line-dried linen and white tea.",
-      price: 24.99, compareAtPrice: null, cost: 6.2, stock: 95, reorderPoint: 40,
+      price: 2999, compareAtPrice: null, cost: 744, stock: 95, reorderPoint: 40,
       supplierId: "sup-artisan", status: "active", rating: 4.7, reviewCount: 198,
       weeklyVelocity: [18, 19, 17, 20, 21, 20, 22, 21], tags: ["gift"], createdAt: iso(300),
     },
     {
       id: "prod-diffuser", sku: "AUR-DIF-01", name: "CloudMist Aroma Diffuser", category: "Aromatherapy",
       description: "400ml ultrasonic diffuser with warm-light ring and auto-off.",
-      price: 44.99, compareAtPrice: 54.99, cost: 15.8, stock: 58, reorderPoint: 20,
+      price: 5399, compareAtPrice: 6599, cost: 1896, stock: 58, reorderPoint: 20,
       supplierId: "sup-shenzhen", status: "active", rating: 4.5, reviewCount: 167,
       weeklyVelocity: [12, 13, 15, 14, 16, 17, 18, 19], tags: ["bundle-friendly"], createdAt: iso(180),
     },
     {
       id: "prod-throw", sku: "AUR-THR-01", name: "Belgian Linen Throw Blanket", category: "Bedding",
       description: "Stonewashed Belgian linen throw, 130×170cm, in oat.",
-      price: 89.99, compareAtPrice: null, cost: 32, stock: 41, reorderPoint: 12,
+      price: 10799, compareAtPrice: null, cost: 3840, stock: 41, reorderPoint: 12,
       supplierId: "sup-nordic", status: "active", rating: 4.9, reviewCount: 88,
       weeklyVelocity: [6, 7, 8, 7, 9, 8, 10, 9], tags: ["premium"], createdAt: iso(140),
     },
     {
       id: "prod-mug-set", sku: "AUR-MUG-04", name: "Stoneware Mug Set (4pc)", category: "Kitchen",
       description: "Reactive-glaze stoneware mugs, 350ml, dishwasher safe.",
-      price: 36.99, compareAtPrice: null, cost: 12.4, stock: 66, reorderPoint: 20,
+      price: 4439, compareAtPrice: null, cost: 1488, stock: 66, reorderPoint: 20,
       supplierId: "sup-artisan", status: "active", rating: 4.6, reviewCount: 154,
       weeklyVelocity: [9, 10, 11, 10, 12, 11, 13, 12], tags: ["gift"], createdAt: iso(260),
     },
     {
       id: "prod-bottle", sku: "AUR-BTL-01", name: "Insulated Steel Bottle 750ml", category: "Wellness",
       description: "Triple-wall vacuum bottle. 24h cold, 12h hot.",
-      price: 29.99, compareAtPrice: null, cost: 9.1, stock: 104, reorderPoint: 30,
+      price: 3599, compareAtPrice: null, cost: 1092, stock: 104, reorderPoint: 30,
       supplierId: "sup-shenzhen", status: "active", rating: 4.4, reviewCount: 241,
       weeklyVelocity: [16, 15, 17, 18, 17, 19, 20, 21], tags: ["everyday"], createdAt: iso(280),
     },
     {
       id: "prod-cutting-board", sku: "AUR-CTB-01", name: "Acacia Cutting Board", category: "Kitchen",
       description: "End-grain acacia board with juice groove, 40×30cm.",
-      price: 54.99, compareAtPrice: null, cost: 19.5, stock: 37, reorderPoint: 10,
+      price: 6599, compareAtPrice: null, cost: 2340, stock: 37, reorderPoint: 10,
       supplierId: "sup-vista", status: "active", rating: 4.7, reviewCount: 76,
       weeklyVelocity: [5, 6, 6, 7, 7, 8, 8, 9], tags: ["kitchen"], createdAt: iso(120),
     },
     {
       id: "prod-sheets", sku: "AUR-SHT-Q1", name: "Bamboo Sheet Set (Queen)", category: "Bedding",
       description: "300TC bamboo lyocell sheets — cool, soft, OEKO-TEX certified.",
-      price: 119.99, compareAtPrice: 139.99, cost: 41, stock: 29, reorderPoint: 10,
+      price: 14399, compareAtPrice: 16799, cost: 4920, stock: 29, reorderPoint: 10,
       supplierId: "sup-nordic", status: "active", rating: 4.8, reviewCount: 112,
       weeklyVelocity: [4, 5, 5, 6, 6, 7, 7, 8], tags: ["premium", "sleep"], createdAt: iso(150),
     },
     {
       id: "prod-pillow", sku: "AUR-PLW-01", name: "Cloud Memory Pillow", category: "Bedding",
       description: "Shredded memory foam pillow with washable bamboo cover.",
-      price: 49.99, compareAtPrice: null, cost: 16.3, stock: 73, reorderPoint: 20,
+      price: 5999, compareAtPrice: null, cost: 1956, stock: 73, reorderPoint: 20,
       supplierId: "sup-nordic", status: "active", rating: 4.5, reviewCount: 203,
       weeklyVelocity: [8, 9, 9, 10, 11, 10, 12, 11], tags: ["sleep"], createdAt: iso(200),
     },
     {
       id: "prod-planter", sku: "AUR-PLT-01", name: "Ribbed Ceramic Planter", category: "Home Decor",
       description: "Ribbed matte planter with drainage and saucer, 18cm.",
-      price: 27.99, compareAtPrice: null, cost: 8.9, stock: 88, reorderPoint: 25,
+      price: 3359, compareAtPrice: null, cost: 1068, stock: 88, reorderPoint: 25,
       supplierId: "sup-artisan", status: "active", rating: 4.6, reviewCount: 95,
       weeklyVelocity: [7, 7, 8, 8, 9, 9, 10, 10], tags: ["decor"], createdAt: iso(170),
     },
     {
       id: "prod-tray", sku: "AUR-TRY-01", name: "Marble Serving Tray", category: "Home Decor",
       description: "Genuine marble tray with brass handles, 30cm.",
-      price: 74.99, compareAtPrice: null, cost: 28.5, stock: 22, reorderPoint: 8,
+      price: 8999, compareAtPrice: null, cost: 3420, stock: 22, reorderPoint: 8,
       supplierId: "sup-vista", status: "active", rating: 4.3, reviewCount: 41,
       weeklyVelocity: [3, 4, 4, 5, 4, 5, 6, 5], tags: ["premium", "gift"], createdAt: iso(110),
     },
     {
       id: "prod-teapot", sku: "AUR-TPT-01", name: "Glass Teapot with Infuser", category: "Kitchen",
       description: "Borosilicate 900ml teapot with removable steel infuser.",
-      price: 42.99, compareAtPrice: null, cost: 14.2, stock: 49, reorderPoint: 15,
+      price: 5159, compareAtPrice: null, cost: 1704, stock: 49, reorderPoint: 15,
       supplierId: "sup-vista", status: "active", rating: 4.6, reviewCount: 129,
       weeklyVelocity: [6, 6, 7, 7, 8, 8, 9, 9], tags: ["kitchen", "gift"], createdAt: iso(230),
     },
     {
       id: "prod-oilset", sku: "AUR-OIL-06", name: "Essential Oil Set (6×10ml)", category: "Aromatherapy",
       description: "Lavender, eucalyptus, sweet orange, peppermint, tea tree, cedarwood.",
-      price: 34.99, compareAtPrice: null, cost: 10.6, stock: 121, reorderPoint: 35,
+      price: 4199, compareAtPrice: null, cost: 1272, stock: 121, reorderPoint: 35,
       supplierId: "sup-lotus", status: "active", rating: 4.5, reviewCount: 188,
       weeklyVelocity: [13, 14, 15, 16, 15, 17, 18, 19], tags: ["bundle-friendly"], createdAt: iso(210),
     },
     {
       id: "prod-weighted", sku: "AUR-WBL-15", name: "Serenity Weighted Blanket 15lb", category: "Bedding",
       description: "Glass-bead weighted blanket with removable minky cover.",
-      price: 99.99, compareAtPrice: null, cost: 38, stock: 32, reorderPoint: 8,
+      price: 11999, compareAtPrice: null, cost: 4560, stock: 32, reorderPoint: 8,
       supplierId: "sup-shenzhen", status: "active", rating: 4.7, reviewCount: 67,
       weeklyVelocity: [4, 4, 5, 5, 6, 6, 7, 7], tags: ["sleep", "premium"], createdAt: iso(95),
     },
     {
       id: "prod-carafe", sku: "AUR-CRF-01", name: "Bedside Water Carafe Set", category: "Home Decor",
       description: "Mouth-blown glass carafe with tumbler lid.",
-      price: 32.99, compareAtPrice: null, cost: 25.3, stock: 54, reorderPoint: 15,
+      price: 3959, compareAtPrice: null, cost: 3036, stock: 54, reorderPoint: 15,
       supplierId: "sup-vista", status: "active", rating: 4.1, reviewCount: 22,
       weeklyVelocity: [5, 5, 6, 6, 7, 7, 8, 8], tags: ["decor"], createdAt: iso(75),
     },
     {
       id: "prod-runner", sku: "AUR-RUN-01", name: "Woven Cotton Table Runner", category: "Home Decor",
       description: "Handwoven cotton runner in terracotta stripe, 180cm.",
-      price: 26.99, compareAtPrice: null, cost: 7.8, stock: 61, reorderPoint: 15,
+      price: 3239, compareAtPrice: null, cost: 936, stock: 61, reorderPoint: 15,
       supplierId: "sup-artisan", status: "active", rating: 4.4, reviewCount: 58,
       weeklyVelocity: [4, 5, 5, 5, 6, 6, 6, 7], tags: ["decor", "table"], createdAt: iso(85),
     },
@@ -218,10 +238,10 @@ export function createSeed(nowMs: number): StoreSeed {
       id: "sup-shenzhen", name: "Shenzhen HomeGoods Co.", country: "CN",
       reliabilityScore: 0.82, qualityScore: 0.88, currentDelayDays: 4,
       offers: [
-        { productId: "prod-blender", unitCost: 18.5, leadTimeDays: 15 },
-        { productId: "prod-diffuser", unitCost: 15.8, leadTimeDays: 18 },
-        { productId: "prod-bottle", unitCost: 9.1, leadTimeDays: 20 },
-        { productId: "prod-weighted", unitCost: 38, leadTimeDays: 25 },
+        { productId: "prod-blender", unitCost: 2220, leadTimeDays: 15 },
+        { productId: "prod-diffuser", unitCost: 1896, leadTimeDays: 18 },
+        { productId: "prod-bottle", unitCost: 1092, leadTimeDays: 20 },
+        { productId: "prod-weighted", unitCost: 4560, leadTimeDays: 25 },
       ],
       notes: "Best blender pricing. Port congestion has added ~4 days to open POs this month.",
     },
@@ -229,12 +249,12 @@ export function createSeed(nowMs: number): StoreSeed {
       id: "sup-vista", name: "Vista Trading Ltd.", country: "VN",
       reliabilityScore: 0.91, qualityScore: 0.86, currentDelayDays: 0,
       offers: [
-        { productId: "prod-yogamat", unitCost: 9.2, leadTimeDays: 10 },
-        { productId: "prod-blender", unitCost: 19.4, leadTimeDays: 9 },
-        { productId: "prod-cutting-board", unitCost: 19.5, leadTimeDays: 18 },
-        { productId: "prod-tray", unitCost: 28.5, leadTimeDays: 21 },
-        { productId: "prod-teapot", unitCost: 14.2, leadTimeDays: 16 },
-        { productId: "prod-carafe", unitCost: 25.3, leadTimeDays: 14 },
+        { productId: "prod-yogamat", unitCost: 1104, leadTimeDays: 10 },
+        { productId: "prod-blender", unitCost: 2328, leadTimeDays: 9 },
+        { productId: "prod-cutting-board", unitCost: 2340, leadTimeDays: 18 },
+        { productId: "prod-tray", unitCost: 3420, leadTimeDays: 21 },
+        { productId: "prod-teapot", unitCost: 1704, leadTimeDays: 16 },
+        { productId: "prod-carafe", unitCost: 3036, leadTimeDays: 14 },
       ],
       notes: "Fast, reliable. Slightly higher blender unit cost but 9-day lead time.",
     },
@@ -242,12 +262,12 @@ export function createSeed(nowMs: number): StoreSeed {
       id: "sup-artisan", name: "Artisan Collective", country: "PT",
       reliabilityScore: 0.95, qualityScore: 0.97, currentDelayDays: 0,
       offers: [
-        { productId: "prod-vase", unitCost: 24, leadTimeDays: 12 },
-        { productId: "prod-candle-amber", unitCost: 6.2, leadTimeDays: 9 },
-        { productId: "prod-candle-linen", unitCost: 6.2, leadTimeDays: 9 },
-        { productId: "prod-mug-set", unitCost: 12.4, leadTimeDays: 11 },
-        { productId: "prod-planter", unitCost: 8.9, leadTimeDays: 13 },
-        { productId: "prod-runner", unitCost: 7.8, leadTimeDays: 12 },
+        { productId: "prod-vase", unitCost: 2880, leadTimeDays: 12 },
+        { productId: "prod-candle-amber", unitCost: 744, leadTimeDays: 9 },
+        { productId: "prod-candle-linen", unitCost: 744, leadTimeDays: 9 },
+        { productId: "prod-mug-set", unitCost: 1488, leadTimeDays: 11 },
+        { productId: "prod-planter", unitCost: 1068, leadTimeDays: 13 },
+        { productId: "prod-runner", unitCost: 936, leadTimeDays: 12 },
       ],
       notes: "Premium quality, EU-based. Owner's preferred supplier for ceramics.",
     },
@@ -255,9 +275,9 @@ export function createSeed(nowMs: number): StoreSeed {
       id: "sup-nordic", name: "Nordic Textiles AB", country: "SE",
       reliabilityScore: 0.93, qualityScore: 0.94, currentDelayDays: 0,
       offers: [
-        { productId: "prod-throw", unitCost: 32, leadTimeDays: 14 },
-        { productId: "prod-sheets", unitCost: 41, leadTimeDays: 16 },
-        { productId: "prod-pillow", unitCost: 16.3, leadTimeDays: 12 },
+        { productId: "prod-throw", unitCost: 3840, leadTimeDays: 14 },
+        { productId: "prod-sheets", unitCost: 4920, leadTimeDays: 16 },
+        { productId: "prod-pillow", unitCost: 1956, leadTimeDays: 12 },
       ],
       notes: "Certified textiles. Minimum order 50 units per SKU.",
     },
@@ -265,10 +285,10 @@ export function createSeed(nowMs: number): StoreSeed {
       id: "sup-lotus", name: "Lotus Wellness Supply", country: "IN",
       reliabilityScore: 0.88, qualityScore: 0.9, currentDelayDays: 0,
       offers: [
-        { productId: "prod-yogamat", unitCost: 11, leadTimeDays: 12 },
-        { productId: "prod-oilset", unitCost: 10.6, leadTimeDays: 15 },
+        { productId: "prod-yogamat", unitCost: 1320, leadTimeDays: 12 },
+        { productId: "prod-oilset", unitCost: 1272, leadTimeDays: 15 },
       ],
-      notes: "Current yoga mat source. Vista quotes $9.20 for the same spec.",
+      notes: "Current yoga mat source. Vista quotes ৳1,104 for the same spec.",
     },
   ];
 
@@ -276,19 +296,19 @@ export function createSeed(nowMs: number): StoreSeed {
 
   const couriers = [
     {
-      id: "cour-swift", name: "SwiftShip", costPerShipment: 4.9, avgDeliveryDays: 4.2,
+      id: "cour-swift", name: "SwiftShip", costPerShipment: 588, avgDeliveryDays: 4.2,
       onTimeRate: 0.79, rtoRate: 0.11, regions: ["west", "south"],
     },
     {
-      id: "cour-meridian", name: "Meridian Express", costPerShipment: 7.8, avgDeliveryDays: 2.1,
+      id: "cour-meridian", name: "Meridian Express", costPerShipment: 936, avgDeliveryDays: 2.1,
       onTimeRate: 0.96, rtoRate: 0.02, regions: ["west", "east", "midwest", "south"],
     },
     {
-      id: "cour-atlas", name: "Atlas Post", costPerShipment: 5.6, avgDeliveryDays: 3.4,
+      id: "cour-atlas", name: "Atlas Post", costPerShipment: 672, avgDeliveryDays: 3.4,
       onTimeRate: 0.9, rtoRate: 0.05, regions: ["east", "midwest", "south"],
     },
     {
-      id: "cour-zip", name: "ZipParcel", costPerShipment: 6.4, avgDeliveryDays: 2.8,
+      id: "cour-zip", name: "ZipParcel", costPerShipment: 768, avgDeliveryDays: 2.8,
       onTimeRate: 0.93, rtoRate: 0.04, regions: ["west", "east"],
     },
   ];
@@ -378,7 +398,7 @@ export function createSeed(nowMs: number): StoreSeed {
     [10.8, 105, [["prod-tray", 1]], "delivered", "cour-meridian", "midwest", 0],
     [10.4, 108, [["prod-yogamat", 1]], "delivered", "cour-atlas", "east", 0],
     [10.0, 112, [["prod-candle-amber", 2], ["prod-candle-linen", 1]], "delivered", "cour-atlas", "east", 0],
-    [9.6, 107, [["prod-blender", 1], ["prod-oilset", 1]], "delivered", "cour-meridian", "midwest", 10],
+    [9.6, 107, [["prod-blender", 1], ["prod-oilset", 1]], "delivered", "cour-meridian", "midwest", 1200],
     [9.2, 116, [["prod-bottle", 1]], "cancelled", null, "west", 0],
     [8.9, 102, [["prod-sheets", 1], ["prod-pillow", 1]], "delivered", "cour-meridian", "west", 0],
     [8.5, 109, [["prod-cutting-board", 1], ["prod-runner", 1]], "delivered", "cour-atlas", "midwest", 0],
@@ -420,7 +440,7 @@ export function createSeed(nowMs: number): StoreSeed {
   const baseOrders: Order[] = rows.map(([daysAgo, custNo, its, status, courierId, region, discount], i) => {
     const items = its.map(([pid, q]) => item(pid, q));
     const subtotal = r2(items.reduce((s, it) => s + it.quantity * it.unitPrice, 0));
-    const shipping = status === "cancelled" ? 0 : subtotal >= 75 ? 0 : 5.95;
+    const shipping = status === "cancelled" ? 0 : subtotal >= FREE_SHIPPING_OVER ? 0 : FLAT_DELIVERY;
     const placedMs = nowMs - daysAgo * DAY;
     const transitDays = courierId ? (courierDays.get(courierId) ?? 3) : 3;
     const hasArrived = ["delivered", "rto", "refunded", "refund_requested"].includes(status);
@@ -505,7 +525,7 @@ export function createSeed(nowMs: number): StoreSeed {
   const campaigns: Campaign[] = [
     {
       id: "cmp-blender", name: "Blender Summer Push", channel: "meta", status: "active",
-      dailyBudget: 45, productIds: ["prod-blender"], startedAt: iso(21), notes:
+      dailyBudget: 5400, productIds: ["prod-blender"], startedAt: iso(21), notes:
         "Hero product prospecting. Budget caps out by early evening most days.",
       dailyStats: stats([
         [44.6, 30800, 552, 4, 148.97], [45.0, 31500, 566, 5, 192.46], [44.8, 30900, 561, 5, 171.47],
@@ -517,7 +537,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       id: "cmp-eveglow", name: "Evening Glow Retargeting", channel: "meta", status: "active",
-      dailyBudget: 38, productIds: ["prod-candle-amber", "prod-candle-linen", "prod-diffuser"],
+      dailyBudget: 4560, productIds: ["prod-candle-amber", "prod-candle-linen", "prod-diffuser"],
       startedAt: iso(30), notes: "Retargeting warm audiences with candle/diffuser bundles.",
       dailyStats: stats([
         [38.0, 21400, 372, 4, 118.96], [37.8, 21100, 368, 3, 94.97], [38.0, 21600, 375, 4, 109.96],
@@ -529,7 +549,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       id: "cmp-google-brand", name: "Google Search — Brand + Category", channel: "google",
-      status: "active", dailyBudget: 28, productIds: ["prod-blender", "prod-sheets", "prod-candle-amber"],
+      status: "active", dailyBudget: 3360, productIds: ["prod-blender", "prod-sheets", "prod-candle-amber"],
       startedAt: iso(60), notes: "Always-on search coverage.",
       dailyStats: stats([
         [27.8, 4150, 208, 3, 73.97], [28.0, 4230, 212, 3, 76.97], [27.9, 4180, 209, 3, 71.97],
@@ -541,7 +561,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       id: "cmp-email-july", name: "July Newsletter Flows", channel: "email", status: "active",
-      dailyBudget: 6, productIds: ["prod-candle-amber", "prod-throw", "prod-oilset"],
+      dailyBudget: 720, productIds: ["prod-candle-amber", "prod-throw", "prod-oilset"],
       startedAt: iso(19), notes: "Weekly newsletter + welcome/post-purchase flows.",
       dailyStats: stats([
         [6.0, 7900, 296, 3, 62.97], [6.0, 8100, 305, 4, 84.96], [6.0, 8000, 301, 3, 65.97],
@@ -553,7 +573,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       id: "cmp-sms-winback", name: "SMS Winback — Lapsed 60d", channel: "sms", status: "paused",
-      dailyBudget: 12, productIds: ["prod-candle-amber", "prod-bottle"], startedAt: iso(45),
+      dailyBudget: 1440, productIds: ["prod-candle-amber", "prod-bottle"], startedAt: iso(45),
       notes: "Paused after weak June performance; revisit copy before resuming.",
       dailyStats: stats([
         [12.0, 900, 41, 1, 24.99], [12.0, 880, 38, 0, 0], [12.0, 910, 40, 1, 29.99],
@@ -564,7 +584,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       id: "cmp-tiktok-test", name: "TikTok Spark Test", channel: "tiktok", status: "completed",
-      dailyBudget: 25, productIds: ["prod-planter", "prod-mug-set"], startedAt: iso(50),
+      dailyBudget: 3000, productIds: ["prod-planter", "prod-mug-set"], startedAt: iso(50),
       notes: "Two-week creator test. CPA 2.4× Meta's — concluded not viable at current AOV.",
       dailyStats: stats([
         [25.0, 18200, 260, 1, 27.99], [25.0, 18500, 265, 1, 36.99], [25.0, 18100, 255, 0, 0],
@@ -576,7 +596,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       id: "cmp-fall-preview", name: "Fall Collection Preview", channel: "meta", status: "scheduled",
-      dailyBudget: 40, productIds: ["prod-throw", "prod-weighted", "prod-candle-amber"],
+      dailyBudget: 4800, productIds: ["prod-throw", "prod-weighted", "prod-candle-amber"],
       startedAt: inDays(14), notes: "Launches mid-August: cozy positioning, new creative set.",
       dailyStats: [],
     },
@@ -794,11 +814,11 @@ export function createSeed(nowMs: number): StoreSeed {
   const purchaseOrders: PurchaseOrder[] = [
     {
       id: "po-7001", supplierId: "sup-shenzhen", productId: "prod-blender", quantity: 200,
-      unitCost: 18.5, total: 3700, status: "in_transit", createdAt: iso(12), expectedAt: inDays(2),
+      unitCost: 2220, total: 444000, status: "in_transit", createdAt: iso(12), expectedAt: inDays(2),
     },
     {
       id: "po-7002", supplierId: "sup-artisan", productId: "prod-candle-amber", quantity: 300,
-      unitCost: 6.2, total: 1860, status: "received", createdAt: iso(20), expectedAt: iso(9),
+      unitCost: 744, total: 223200, status: "received", createdAt: iso(20), expectedAt: iso(9),
     },
   ];
 
@@ -807,82 +827,82 @@ export function createSeed(nowMs: number): StoreSeed {
   for (let d = 30; d >= 1; d--) {
     expenses.push({
       id: `exp-${++expId}`, date: day(d), category: "ads",
-      amount: r2(111 + ((d * 7) % 13)), note: "Meta / Google / email ad spend",
+      amount: r2(13320 + ((d * 7) % 13) * 120), note: "Meta / Google / email ad spend",
     });
     expenses.push({
       id: `exp-${++expId}`, date: day(d), category: "shipping",
-      amount: r2(22 + ((d * 11) % 17)), note: "Courier invoices",
+      amount: r2(2640 + ((d * 11) % 17) * 120), note: "Courier invoices",
     });
     expenses.push({
       id: `exp-${++expId}`, date: day(d), category: "fees",
-      amount: r2(13 + ((d * 5) % 11)), note: "Payment processing",
+      amount: r2(1560 + ((d * 5) % 11) * 120), note: "Payment processing",
     });
   }
-  expenses.push({ id: `exp-${++expId}`, date: day(18), category: "software", amount: 220, note: "Dakio + Klaviyo + Canva subscriptions" });
-  expenses.push({ id: `exp-${++expId}`, date: day(16), category: "refunds", amount: 42.94, note: "Mug set refund (ord-1018)" });
-  expenses.push({ id: `exp-${++expId}`, date: day(9), category: "other", amount: 150, note: "Product photography — fall preview" });
-  expenses.push({ id: `exp-${++expId}`, date: day(24), category: "other", amount: 85, note: "Packaging samples" });
+  expenses.push({ id: `exp-${++expId}`, date: day(18), category: "software", amount: 26400, note: "Dakio + Klaviyo + Canva subscriptions" });
+  expenses.push({ id: `exp-${++expId}`, date: day(16), category: "refunds", amount: 5153, note: "Mug set refund (ord-1018)" });
+  expenses.push({ id: `exp-${++expId}`, date: day(9), category: "other", amount: 18000, note: "Product photography — fall preview" });
+  expenses.push({ id: `exp-${++expId}`, date: day(24), category: "other", amount: 10200, note: "Packaging samples" });
 
   // ---- Trending products (10) ----------------------------------------------
 
   const trendingProducts: TrendingProduct[] = [
     {
       id: "trend-01", name: "Collapsible Water Bottle 2.0", category: "Wellness",
-      demandScore: 87, competitionScore: 41, estimatedUnitCost: 6.8, suggestedPrice: 24.99,
+      demandScore: 87, competitionScore: 41, estimatedUnitCost: 816, suggestedPrice: 2999,
       estimatedMarginPct: 72.8, source: "TikTok #WaterTok",
       insight: "Search volume up 3x in 60 days; few branded players. Fits our wellness line and ships flat.",
     },
     {
       id: "trend-02", name: "Sunset Projection Lamp", category: "Home Decor",
-      demandScore: 82, competitionScore: 58, estimatedUnitCost: 7.4, suggestedPrice: 29.99,
+      demandScore: 82, competitionScore: 58, estimatedUnitCost: 888, suggestedPrice: 3599,
       estimatedMarginPct: 75.3, source: "TikTok trends",
       insight: "Strong impulse buy; crowded but our audience overlap (cozy-home) is high.",
     },
     {
       id: "trend-03", name: "Electric Spice Grinder", category: "Kitchen",
-      demandScore: 76, competitionScore: 49, estimatedUnitCost: 9.1, suggestedPrice: 34.99,
+      demandScore: 76, competitionScore: 49, estimatedUnitCost: 1092, suggestedPrice: 4199,
       estimatedMarginPct: 74.0, source: "Google Trends",
       insight: "Steady riser; pairs naturally with our kitchen line for bundles.",
     },
     {
       id: "trend-04", name: "Linen Table Runner Set", category: "Home Decor",
-      demandScore: 71, competitionScore: 32, estimatedUnitCost: 11.2, suggestedPrice: 44.99,
+      demandScore: 71, competitionScore: 32, estimatedUnitCost: 1344, suggestedPrice: 5399,
       estimatedMarginPct: 75.1, source: "Pinterest rising",
       insight: "Low competition; extends our existing runner into a premium set.",
     },
     {
       id: "trend-05", name: "Cold Brew Carafe", category: "Kitchen",
-      demandScore: 79, competitionScore: 55, estimatedUnitCost: 10.8, suggestedPrice: 39.99,
+      demandScore: 79, competitionScore: 55, estimatedUnitCost: 1296, suggestedPrice: 4799,
       estimatedMarginPct: 73.0, source: "Google Trends",
       insight: "Summer seasonal spike; complements the teapot buyer profile.",
     },
     {
       id: "trend-06", name: "Acupressure Mat & Pillow", category: "Wellness",
-      demandScore: 74, competitionScore: 61, estimatedUnitCost: 12.5, suggestedPrice: 49.99,
+      demandScore: 74, competitionScore: 61, estimatedUnitCost: 1500, suggestedPrice: 5999,
       estimatedMarginPct: 75.0, source: "Amazon movers",
       insight: "Proven category; differentiation would come from our calmer branding.",
     },
     {
       id: "trend-07", name: "Ceramic Ring Trays", category: "Home Decor",
-      demandScore: 66, competitionScore: 28, estimatedUnitCost: 3.9, suggestedPrice: 16.99,
+      demandScore: 66, competitionScore: 28, estimatedUnitCost: 468, suggestedPrice: 2039,
       estimatedMarginPct: 77.0, source: "Etsy trending",
       insight: "Cheap add-on item to lift AOV; Artisan Collective could produce.",
     },
     {
       id: "trend-08", name: "Smart Herb Garden", category: "Kitchen",
-      demandScore: 81, competitionScore: 67, estimatedUnitCost: 24.5, suggestedPrice: 79.99,
+      demandScore: 81, competitionScore: 67, estimatedUnitCost: 2940, suggestedPrice: 9599,
       estimatedMarginPct: 69.4, source: "TikTok trends",
       insight: "High interest but dominated by two brands; risky without a unique angle.",
     },
     {
       id: "trend-09", name: "Wool Dryer Balls (6pk)", category: "Wellness",
-      demandScore: 63, competitionScore: 35, estimatedUnitCost: 4.2, suggestedPrice: 19.99,
+      demandScore: 63, competitionScore: 35, estimatedUnitCost: 504, suggestedPrice: 2399,
       estimatedMarginPct: 79.0, source: "Google Trends",
       insight: "Evergreen eco item; low risk, modest ceiling.",
     },
     {
       id: "trend-10", name: "Stone Diffuser Mini", category: "Aromatherapy",
-      demandScore: 77, competitionScore: 44, estimatedUnitCost: 11.6, suggestedPrice: 39.99,
+      demandScore: 77, competitionScore: 44, estimatedUnitCost: 1392, suggestedPrice: 4799,
       estimatedMarginPct: 71.0, source: "Pinterest rising",
       insight: "Natural upsell for our oil-set buyers; premium look at mid price.",
     },
@@ -898,7 +918,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       namespace: "goals", key: "revenue-target",
-      value: "Reach $50k/month revenue by Q4 2026 with net margin at or above 30%.",
+      value: "Reach ৳60,00,000/month revenue by Q4 2026 with net margin at or above 30%.",
       updatedAt: iso(45),
     },
     {
@@ -913,7 +933,7 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       namespace: "rules", key: "max-discount",
-      value: "Never discount above 20%. Standard recovery offer is 10%, and only for carts over $80.",
+      value: "Never discount above 20%. Standard recovery offer is 10%, and only for carts over ৳9,600.",
       updatedAt: iso(30),
     },
     {
@@ -949,7 +969,7 @@ export function createSeed(nowMs: number): StoreSeed {
     {
       id: "act-103", at: hoursAgo(7), department: "marketing", kind: "analysis",
       title: "Nightly campaign scan",
-      detail: "Evening Glow CPA up ~43% over 3 days ($11.20 → $16.00). Blender Push holding ROAS 3.8 — scale case prepared.",
+      detail: "Evening Glow CPA up ~43% over 3 days (৳1,344 → ৳1,920). Blender Push holding ROAS 3.8 — scale case prepared.",
       minutesSaved: 30, revenueInfluence: 0, actionId: null,
     },
     {
@@ -978,9 +998,9 @@ export function createSeed(nowMs: number): StoreSeed {
     },
     {
       id: "act-108", at: hoursAgo(23), department: "sales", kind: "communication",
-      title: "Sent 3 cart recovery emails ($264 at stake)",
+      title: "Sent 3 cart recovery emails (৳31,680 at stake)",
       detail: "Personalized notes to Tom Baxter, Zoe Martin, and Lucas Ferreira; no discounts needed per standing rules.",
-      minutesSaved: 24, revenueInfluence: 66, actionId: null,
+      minutesSaved: 24, revenueInfluence: 7920, actionId: null,
     },
     {
       id: "act-109", at: hoursAgo(12), department: "courier_manager", kind: "analysis",
@@ -1004,19 +1024,19 @@ export function createSeed(nowMs: number): StoreSeed {
   const actions: ActionRecord[] = [
     {
       id: "action-8001", type: "update_campaign", department: "marketing",
-      title: 'Scale "Blender Summer Push" daily budget $45 → $63',
-      payload: { campaignId: "cmp-blender", dailyBudget: 63 },
+      title: 'Scale "Blender Summer Push" daily budget ৳5,400 → ৳7,560',
+      payload: { campaignId: "cmp-blender", dailyBudget: 7560 },
       justification: {
-        reason: "7-day ROAS is 3.8 with CPA steady at ~$9 across 14 days, and the campaign exhausts its budget by early evening daily — demand is being left unserved.",
-        expectedImpact: "+12–18% daily profit over the next 7 days (~$45–70/day gross revenue added at current efficiency).",
+        reason: "7-day ROAS is 3.8 with CPA steady at ~৳1,080 across 14 days, and the campaign exhausts its budget by early evening daily — demand is being left unserved.",
+        expectedImpact: "+12–18% daily profit over the next 7 days (~৳5,400–8,400/day gross revenue added at current efficiency).",
         confidence: 0.86,
       },
       receipt: {
-        reason: "7-day ROAS is 3.8 with CPA steady at ~$9 across 14 days, and the campaign exhausts its budget by early evening daily — demand is being left unserved.",
-        expectedImpact: "+12–18% daily profit over the next 7 days (~$45–70/day gross revenue added at current efficiency).",
+        reason: "7-day ROAS is 3.8 with CPA steady at ~৳1,080 across 14 days, and the campaign exhausts its budget by early evening daily — demand is being left unserved.",
+        expectedImpact: "+12–18% daily profit over the next 7 days (~৳5,400–8,400/day gross revenue added at current efficiency).",
         confidence: 0.86,
         evidence: [
-          { source: "campaign cmp-blender", note: "ROAS 3.8, CPA ~$9, budget exhausted by early evening", metric: "roas7d", value: 3.8, window: "7d" },
+          { source: "campaign cmp-blender", note: "ROAS 3.8, CPA ~৳1,080, budget exhausted by early evening", metric: "roas7d", value: 3.8, window: "7d" },
         ],
         before: null, after: null,
       },
@@ -1027,19 +1047,19 @@ export function createSeed(nowMs: number): StoreSeed {
     {
       id: "action-8002", type: "create_purchase_order", department: "inventory",
       title: "Reorder 300 EcoFlex Yoga Mats from Vista Trading",
-      payload: { supplierId: "sup-vista", productId: "prod-yogamat", quantity: 300, unitCost: 9.2 },
+      payload: { supplierId: "sup-vista", productId: "prod-yogamat", quantity: 300, unitCost: 1104 },
       justification: {
-        reason: "Stock covers ~4.6 days at current velocity vs a 12-day lead time — stockout is otherwise certain. Vista offers $9.20/unit vs Lotus $11.00 with a faster 10-day lead.",
-        expectedImpact: "Avoids an estimated $2,100 in lost sales and saves $540 vs the current supplier on this order.",
+        reason: "Stock covers ~4.6 days at current velocity vs a 12-day lead time — stockout is otherwise certain. Vista offers ৳1,104/unit vs Lotus ৳1,320 with a faster 10-day lead.",
+        expectedImpact: "Avoids an estimated ৳2,52,000 in lost sales and saves ৳64,800 vs the current supplier on this order.",
         confidence: 0.78,
       },
       receipt: {
-        reason: "Stock covers ~4.6 days at current velocity vs a 12-day lead time — stockout is otherwise certain. Vista offers $9.20/unit vs Lotus $11.00 with a faster 10-day lead.",
-        expectedImpact: "Avoids an estimated $2,100 in lost sales and saves $540 vs the current supplier on this order.",
+        reason: "Stock covers ~4.6 days at current velocity vs a 12-day lead time — stockout is otherwise certain. Vista offers ৳1,104/unit vs Lotus ৳1,320 with a faster 10-day lead.",
+        expectedImpact: "Avoids an estimated ৳2,52,000 in lost sales and saves ৳64,800 vs the current supplier on this order.",
         confidence: 0.78,
         evidence: [
           { source: "inventory prod-yogamat", note: "4.6 days cover vs 12-day lead time", metric: "days_cover", value: 4.6 },
-          { source: "supplier sup-vista", note: "$9.20/unit vs Lotus $11.00, 10-day lead" },
+          { source: "supplier sup-vista", note: "৳1,104/unit vs Lotus ৳1,320, 10-day lead" },
         ],
         before: null, after: null,
       },
@@ -1055,7 +1075,7 @@ export function createSeed(nowMs: number): StoreSeed {
       body: [
         "Good morning. While you were away…",
         "",
-        "**The numbers**: Revenue $612 yesterday (+6% vs 7-day average) · 9 orders · est. profit $198.",
+        "**The numbers**: Revenue ৳73,440 yesterday (+6% vs 7-day average) · 9 orders · est. profit ৳23,760.",
         "",
         "**Completed overnight**: replied to 3 customers, published the Sunday reset post, prepared the weekly inventory forecast.",
         "",
@@ -1071,7 +1091,7 @@ export function createSeed(nowMs: number): StoreSeed {
         "Deep work completed tonight:",
         "",
         "1. Campaign scan: Evening Glow CPA +43% over 3 days — pause case ready. Blender Push scale action prepared (action-8001, awaiting approval).",
-        "2. Inventory: yoga mat reorder prepared (action-8002, awaiting approval — over the $2.5k auto-cap). Blender restock already in transit but 4 days delayed.",
+        "2. Inventory: yoga mat reorder prepared (action-8002, awaiting approval — over the ৳3,00,000 auto-cap). Blender restock already in transit but 4 days delayed.",
         "3. Content: tomorrow's TikTok reel scheduled for 2pm.",
         "",
         "Tomorrow's focus: get the two prepared actions decided — both are time-sensitive.",

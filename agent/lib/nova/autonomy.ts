@@ -18,13 +18,34 @@ import type {
 } from "../types";
 import type { StoreClient } from "../store/client";
 
+/**
+ * Guardrails come in two kinds, and the difference matters whenever the demo
+ * data or a store's currency changes:
+ *
+ *  - PERCENTAGE guardrails are currency-invariant. They mean the same thing at
+ *    any denomination.
+ *  - MONEY guardrails are denominated in ৳ (BDT, Dakio's currency). They must
+ *    be re-denominated in lockstep with the data they are compared against, or
+ *    the gate silently changes behaviour — every purchase order flipping from
+ *    "execute" to "needs approval" while every test still passes.
+ *    `scripts/money-audit.ts` is the check for that.
+ */
 export const DEFAULT_GUARDRAILS: Guardrails = {
+  // Percentages — currency-invariant.
   maxDiscountPct: 20,
   maxPriceChangePct: 15,
   maxBudgetChangePct: 50,
   minMarginPct: 25,
-  maxAutoPurchaseOrderTotal: 2500,
-  maxAutoRefundTotal: 100,
+  // ৳ amounts — must move with the data.
+  maxAutoPurchaseOrderTotal: 300_000,
+  /**
+   * NOT ENFORCED TODAY. There is no refund action in `ActionType`, and no
+   * branch of `checkGuardrails` reads this, so setting it changes nothing —
+   * it is a promise the code does not keep. Kept (and re-denominated) because
+   * the owner-facing config already exposes it and dropping it would silently
+   * discard a stored setting; wire it up when a refund action lands.
+   */
+  maxAutoRefundTotal: 12_000,
 };
 
 /** Inherent risk of each action type, before guardrails are considered. */
