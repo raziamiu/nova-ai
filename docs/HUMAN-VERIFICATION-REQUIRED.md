@@ -43,6 +43,28 @@ I'll pick it up from here.
 
 ---
 
+## Where the code is (branch split)
+
+From 2026-07-23, Nova work goes to a **`develop`** branch in every repo it
+touches, so `main` stays reviewable and production-safe until you merge.
+
+| Repo | `main` has | `develop` has |
+|---|---|---|
+| `nova-ai` | phase 06 chunks A–H + D2 (7 commits) | everything from chunk I onward |
+| `dakio-api` | phase 06 backend (4 commits, **includes a migration**) | everything from chunk I onward |
+| `dakio-merchant` | untouched by Nova work so far | all Nova merchant UI |
+
+⚠️ **The dakio-api phase-06 commits are already on `main`** — pushed under the
+standing commit-and-push instruction, before the branch policy existed. That
+includes migration `20260722120000_nova_stage0_spine`. If Railway auto-deploys
+`main`, it has already been applied there; **H-3 is how you confirm it.**
+Nothing has been pushed to `main` in any repo since the policy took effect.
+
+`nova-ai` and its demo seeds have no production surface, which is why D2
+(demo/eval data only) was allowed to finish on `main` before the split.
+
+---
+
 ## Standing context for whoever picks this up
 
 - **Local DB is safe to seed** (`localhost:5433`). Railway prod URL is line 1 of
