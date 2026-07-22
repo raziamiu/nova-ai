@@ -26,6 +26,11 @@ on the eve framework, from the shipped v1 foundation to the full
 - Every phase ends in a **scripted gate demo** (PRD §15) on a clean staging store, run
   by someone who didn't build the stage, plus the standing engineering gates. A stage
   that doesn't pass doesn't ship, and the next doesn't start.
+- **[`grow-lab-reconciliation.md`](./grow-lab-reconciliation.md)** (2026-07-22): the
+  PRD's doors shipped as the merchant **Grow Lab** (`/api/grow` + six live modules with
+  pre-cut Nova seams). It corrects the "already real vs to build" baselines in phases
+  07/09/10/12 and binds the Grow↔Nova integration architecture. Read it alongside any
+  of those phase docs.
 
 ## Phase index
 

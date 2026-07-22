@@ -36,6 +36,15 @@ export interface ExecutionResult {
    * to the real outcome.
    */
   relatedId?: string | null;
+  /**
+   * Founder-facing display snapshots for the E-8 receipt — what the record
+   * looked like before and after the mutation. Distinct from `undoData`
+   * (internal rollback state): these are for reading, not reverting.
+   */
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  /** The door record this action touched, e.g. "coupon:ck…" (receipt targetRef). */
+  targetRef?: string | null;
 }
 
 type Executor = (client: StoreClient, payload: Record<string, unknown>) => Promise<ExecutionResult>;
@@ -66,6 +75,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { campaignId: payload.campaignId, ...prior },
       revenueInfluence: 0,
+      before: prior,
+      after: { status: updated.status, dailyBudget: updated.dailyBudget },
+      targetRef: `campaign:${payload.campaignId}`,
     };
   },
 
@@ -85,6 +97,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { campaignId: campaign.id },
       revenueInfluence: 0,
+      before: null,
+      after: { name: campaign.name, channel: campaign.channel, status: campaign.status, dailyBudget: campaign.dailyBudget },
+      targetRef: `campaign:${campaign.id}`,
     };
   },
 
@@ -107,6 +122,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { postId: post.id },
       revenueInfluence: 0,
+      before: null,
+      after: { platform: payload.platform, format: payload.format, status: post.status },
+      targetRef: `post:${post.id}`,
     };
   },
 
@@ -124,6 +142,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { productId: before.id, ...prior },
       revenueInfluence: 0,
+      before: prior,
+      after: { price: updated.price, compareAtPrice: updated.compareAtPrice },
+      targetRef: `product:${before.id}`,
     };
   },
 
@@ -146,6 +167,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { discountId: discount.id },
       revenueInfluence: 0,
+      before: null,
+      after: { code: discount.code, percentOff: discount.percentOff, scope: payload.scope, expiresAt },
+      targetRef: `coupon:${discount.id}`,
     };
   },
 
@@ -182,6 +206,9 @@ export const executors: Record<ActionType, Executor> = {
       undoData: null,
       revenueInfluence,
       relatedId: payload.purpose === "cart_recovery" ? (payload.relatedId ?? null) : null,
+      before: null,
+      after: { channel: payload.channel, purpose: payload.purpose, customer: customer.name },
+      targetRef: `customer:${payload.customerId}`,
     };
   },
 
@@ -189,6 +216,7 @@ export const executors: Record<ActionType, Executor> = {
     const payload = resolveTicketPayload.parse(raw);
     const ticket = await client.getSupportTicket(payload.ticketId);
     if (!ticket) throw new Error(`Ticket not found: ${payload.ticketId}`);
+    const priorStatus = ticket.status;
     await client.addTicketMessage(payload.ticketId, { from: "nova", text: payload.reply });
     await client.updateTicketStatus(payload.ticketId, payload.newStatus);
     return {
@@ -196,6 +224,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: false,
       undoData: null,
       revenueInfluence: 0,
+      before: { status: priorStatus },
+      after: { status: payload.newStatus },
+      targetRef: `ticket:${payload.ticketId}`,
     };
   },
 
@@ -229,6 +260,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { purchaseOrderId: po.id },
       revenueInfluence: 0,
+      before: null,
+      after: { supplier: supplier.name, product: product.name, quantity: payload.quantity, unitCost, total: po.total },
+      targetRef: `purchase_order:${po.id}`,
     };
   },
 
@@ -255,6 +289,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { productId: product.id, ...prior },
       revenueInfluence: 0,
+      before: prior,
+      after: { supplierId: supplier.id, cost: offer.unitCost },
+      targetRef: `product:${product.id}`,
     };
   },
 
@@ -271,6 +308,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { orderId: order.id, ...prior },
       revenueInfluence: 0,
+      before: prior,
+      after: { courierId: courier.id, courier: courier.name },
+      targetRef: `order:${order.id}`,
     };
   },
 
@@ -304,6 +344,9 @@ export const executors: Record<ActionType, Executor> = {
       undoable: true,
       undoData: { productId: product.id },
       revenueInfluence: 0,
+      before: null,
+      after: { sku: product.sku, name: product.name, price: product.price, status: product.status },
+      targetRef: `product:${product.id}`,
     };
   },
 };

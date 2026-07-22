@@ -516,27 +516,53 @@ export class DakioStoreClient implements StoreClient {
     });
   }
 
+  // The dakio-api receipt wire shape uses `expected_impact` (PRD §12 naming);
+  // TypeScript uses `expectedImpact` everywhere. Map at the boundary only.
+  private receiptToWire(receipt: ActionRecord["receipt"]): Record<string, unknown> {
+    const { expectedImpact, ...rest } = receipt;
+    return { ...rest, expected_impact: expectedImpact };
+  }
+
+  private actionFromWire(row: Record<string, unknown>): ActionRecord {
+    const wire = row.receipt as (Record<string, unknown> & { expected_impact?: string }) | null;
+    const receipt = wire
+      ? (() => {
+          const { expected_impact, ...rest } = wire;
+          return { ...rest, expectedImpact: expected_impact ?? "" };
+        })()
+      : null;
+    return { ...(row as unknown as ActionRecord), receipt: receipt as ActionRecord["receipt"] };
+  }
+
   async listActions(status?: ActionStatus): Promise<ActionRecord[]> {
-    const { actions } = await this.get<{ actions: ActionRecord[] }>("/api/v1/agent-data/actions", { status });
-    return actions;
+    const { actions } = await this.get<{ actions: Record<string, unknown>[] }>("/api/v1/agent-data/actions", { status });
+    return actions.map((a) => this.actionFromWire(a));
   }
 
   async getAction(id: string): Promise<ActionRecord | null> {
-    return this.get<ActionRecord | null>(`/api/v1/agent-data/actions/${encodeURIComponent(id)}`, undefined, true);
+    const row = await this.get<Record<string, unknown> | null>(
+      `/api/v1/agent-data/actions/${encodeURIComponent(id)}`,
+      undefined,
+      true,
+    );
+    return row ? this.actionFromWire(row) : null;
   }
 
   async addAction(record: Omit<ActionRecord, "id" | "createdAt">): Promise<ActionRecord> {
-    return this.request<ActionRecord>("/api/v1/agent-data/actions", { method: "POST", body: record });
+    const body = { ...record, receipt: this.receiptToWire(record.receipt) };
+    const row = await this.request<Record<string, unknown>>("/api/v1/agent-data/actions", { method: "POST", body });
+    return this.actionFromWire(row);
   }
 
   async updateAction(
     id: string,
-    patch: Partial<Pick<ActionRecord, "status" | "outcome" | "undoData" | "decidedAt" | "executedAt">>,
+    patch: Partial<Pick<ActionRecord, "status" | "outcome" | "undoData" | "undoable" | "decidedAt" | "executedAt">>,
   ): Promise<ActionRecord> {
-    return this.request<ActionRecord>(`/api/v1/agent-data/actions/${encodeURIComponent(id)}`, {
+    const row = await this.request<Record<string, unknown>>(`/api/v1/agent-data/actions/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: patch,
     });
+    return this.actionFromWire(row);
   }
 
   async listReports(filter?: { kind?: NovaReport["kind"]; limit?: number }): Promise<NovaReport[]> {

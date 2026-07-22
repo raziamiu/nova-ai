@@ -82,6 +82,23 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/** E-8 boilerplate for directly-seeded eval fixtures. */
+const fixtureActionFields = (j: { reason: string; expectedImpact: string; confidence: number }) => ({
+  justification: j,
+  receipt: {
+    ...j,
+    evidence: [{ source: "eval-fixture", note: j.reason }],
+    before: null,
+    after: null,
+  },
+  actor: "nova" as const,
+  targetRef: null,
+  agentId: null,
+  dutyRef: null,
+  undoDeadline: null,
+  undoneAt: null,
+});
+
 /** Seed a prepared action directly so we can drive the reject path. */
 async function seedPreparedPO(storeId: string, title: string): Promise<ActionRecord> {
   return storeFor(storeId).addAction({
@@ -89,7 +106,7 @@ async function seedPreparedPO(storeId: string, title: string): Promise<ActionRec
     department: "supplier_manager",
     title,
     payload: { supplierId: "sup-x", productId: "prod-y", quantity: 100 },
-    justification: { reason: "restock", expectedImpact: "avoid stockout", confidence: 0.6 },
+    ...fixtureActionFields({ reason: "restock", expectedImpact: "avoid stockout", confidence: 0.6 }),
     riskClass: "medium",
     status: "prepared",
     outcome: null,
@@ -228,7 +245,7 @@ async function main(): Promise<void> {
     department: "marketing",
     title: "Scale Blender Summer Push",
     payload: { campaignId: "cmp-blender" },
-    justification: { reason: "roas strong", expectedImpact: "more revenue", confidence: 0.7 },
+    ...fixtureActionFields({ reason: "roas strong", expectedImpact: "more revenue", confidence: 0.7 }),
     riskClass: "low",
     status: "executed",
     outcome: "scaled",
@@ -294,7 +311,7 @@ async function main(): Promise<void> {
       department: "marketing",
       title: `Tweak Blender push ${i}`,
       payload: { campaignId: "cmp-blender" },
-      justification: { reason: "test", expectedImpact: "test", confidence: 0.5 },
+      ...fixtureActionFields({ reason: "test", expectedImpact: "test", confidence: 0.5 }),
       riskClass: "low",
       status: "executed",
       outcome: "done",

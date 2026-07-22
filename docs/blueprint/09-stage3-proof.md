@@ -2,6 +2,14 @@
 
 **PRD stage:** Stage 3 (PRD §15) — **the company milestone: we don't call Nova "working"
 until this passes.** · **Prereqs:** 06 (receipts), 07 (authority/duties), 08 (decisions).
+
+> **Baseline correction (2026-07-22): read [`grow-lab-reconciliation.md`](./grow-lab-reconciliation.md) first.**
+> The campaign/content doors shipped as Grow Lab (`GrowCampaign`/`GrowPost` +
+> **real organic FB publish**). This phase's "Campaign model BUILD" rows become
+> EXTEND; the Stage 3 live mutation runs organic-first over `/grow/posts/:id/publish`
+> (engineered inverse = Graph post delete); the paid-ads spike (§18) stands but is no
+> longer gate-blocking; stat ingestion wires Reports' existing `ads_read` insights
+> fetcher into `CampaignDayStat`.
 Self-contained. One vertical, end-to-end and unattended: the night shift analyzes every
 department, files a scale decision into the 06:00 brief, the founder approves it, the
 campaign goes live in the Campaign Manager door with a receipt, and undo reverts it —

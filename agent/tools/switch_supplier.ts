@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
-import { justificationSchema, switchSupplierPayload } from "../lib/nova/schemas";
+import { receiptSchema, switchSupplierPayload } from "../lib/nova/schemas";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
@@ -10,13 +10,13 @@ export default defineTool({
   description:
     "Move a product to a different supplier (better cost, reliability, or lead time — compare with get_suppliers first). Updates the product's supplier and unit cost. High-risk. Autonomy-gated: returns status executed, prepared (awaiting owner approval), or blocked.",
   inputSchema: switchSupplierPayload.extend({
-    justification: justificationSchema,
+    receipt: receiptSchema,
     department: z
       .enum(NOVA_DEPARTMENTS)
       .optional()
       .describe("Attribution for the activity log; defaults to supplier_manager."),
   }),
-  async execute({ justification, department, ...payload }, ctx) {
+  async execute({ receipt, department, ...payload }, ctx) {
     const client = storeFor(requireStore(ctx).storeId);
     const [product, supplier] = await Promise.all([
       client.getProduct(payload.productId),
@@ -30,7 +30,7 @@ export default defineTool({
       department: department ?? "supplier_manager",
       title,
       payload,
-      justification,
+      receipt,
     });
   },
 });

@@ -236,3 +236,12 @@ earned levels, founder-only classification remain. **Campaign Manager** — the 
 only, no stored Campaign model, no ROAS source); phase 09 opens with the §18
 discovery spike and a designed propose-only fallback. Voice stack READY is confirmed
 (ElevenLabs+Twilio live in dakio-api for order verification, zero Nova wiring).
+
+**Post-rewrite correction (2026-07-22):** the doors then shipped as the merchant
+**Grow Lab** (`/api/grow` — GrowCampaign/GrowPost/GrowBroadcast/GrowIdea/GrowGoal +
+real organic FB publish; six live modules with `createdBy:'nova'` columns and empty
+NovaLane slots pre-cut for Nova). Paid ads and customer-send channels remain absent.
+See [`grow-lab-reconciliation.md`](./grow-lab-reconciliation.md) — it re-baselines
+phases 07/09/10/12 and binds the Grow↔Nova integration architecture (Nova writes
+through the action pipeline into Grow tables via a shared `growService`, with
+`novaActionId` attribution and NovaLane as the door's decision surface).

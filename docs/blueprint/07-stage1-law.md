@@ -1,7 +1,13 @@
 # Phase 07 — Stage 1 "Law": Authority Engine v2 + Duty Registry
 
 **PRD stage:** Stage 1 (PRD §15) · **Prereq:** Phase 06 (Spine: receipt reshape, ৳ minor
-units, ledger export, §16.3 verb-checklist CI). Self-contained: everything the founder's
+units, ledger export, §16.3 verb-checklist CI).
+
+> **Baseline correction (2026-07-22): read [`grow-lab-reconciliation.md`](./grow-lab-reconciliation.md).**
+> The six Nova-module doors shipped as live Grow Lab modules — the duty seed's
+> `DOORS` registry marks them `doorExists:true` at seed time (door_module keys = grow
+> module keys); broadcast *send* duties stay honest prepare-only until 12's channel.
+> Only the 4 sub-view doors remain NEEDS DOOR. Self-contained: everything the founder's
 "one rule" needs before consent (08) — who may do what, through which door, and what a
 refusal looks like. Absorbs the archived `07-trust-safety-scale.md` guardrails-v2 +
 `policy.ts` single-seam design; the rest of that doc lands in phase 15.

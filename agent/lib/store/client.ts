@@ -181,7 +181,7 @@ export interface StoreClient {
   updateAction(
     id: string,
     patch: Partial<
-      Pick<ActionRecord, "status" | "outcome" | "undoData" | "decidedAt" | "executedAt">
+      Pick<ActionRecord, "status" | "outcome" | "undoData" | "undoable" | "decidedAt" | "executedAt">
     >,
   ): Promise<ActionRecord>;
 

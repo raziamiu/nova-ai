@@ -1,7 +1,14 @@
 # Phase 12 — Stage 6 "Reach": Remaining Doors + Zero NEEDS DOOR
 
 **PRD stage:** Stage 6 (PRD §15) · **Prereqs:** 08 (decisions), 09 (night shift authors
-drafts, PlanItems), 10 (content types for broadcasts). Owners: Backend + AI. Self-
+drafts, PlanItems), 10 (content types for broadcasts). Owners: Backend + AI.
+
+> **Baseline correction (2026-07-22): read [`grow-lab-reconciliation.md`](./grow-lab-reconciliation.md).**
+> Broadcast/Research/Growth/Goals shipped as live Grow Lab modules (`GrowBroadcast`
+> w/ audiences + cool-off but deliberately NO send channel; `GrowIdea` w/ real
+> import→Product; `GrowGoal` w/ live pace). This phase EXTENDS them: the send channel
+> (`CustomerChannel` + providers) remains the real build, plus research scoring, goal
+> projection/risks, and the 4 sub-view doors (still the only NEEDS DOOR). Self-
 contained. Four Nova modules (Broadcast Center, Product Research Hub, Growth Lab,
 Goals & Strategy) plus the four sub-view doors go real; the duty roster reaches **zero
 `NEEDS DOOR`** — every one of the 65 duties has a door or an honest LOCKED/PAUSED state.

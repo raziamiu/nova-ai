@@ -330,8 +330,9 @@ export type ActionType =
   | "import_product";
 
 /**
- * The model must justify every action it takes — this rides along on every
- * action tool call and is stored on the action record (PRD trust system).
+ * Derived compatibility projection of the receipt ({reason, expectedImpact,
+ * confidence}) kept for existing readers. The receipt is the source of truth
+ * since Stage 0 — never author a justification directly.
  */
 export interface ActionJustification {
   /** Why Nova is doing this, stated with evidence. */
@@ -342,12 +343,48 @@ export interface ActionJustification {
   confidence: number;
 }
 
+/** One supporting observation behind an action (PRD E-8 receipt.evidence). */
+export interface ReceiptEvidence {
+  /** Where the observation came from, e.g. "orders", "guardrail", "campaign cmp-…". */
+  source: string;
+  /** The observation itself, e.g. "0 orders in 30d; 2 campaigns scheduled". */
+  note: string;
+  /** Optional named metric this evidence cites. */
+  metric?: string;
+  /** Optional value for the metric. */
+  value?: string | number;
+  /** Optional evidence window, e.g. "30d". */
+  window?: string;
+}
+
+/**
+ * The PRD E-8 receipt — the founder-facing evidence record on EVERY state
+ * change (executed, prepared, and blocked alike). A write missing its receipt
+ * is a failed write (§16.2, enforced at the dakio-api layer).
+ */
+export interface ActionReceipt {
+  reason: string;
+  expectedImpact: string;
+  /** 0-1. */
+  confidence: number;
+  /** Non-empty for post-Stage-0 rows; empty only on `migrated` backfills. */
+  evidence: ReceiptEvidence[];
+  /** Display snapshot before the mutation (null for drafts/refusals). */
+  before: Record<string, unknown> | null;
+  /** Display snapshot after the mutation (null for drafts/refusals). */
+  after: Record<string, unknown> | null;
+  /** True on rows backfilled from the pre-Stage-0 justification shape. */
+  migrated?: boolean;
+}
+
 export type ActionStatus =
   | "executed" // ran immediately under current autonomy level
   | "prepared" // queued, waiting for owner approval
   | "blocked" // guardrail or autonomy level forbids it
   | "rejected" // owner said no
   | "undone"; // executed, then rolled back
+
+export type ActionActor = "nova" | "founder" | "system";
 
 export interface ActionRecord {
   id: string;
@@ -356,15 +393,29 @@ export interface ActionRecord {
   title: string;
   /** Tool input that produced (or will produce) the mutation. */
   payload: Record<string, unknown>;
+  /** Derived from `receipt` — kept for readers that predate Stage 0. */
   justification: ActionJustification;
+  /** The E-8 receipt. Required on every write since Stage 0. */
+  receipt: ActionReceipt;
   riskClass: RiskClass;
   status: ActionStatus;
   /** Human-readable outcome, set when executed. */
   outcome: string | null;
   /** Whether this action can be rolled back after execution. */
   undoable: boolean;
-  /** Snapshot the executor needs to roll back. */
+  /** Snapshot the executor needs to roll back (internal — not the receipt's display snapshot). */
   undoData: Record<string, unknown> | null;
+  /** Who performed it: nova | founder | system. */
+  actor: ActionActor;
+  /** The door record this action touched, e.g. "coupon:ck…". */
+  targetRef: string | null;
+  /** E-22 department agent id — null until phase 14. */
+  agentId: string | null;
+  /** E-5 duty key — null until phase 07 seeds the registry. */
+  dutyRef: string | null;
+  /** executedAt + 24h on undoable executed actions (undo is a right with a clock). */
+  undoDeadline: string | null;
+  undoneAt: string | null;
   createdAt: string;
   decidedAt: string | null;
   executedAt: string | null;

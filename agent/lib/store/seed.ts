@@ -996,6 +996,11 @@ export function createSeed(nowMs: number): StoreSeed {
     },
   ];
 
+  // E-8 fields shared by seeded prepared actions (Stage 0 shape).
+  const seedActionDefaults = {
+    actor: "nova" as const, targetRef: null, agentId: null, dutyRef: null,
+    undoDeadline: null, undoneAt: null,
+  };
   const actions: ActionRecord[] = [
     {
       id: "action-8001", type: "update_campaign", department: "marketing",
@@ -1006,7 +1011,17 @@ export function createSeed(nowMs: number): StoreSeed {
         expectedImpact: "+12–18% daily profit over the next 7 days (~$45–70/day gross revenue added at current efficiency).",
         confidence: 0.86,
       },
+      receipt: {
+        reason: "7-day ROAS is 3.8 with CPA steady at ~$9 across 14 days, and the campaign exhausts its budget by early evening daily — demand is being left unserved.",
+        expectedImpact: "+12–18% daily profit over the next 7 days (~$45–70/day gross revenue added at current efficiency).",
+        confidence: 0.86,
+        evidence: [
+          { source: "campaign cmp-blender", note: "ROAS 3.8, CPA ~$9, budget exhausted by early evening", metric: "roas7d", value: 3.8, window: "7d" },
+        ],
+        before: null, after: null,
+      },
       riskClass: "medium", status: "prepared", outcome: null, undoable: false, undoData: null,
+      ...seedActionDefaults,
       createdAt: hoursAgo(7), decidedAt: null, executedAt: null,
     },
     {
@@ -1018,7 +1033,18 @@ export function createSeed(nowMs: number): StoreSeed {
         expectedImpact: "Avoids an estimated $2,100 in lost sales and saves $540 vs the current supplier on this order.",
         confidence: 0.78,
       },
+      receipt: {
+        reason: "Stock covers ~4.6 days at current velocity vs a 12-day lead time — stockout is otherwise certain. Vista offers $9.20/unit vs Lotus $11.00 with a faster 10-day lead.",
+        expectedImpact: "Avoids an estimated $2,100 in lost sales and saves $540 vs the current supplier on this order.",
+        confidence: 0.78,
+        evidence: [
+          { source: "inventory prod-yogamat", note: "4.6 days cover vs 12-day lead time", metric: "days_cover", value: 4.6 },
+          { source: "supplier sup-vista", note: "$9.20/unit vs Lotus $11.00, 10-day lead" },
+        ],
+        before: null, after: null,
+      },
       riskClass: "high", status: "prepared", outcome: null, undoable: false, undoData: null,
+      ...seedActionDefaults,
       createdAt: hoursAgo(6.5), decidedAt: null, executedAt: null,
     },
   ];

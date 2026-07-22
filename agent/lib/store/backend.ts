@@ -583,6 +583,11 @@ export class DemoStore implements StoreClient {
       id: this.nextId("action"),
       createdAt: this.now(),
     };
+    // Mirror dakio-api's server-computed undo window: 24h from execution on
+    // undoable executions (undo is a right with a clock — E-8).
+    if (created.status === "executed" && created.undoable && created.executedAt && !created.undoDeadline) {
+      created.undoDeadline = new Date(Date.parse(created.executedAt) + 24 * 3600 * 1000).toISOString();
+    }
     this.data.actions.push(created);
     return created;
   }
@@ -590,7 +595,7 @@ export class DemoStore implements StoreClient {
   async updateAction(
     id: string,
     patch: Partial<
-      Pick<ActionRecord, "status" | "outcome" | "undoData" | "decidedAt" | "executedAt">
+      Pick<ActionRecord, "status" | "outcome" | "undoData" | "undoable" | "decidedAt" | "executedAt">
     >,
   ): Promise<ActionRecord> {
     const action = this.mustFind(
@@ -599,6 +604,14 @@ export class DemoStore implements StoreClient {
       id,
     );
     Object.assign(action, patch);
+    // Mirror dakio-api stamping: undoneAt on undo; undo window when a prepared
+    // action executes as undoable (the approve path).
+    if (patch.status === "undone" && !action.undoneAt) {
+      action.undoneAt = this.now();
+    }
+    if (action.status === "executed" && action.undoable && action.executedAt && !action.undoDeadline) {
+      action.undoDeadline = new Date(Date.parse(action.executedAt) + 24 * 3600 * 1000).toISOString();
+    }
     return action;
   }
 

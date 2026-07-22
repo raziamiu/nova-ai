@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
-import { assignCourierPayload, justificationSchema } from "../lib/nova/schemas";
+import { assignCourierPayload, receiptSchema } from "../lib/nova/schemas";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
@@ -10,13 +10,13 @@ export default defineTool({
   description:
     "Assign (or reassign) a courier to an order — pick by region coverage, on-time rate, RTO rate, and cost via get_couriers. Autonomy-gated: returns status executed, prepared (awaiting owner approval), or blocked.",
   inputSchema: assignCourierPayload.extend({
-    justification: justificationSchema,
+    receipt: receiptSchema,
     department: z
       .enum(NOVA_DEPARTMENTS)
       .optional()
       .describe("Attribution for the activity log; defaults to courier_manager."),
   }),
-  async execute({ justification, department, ...payload }, ctx) {
+  async execute({ receipt, department, ...payload }, ctx) {
     const client = storeFor(requireStore(ctx).storeId);
     const courier = await client.getCourier(payload.courierId);
     const courierName = courier?.name ?? payload.courierId;
@@ -26,7 +26,7 @@ export default defineTool({
       department: department ?? "courier_manager",
       title,
       payload,
-      justification,
+      receipt,
     });
   },
 });

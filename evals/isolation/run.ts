@@ -123,10 +123,11 @@ async function main(): Promise<void> {
       productIds: [aProducts[0].id],
       startNow: true,
       notes: "isolation-suite probe",
-      justification: {
+      receipt: {
         reason: "Isolation test: create a prepared action under Aurora only.",
         expectedImpact: "None — test artifact.",
         confidence: 0.5,
+        evidence: [{ source: "eval-fixture", note: "isolation-suite probe" }],
       },
     },
     ctxFor(AURORA),

@@ -532,6 +532,10 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
     },
   ];
 
+  const seedActionDefaults = {
+    actor: "nova" as const, targetRef: null, agentId: null, dutyRef: null,
+    undoDeadline: null, undoneAt: null,
+  };
   const actions: ActionRecord[] = [
     {
       id: "baction-9101", type: "create_purchase_order", department: "inventory",
@@ -542,7 +546,18 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
         expectedImpact: "Keeps Summit and Cedar Ridge fill rate at 100% through the reorder cycle; avoids ~$1,800 in bumped orders.",
         confidence: 0.82,
       },
+      receipt: {
+        reason: "Towels are 30 cases against an 80 reorder point and 52 cases/week velocity — under two weeks of cover even with the in-transit PO. Northmill lead time is 6 days.",
+        expectedImpact: "Keeps Summit and Cedar Ridge fill rate at 100% through the reorder cycle; avoids ~$1,800 in bumped orders.",
+        confidence: 0.82,
+        evidence: [
+          { source: "inventory bprod-towel", note: "30 cases vs 80 reorder point, 52/week velocity", metric: "stock", value: 30 },
+          { source: "supplier bsup-northmill", note: "6-day lead time" },
+        ],
+        before: null, after: null,
+      },
       riskClass: "high", status: "prepared", outcome: null, undoable: false, undoData: null,
+      ...seedActionDefaults,
       createdAt: hoursAgo(6), decidedAt: null, executedAt: null,
     },
     {
@@ -554,7 +569,17 @@ export function createBeaconSeed(nowMs: number): StoreSeed {
         expectedImpact: "Frees ~$44/day to shift into the converting search campaign; no downside to reorder revenue.",
         confidence: 0.8,
       },
+      receipt: {
+        reason: "14-day ROAS is under 1.0 (spend $44/day, thin conversions) while search and the reorder flow return 6×+. Prospecting isn't converting at current AOV.",
+        expectedImpact: "Frees ~$44/day to shift into the converting search campaign; no downside to reorder revenue.",
+        confidence: 0.8,
+        evidence: [
+          { source: "campaign bcmp-lin", note: "ROAS <1.0 at $44/day over 14d", metric: "roas14d", window: "14d" },
+        ],
+        before: null, after: null,
+      },
       riskClass: "medium", status: "prepared", outcome: null, undoable: false, undoData: null,
+      ...seedActionDefaults,
       createdAt: hoursAgo(9), decidedAt: null, executedAt: null,
     },
   ];

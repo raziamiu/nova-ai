@@ -8,7 +8,27 @@
 
 import { z } from "zod";
 
-export const justificationSchema = z
+export const receiptEvidenceSchema = z.object({
+  source: z
+    .string()
+    .min(2)
+    .describe("Where this observation came from — a tool, metric, or record, e.g. 'orders', 'campaign cmp-4'."),
+  note: z
+    .string()
+    .min(5)
+    .describe("The observation itself, e.g. '0 orders in 30d; 2 campaigns scheduled'."),
+  metric: z.string().optional().describe("Named metric this evidence cites, if any."),
+  value: z.union([z.string(), z.number()]).optional().describe("The metric's value."),
+  window: z.string().optional().describe("Evidence window, e.g. '30d'."),
+});
+
+/**
+ * The model-authored half of the PRD E-8 receipt. `before`/`after` display
+ * snapshots are appended by the executor at run time; a write missing its
+ * receipt is a FAILED write (§16.2) — the API enforces it, this schema makes
+ * the model argue it.
+ */
+export const receiptSchema = z
   .object({
     reason: z
       .string()
@@ -19,8 +39,14 @@ export const justificationSchema = z
       .min(5)
       .describe("What is expected to happen, quantified where possible."),
     confidence: z.number().min(0).max(1).describe("Nova's confidence, 0 to 1."),
+    evidence: z
+      .array(receiptEvidenceSchema)
+      .min(1)
+      .describe("At least one concrete supporting observation. No claim without evidence."),
   })
-  .describe("Required trust-system justification for this action.");
+  .describe("Required trust-system receipt for this action (PRD §16.2: no write without one).");
+
+export type ReceiptInput = z.infer<typeof receiptSchema>;
 
 export const updateCampaignPayload = z.object({
   campaignId: z.string(),

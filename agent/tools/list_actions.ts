@@ -5,7 +5,7 @@ import { storeFor } from "../lib/store/resolve";
 
 export default defineTool({
   description:
-    "Review Nova's action queue and history — every mutation Nova attempted, with its justification (reason, expected impact, confidence), risk class, and outcome. Filter by status: prepared = awaiting owner approval; executed, blocked, rejected, undone. Returns { count, actions } newest first (max 50).",
+    "Review Nova's action queue and history — every mutation Nova attempted, with its receipt (reason, expected impact, confidence, evidence, before/after), risk class, and outcome. Filter by status: prepared = awaiting owner approval; executed, blocked, rejected, undone. Returns { count, actions } newest first (max 50).",
   inputSchema: z.object({
     status: z
       .enum(["executed", "prepared", "blocked", "rejected", "undone"])
@@ -27,9 +27,12 @@ export default defineTool({
           title: a.title,
           status: a.status,
           riskClass: a.riskClass,
-          justification: a.justification,
+          receipt: a.receipt,
           outcome: a.outcome,
           undoable: a.undoable,
+          undoDeadline: a.undoDeadline,
+          actor: a.actor,
+          targetRef: a.targetRef,
           createdAt: a.createdAt,
         })),
       };

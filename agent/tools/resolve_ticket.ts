@@ -2,7 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
-import { justificationSchema, resolveTicketPayload } from "../lib/nova/schemas";
+import { receiptSchema, resolveTicketPayload } from "../lib/nova/schemas";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
@@ -10,13 +10,13 @@ export default defineTool({
   description:
     "Reply to a support ticket in the brand voice and set its new status: resolved, waiting_on_customer, or escalated (escalate anything Nova should not decide alone, e.g. large refunds). Autonomy-gated: returns status executed, prepared (awaiting owner approval), or blocked.",
   inputSchema: resolveTicketPayload.extend({
-    justification: justificationSchema,
+    receipt: receiptSchema,
     department: z
       .enum(NOVA_DEPARTMENTS)
       .optional()
       .describe("Attribution for the activity log; defaults to support."),
   }),
-  async execute({ justification, department, ...payload }, ctx) {
+  async execute({ receipt, department, ...payload }, ctx) {
     const client = storeFor(requireStore(ctx).storeId);
     const ticket = await client.getSupportTicket(payload.ticketId);
     const subject = ticket?.subject ?? payload.ticketId;
@@ -31,7 +31,7 @@ export default defineTool({
       department: department ?? "support",
       title,
       payload,
-      justification,
+      receipt,
     });
   },
 });

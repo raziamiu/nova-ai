@@ -2,7 +2,14 @@
 
 **PRD stage:** Stage 4 (PRD §15) · **Prereqs:** 08 (decisions/review verbs), 09 (night
 shift authoring, brief). Owner: AI Engineering (per PRD §16), backend surface included
-here. Self-contained. Nova produces founder-approvable content in the store's own voice —
+here.
+
+> **Baseline correction (2026-07-22): read [`grow-lab-reconciliation.md`](./grow-lab-reconciliation.md).**
+> `GrowPost` + real FB publish + the Nova Motion Ads creative engine shipped. E-11
+> becomes an EXTEND of `GrowPost` (versioning/review loop/voice scoring on top);
+> "social publishing greenfield" is superseded for FB Page (IG still unbuilt); this
+> phase also API-ifies nova-ads' localStorage draft seams into GrowPost + an asset
+> store. Self-contained. Nova produces founder-approvable content in the store's own voice —
 Bangla and English — scored against a structured brand profile, revised on request, and
 published on schedule through a real channel path.
 
