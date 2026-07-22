@@ -40,7 +40,7 @@ I'll pick it up from here.
 
 | # | Status | What | Detail |
 |---|---|---|---|
-| H-7 | ⬜ | **`dakio-api/src/routes/store.shipping.test.js` fails 3 checks.** | Not caused by Nova work — verified by stashing my changes and re-running at HEAD (3 failures before, 3 after). Root cause: `src/lib/studioCatalog.js` imports `prisma.js` under `--experimental-test-module-mocks` and gets *"The requested module './prisma.js' does not provide an export named 'default'"*. Someone should decide whether to fix the mock or drop the file from the hermetic list — it's red in CI either way. |
+| H-7 | ⬜ | **`dakio-api`'s `npm test` is broadly red — ~55 failing tests — and cannot currently serve as a gate.** This is worth a decision, not a shrug. | **Not caused by Nova work.** Every failure is a test that mocks `prisma.js` under `--experimental-test-module-mocks`; they all die at import with *"The requested module '@prisma/client' does not provide an export named 'PrismaClient'"* (and its knock-on *"...'./prisma.js' does not provide an export named 'default'"*). Prisma 5.22 ships CJS, and node's ESM named-export detection isn't resolving it under that flag. **Proven pre-existing**: I checked out the previous commit's schema, regenerated the client, and the failure reproduced identically — then restored. Affects auth, OTP, meta, orders, leads, suppliers, expenses, email preview, and more. Every suite that does *not* mock prisma is green, including all six Nova suites. Likely fixes: import `PrismaClient` via a CJS-safe default (`import pkg from '@prisma/client'; const { PrismaClient } = pkg`), or move to prisma 6 / `prisma-client` generator. |
 
 ---
 
