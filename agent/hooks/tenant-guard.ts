@@ -19,6 +19,7 @@
 import { defineHook } from "eve/hooks";
 import { resolveStoreId } from "../lib/tenant";
 import { getTenant, isTenantActive } from "../lib/tenants";
+import { registerSessionTenant } from "../lib/tenancy/registry";
 
 function storeIdOf(auth: { attributes?: Record<string, unknown> } | null | undefined): string | undefined {
   const value = auth?.attributes?.storeId;
@@ -48,6 +49,17 @@ export default defineHook({
             ? `Nova is paused for ${tenant.name}. Re-enable it from the dashboard to resume operations.`
             : `Store ${storeId} is not provisioned for Nova.`,
         );
+      }
+
+      // 3. Stage 0 subagent-tenancy fix: record this ROOT session's verified
+      //    tenant so `requireStore` inside a department subagent (whose
+      //    session has NO auth — eve internal runtime path) can resolve it
+      //    via `ctx.session.parent.rootSessionId`. This hook fires before any
+      //    delegation in the turn, so the entry always exists by the time a
+      //    subagent tool runs. Root hooks never fire for subagent turns, so
+      //    this only ever records auth-derived pairs.
+      if (storeId) {
+        registerSessionTenant(ctx.session.id, storeId);
       }
     },
   },

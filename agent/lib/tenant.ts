@@ -11,15 +11,20 @@
  */
 
 import type { SessionAuth, SessionAuthContext } from "eve/context";
+import { lookupSessionTenant } from "./tenancy/registry";
 
 /**
  * The minimal context shape the tenancy guard needs: any object exposing the
  * session's auth. Both `ToolContext`/`SessionContext` (tools, hooks) and
  * `DynamicResolveContext` (instruction/model resolvers) satisfy it, so one
- * guard serves every call site.
+ * guard serves every call site. `parent` is present inside declared-subagent
+ * sessions (eve child lineage) and powers the Stage 0 registry fallback.
  */
 export interface TenantContext {
-  readonly session: { readonly auth: SessionAuth };
+  readonly session: {
+    readonly auth: SessionAuth;
+    readonly parent?: { readonly rootSessionId: string } | null;
+  };
 }
 
 export interface StoreScope {
@@ -57,13 +62,33 @@ function devFallbackStoreId(auth: SessionAuthContext | null): string | undefined
 }
 
 /**
+ * Stage 0 subagent fallback: a declared-subagent session carries NO auth
+ * (eve internal runtime path — both `auth.current` and `auth.initiator` are
+ * null there), so tenancy resolves via the parent lineage against the
+ * session→tenant registry written by the tenant-guard hook from VERIFIED
+ * auth. A miss returns undefined and the caller fails closed — never the
+ * dev fallback for subagent lineage, and never anything model-authored.
+ */
+function subagentLineageStoreId(ctx: TenantContext): string | undefined {
+  const rootSessionId = ctx.session.parent?.rootSessionId;
+  if (!rootSessionId) return undefined;
+  return lookupSessionTenant(rootSessionId) ?? undefined;
+}
+
+/**
  * Resolve the store for this session without throwing. Returns `null` when no
  * store can be determined. Use this in best-effort paths (context layers,
  * model selection) that should degrade gracefully rather than fail the turn.
  */
 export function resolveStoreId(ctx: TenantContext): string | null {
   const auth = ctx.session.auth.current ?? ctx.session.auth.initiator;
-  return attr(ctx.session.auth.current, "storeId") ?? attr(ctx.session.auth.initiator, "storeId") ?? devFallbackStoreId(auth) ?? null;
+  return (
+    attr(ctx.session.auth.current, "storeId") ??
+    attr(ctx.session.auth.initiator, "storeId") ??
+    subagentLineageStoreId(ctx) ??
+    devFallbackStoreId(auth) ??
+    null
+  );
 }
 
 /**
@@ -73,6 +98,21 @@ export function resolveStoreId(ctx: TenantContext): string | null {
  */
 export function requireStore(ctx: TenantContext): StoreScope {
   const auth = ctx.session.auth.current ?? ctx.session.auth.initiator;
+
+  // Subagent sessions have no auth: resolve via parent lineage FIRST so the
+  // dev fallback can never mask a broken registry in a delegated turn.
+  if (!auth && ctx.session.parent?.rootSessionId) {
+    const storeId = subagentLineageStoreId(ctx);
+    if (!storeId) {
+      throw new Error(
+        "No tenant registered for this delegation's root session — refusing rather than guessing (subagent sessions carry no auth).",
+      );
+    }
+    // Subagent work runs under the root's tenant with least privilege: it is
+    // never a user principal, so trust-plane tools stay denied.
+    return { storeId, userId: "nova:subagent", role: "staff" };
+  }
+
   const storeId =
     attr(ctx.session.auth.current, "storeId") ??
     attr(ctx.session.auth.initiator, "storeId") ??
