@@ -146,7 +146,7 @@ function summarize(
   if (experimentCount > 0) parts.push(`evaluated ${experimentCount} experiment${experimentCount === 1 ? "" : "s"}`);
   if (attribution.updated.length > 0) {
     parts.push(
-      `attributed ${attribution.updated.length} recovered cart${attribution.updated.length === 1 ? "" : "s"} ($${attribution.measuredRevenue} measured)`,
+      `attributed ${attribution.updated.length} recovered cart${attribution.updated.length === 1 ? "" : "s"} (৳${attribution.measuredRevenue} measured)`,
     );
   }
   return `${parts.join("; ")}. All writes are owner-visible with provenance.`;

@@ -125,7 +125,7 @@ async function checkGuardrails(
       if (total > guardrails.maxAutoPurchaseOrderTotal) {
         return {
           result: "needs_approval",
-          why: `PO total $${total.toFixed(2)} exceeds the $${guardrails.maxAutoPurchaseOrderTotal} autonomous limit.`,
+          why: `PO total ৳${total.toFixed(2)} exceeds the ৳${guardrails.maxAutoPurchaseOrderTotal} autonomous limit.`,
         };
       }
       return { result: "allow" };

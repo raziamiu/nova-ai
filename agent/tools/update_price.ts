@@ -3,7 +3,7 @@ import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { receiptSchema, updatePricePayload } from "../lib/nova/schemas";
-import { usd } from "../lib/nova/format";
+import { money } from "../lib/nova/format";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
@@ -21,8 +21,8 @@ export default defineTool({
     const client = storeFor(requireStore(ctx).storeId);
     const product = await client.getProduct(payload.productId);
     const title = product
-      ? `Reprice "${product.name}": ${usd(product.price)} → ${usd(payload.newPrice)}`
-      : `Set price of ${payload.productId} to ${usd(payload.newPrice)}`;
+      ? `Reprice "${product.name}": ${money(product.price)} → ${money(payload.newPrice)}`
+      : `Set price of ${payload.productId} to ${money(payload.newPrice)}`;
     return performAction(client, {
       type: "update_price",
       department: department ?? "product_research",

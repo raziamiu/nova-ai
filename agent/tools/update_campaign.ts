@@ -3,7 +3,7 @@ import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { receiptSchema, updateCampaignPayload } from "../lib/nova/schemas";
-import { usd } from "../lib/nova/format";
+import { money } from "../lib/nova/format";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
@@ -25,11 +25,11 @@ export default defineTool({
       payload.status === "paused" ? "Pause" : payload.status === "active" ? "Resume" : null;
     const title =
       verb && payload.dailyBudget !== undefined
-        ? `${verb} "${name}" and set budget to ${usd(payload.dailyBudget)}/day`
+        ? `${verb} "${name}" and set budget to ${money(payload.dailyBudget)}/day`
         : verb
           ? `${verb} "${name}"`
           : payload.dailyBudget !== undefined
-            ? `Set "${name}" budget to ${usd(payload.dailyBudget)}/day`
+            ? `Set "${name}" budget to ${money(payload.dailyBudget)}/day`
             : `Update campaign "${name}"`;
     return performAction(client, {
       type: "update_campaign",

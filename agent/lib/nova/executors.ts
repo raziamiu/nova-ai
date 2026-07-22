@@ -68,7 +68,7 @@ export const executors: Record<ActionType, Executor> = {
       changes.push(`status ${prior.status} → ${payload.status}`);
     }
     if (payload.dailyBudget !== undefined && payload.dailyBudget !== prior.dailyBudget) {
-      changes.push(`daily budget $${prior.dailyBudget} → $${payload.dailyBudget}`);
+      changes.push(`daily budget ৳${prior.dailyBudget} → ৳${payload.dailyBudget}`);
     }
     return {
       outcome: `Updated campaign "${updated.name}": ${changes.join(", ") || "notes updated"}.`,
@@ -93,7 +93,7 @@ export const executors: Record<ActionType, Executor> = {
       notes: payload.notes,
     });
     return {
-      outcome: `Created ${campaign.status} ${campaign.channel} campaign "${campaign.name}" at $${campaign.dailyBudget}/day.`,
+      outcome: `Created ${campaign.status} ${campaign.channel} campaign "${campaign.name}" at ৳${campaign.dailyBudget}/day.`,
       undoable: true,
       undoData: { campaignId: campaign.id },
       revenueInfluence: 0,
@@ -138,7 +138,7 @@ export const executors: Record<ActionType, Executor> = {
       ...(payload.compareAtPrice !== undefined ? { compareAtPrice: payload.compareAtPrice } : {}),
     });
     return {
-      outcome: `Repriced "${updated.name}" $${prior.price} → $${payload.newPrice}.`,
+      outcome: `Repriced "${updated.name}" ৳${prior.price} → ৳${payload.newPrice}.`,
       undoable: true,
       undoData: { productId: before.id, ...prior },
       revenueInfluence: 0,
@@ -256,7 +256,7 @@ export const executors: Record<ActionType, Executor> = {
       expectedAt,
     });
     return {
-      outcome: `Placed PO ${po.id}: ${payload.quantity} × ${product.name} from ${supplier.name} at $${unitCost}/unit ($${po.total} total, ETA ${leadTimeDays}d).`,
+      outcome: `Placed PO ${po.id}: ${payload.quantity} × ${product.name} from ${supplier.name} at ৳${unitCost}/unit (৳${po.total} total, ETA ${leadTimeDays}d).`,
       undoable: true,
       undoData: { purchaseOrderId: po.id },
       revenueInfluence: 0,
@@ -283,8 +283,8 @@ export const executors: Record<ActionType, Executor> = {
     });
     const delta = prior.cost - offer.unitCost;
     return {
-      outcome: `Switched "${product.name}" to ${supplier.name} at $${offer.unitCost}/unit (${
-        delta >= 0 ? `saves $${delta.toFixed(2)}` : `costs $${(-delta).toFixed(2)} more`
+      outcome: `Switched "${product.name}" to ${supplier.name} at ৳${offer.unitCost}/unit (${
+        delta >= 0 ? `saves ৳${delta.toFixed(2)}` : `costs ৳${(-delta).toFixed(2)} more`
       } per unit).`,
       undoable: true,
       undoData: { productId: product.id, ...prior },
@@ -340,7 +340,7 @@ export const executors: Record<ActionType, Executor> = {
       tags: ["imported", trending.source],
     });
     return {
-      outcome: `Imported "${product.name}" as ${product.status} at $${price} (est. margin ${trending.estimatedMarginPct}%). Needs a supplier and stock before fulfillment.`,
+      outcome: `Imported "${product.name}" as ${product.status} at ৳${price} (est. margin ${trending.estimatedMarginPct}%). Needs a supplier and stock before fulfillment.`,
       undoable: true,
       undoData: { productId: product.id },
       revenueInfluence: 0,
@@ -357,7 +357,7 @@ export const undoers: Partial<Record<ActionType, Undoer>> = {
       status: undoData.status as "active" | "paused",
       dailyBudget: Number(undoData.dailyBudget),
     });
-    return `Restored campaign "${campaign.name}" to ${campaign.status} at $${campaign.dailyBudget}/day.`;
+    return `Restored campaign "${campaign.name}" to ${campaign.status} at ৳${campaign.dailyBudget}/day.`;
   },
   async create_campaign(client, undoData) {
     const campaign = await client.updateCampaign(String(undoData.campaignId), { status: "paused" });
@@ -376,7 +376,7 @@ export const undoers: Partial<Record<ActionType, Undoer>> = {
       price: Number(undoData.price),
       compareAtPrice: undoData.compareAtPrice === null ? null : Number(undoData.compareAtPrice),
     });
-    return `Restored "${product.name}" to $${product.price}.`;
+    return `Restored "${product.name}" to ৳${product.price}.`;
   },
   async create_discount(client, undoData) {
     const discount = await client.updateDiscount(String(undoData.discountId), { active: false });

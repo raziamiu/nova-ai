@@ -51,7 +51,7 @@ export type ReceiptInput = z.infer<typeof receiptSchema>;
 export const updateCampaignPayload = z.object({
   campaignId: z.string(),
   status: z.enum(["active", "paused"]).optional().describe("New status, if changing."),
-  dailyBudget: z.number().positive().optional().describe("New daily budget in USD."),
+  dailyBudget: z.number().positive().optional().describe("New daily budget in ৳ (BDT, the store display currency)."),
   note: z.string().optional().describe("Note to append to the campaign log."),
 });
 

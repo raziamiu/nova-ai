@@ -15,7 +15,7 @@ import type {
   Product,
 } from "../types";
 import type { StoreClient } from "../store/client";
-import { pct, pctChange, round2, signedPct, usd } from "./format";
+import { pct, pctChange, round2, signedPct, money } from "./format";
 import { summarizeWork } from "./activity";
 
 const DAY_MS = 86_400_000;
@@ -471,7 +471,7 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
         severity: "critical",
         domain: "ads",
         title: `"${campaign.name}" is burning spend with zero conversions`,
-        evidence: `${usd(spend3d)} spent on ${campaign.channel} over the last 3 days with 0 conversions (7-day: ${usd(m.spend7d)} spend, ${usd(m.revenue7d)} revenue).`,
+        evidence: `${money(spend3d)} spent on ${campaign.channel} over the last 3 days with 0 conversions (7-day: ${money(m.spend7d)} spend, ${money(m.revenue7d)} revenue).`,
         suggestedAction: `Pause it now with the update_campaign tool (campaignId "${campaign.id}", status "paused"), then rework the audience or creative before restarting.`,
       });
     } else if (m.cpaTrendPct !== null && m.cpa3d !== null && m.cpaPrior7d !== null && m.cpaTrendPct >= 30) {
@@ -480,7 +480,7 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
         severity: "warning",
         domain: "ads",
         title: `"${campaign.name}" cost per acquisition is climbing fast`,
-        evidence: `CPA rose ${signedPct(m.cpaTrendPct)} — from ${usd(m.cpaPrior7d)} to ${usd(m.cpa3d)} — with ${usd(spend3d)} spent over the last 3 days.`,
+        evidence: `CPA rose ${signedPct(m.cpaTrendPct)} — from ${money(m.cpaPrior7d)} to ${money(m.cpa3d)} — with ${money(spend3d)} spent over the last 3 days.`,
         suggestedAction: `Trim the daily budget with the update_campaign tool (campaignId "${campaign.id}") and refresh the creative; pause it if CPA keeps climbing.`,
       });
     } else if (m.roas7d !== null && m.roas7d < 1 && m.spend7d > 100) {
@@ -489,7 +489,7 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
         severity: "warning",
         domain: "ads",
         title: `"${campaign.name}" is running below break-even`,
-        evidence: `7-day ROAS is ${m.roas7d} (${usd(m.revenue7d)} revenue on ${usd(m.spend7d)} spend) — every ad dollar returns less than a dollar.`,
+        evidence: `7-day ROAS is ${m.roas7d} (${money(m.revenue7d)} revenue on ${money(m.spend7d)} spend) — every ad dollar returns less than a dollar.`,
         suggestedAction: `Cut the daily budget or pause via the update_campaign tool (campaignId "${campaign.id}") until targeting improves.`,
       });
     }
@@ -500,8 +500,8 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
         severity: "info",
         domain: "ads",
         title: `"${campaign.name}" is a scale candidate`,
-        evidence: `7-day ROAS is ${m.roas7d} (${usd(m.revenue7d)} revenue on ${usd(m.spend7d)} spend) with ${m.conversions7d} conversions.`,
-        suggestedAction: `Raise the daily budget from ${usd(campaign.dailyBudget)} with the update_campaign tool (campaignId "${campaign.id}"), staying within the budget-change guardrail.`,
+        evidence: `7-day ROAS is ${m.roas7d} (${money(m.revenue7d)} revenue on ${money(m.spend7d)} spend) with ${m.conversions7d} conversions.`,
+        suggestedAction: `Raise the daily budget from ${money(campaign.dailyBudget)} with the update_campaign tool (campaignId "${campaign.id}"), staying within the budget-change guardrail.`,
       });
     }
   }
@@ -538,8 +538,8 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
         severity: "info",
         domain: "inventory",
         title: `${product.name} looks like dead stock`,
-        evidence: `${product.stock} units on hand (reorder point ${product.reorderPoint}) selling only ~${round2(dailyVelocity)}/day — ${usd(tiedUpCash)} of cash tied up.`,
-        suggestedAction: `Run a clearance offer with the create_discount tool or cut the price with the update_price tool (productId "${product.id}") to turn ${usd(tiedUpCash)} of stock back into cash.`,
+        evidence: `${product.stock} units on hand (reorder point ${product.reorderPoint}) selling only ~${round2(dailyVelocity)}/day — ${money(tiedUpCash)} of cash tied up.`,
+        suggestedAction: `Run a clearance offer with the create_discount tool or cut the price with the update_price tool (productId "${product.id}") to turn ${money(tiedUpCash)} of stock back into cash.`,
       });
     }
   }
@@ -615,7 +615,7 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
       severity: "warning",
       domain: "sales",
       title: `Revenue is down ${pct(Math.abs(round2(salesChange)))} week over week`,
-      evidence: `Last 7 days brought ${usd(revLast7)} vs ${usd(revPrior7)} the week before (${signedPct(salesChange)}). Biggest decliners: ${decliners.map((d) => `${d.name} (-${usd(d.decline)})`).join(", ") || "spread evenly across the catalog"}.`,
+      evidence: `Last 7 days brought ${money(revLast7)} vs ${money(revPrior7)} the week before (${signedPct(salesChange)}). Biggest decliners: ${decliners.map((d) => `${d.name} (-${money(d.decline)})`).join(", ") || "spread evenly across the catalog"}.`,
       suggestedAction: `Refresh ads for the declining products with the update_campaign tool, or test a limited create_discount to win demand back.`,
     });
   } else if (salesChange !== null && salesChange > 20) {
@@ -624,7 +624,7 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
       severity: "info",
       domain: "sales",
       title: `Revenue is up ${pct(round2(salesChange))} week over week`,
-      evidence: `Last 7 days brought ${usd(revLast7)} vs ${usd(revPrior7)} the week before (${signedPct(salesChange)}).`,
+      evidence: `Last 7 days brought ${money(revLast7)} vs ${money(revPrior7)} the week before (${signedPct(salesChange)}).`,
       suggestedAction: `Lean in: scale the winning campaigns with the update_campaign tool (within the budget guardrail) and check stock covers the extra demand.`,
     });
   }
@@ -659,7 +659,7 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
       severity: "info",
       domain: "carts",
       title: `${unrecoveredCarts.length} abandoned cart${unrecoveredCarts.length === 1 ? "" : "s"} awaiting recovery`,
-      evidence: `${unrecoveredCarts.length} cart${unrecoveredCarts.length === 1 ? "" : "s"} worth ${usd(cartValue)} have no recovery message sent yet; at a ${pct(CART_RECOVERY_RATE * 100)} recovery rate that is ~${usd(expectedRecovery)} of winnable revenue.`,
+      evidence: `${unrecoveredCarts.length} cart${unrecoveredCarts.length === 1 ? "" : "s"} worth ${money(cartValue)} have no recovery message sent yet; at a ${pct(CART_RECOVERY_RATE * 100)} recovery rate that is ~${money(expectedRecovery)} of winnable revenue.`,
       suggestedAction: `Send personalised recovery messages with the send_customer_message tool (purpose "cart_recovery"), adding a small create_discount code on high-value carts.`,
     });
   }
@@ -674,7 +674,7 @@ export async function detectAnomalies(client: StoreClient): Promise<AnomalyFindi
       severity: "info",
       domain: "margin",
       title: `${thinMargin.length} product${thinMargin.length === 1 ? "" : "s"} selling below a ${THIN_MARGIN_PCT}% margin`,
-      evidence: `Below the ${THIN_MARGIN_PCT}% margin floor: ${thinMargin.map((p) => `${p.name} (${pct(marginPctOf(p))} at ${usd(p.price)})`).join(", ")}.`,
+      evidence: `Below the ${THIN_MARGIN_PCT}% margin floor: ${thinMargin.map((p) => `${p.name} (${pct(marginPctOf(p))} at ${money(p.price)})`).join(", ")}.`,
       suggestedAction: `Raise prices with the update_price tool or source cheaper with the switch_supplier tool for these products.`,
     });
   }

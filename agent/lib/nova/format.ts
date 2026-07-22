@@ -1,12 +1,19 @@
 /** Formatting helpers so numbers read the same everywhere Nova speaks. */
 
-export function usd(value: number): string {
+/**
+ * Money in ৳ (BDT, the store display currency — PRD §12/§17), with
+ * lakh/crore grouping (৳2,50,000). Stage 0 note: the DEMO SEED's money
+ * values are still USD-scale; re-pricing the seed + re-denominating the
+ * money guardrail caps is one atomic follow-up pass (they must move
+ * together or gate ratios silently change).
+ */
+export function money(value: number): string {
   const rounded = Math.round(value * 100) / 100;
-  const formatted = Math.abs(rounded).toLocaleString("en-US", {
+  const formatted = Math.abs(rounded).toLocaleString("en-IN", {
     minimumFractionDigits: rounded % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   });
-  return `${rounded < 0 ? "-" : ""}$${formatted}`;
+  return `${rounded < 0 ? "-" : ""}৳${formatted}`;
 }
 
 /** Percent with sign, e.g. +12.5% / -43%. */

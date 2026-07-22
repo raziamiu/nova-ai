@@ -3,7 +3,7 @@ import { z } from "zod";
 import { NOVA_DEPARTMENTS } from "../lib/types";
 import { performAction } from "../lib/nova/actions";
 import { createCampaignPayload, receiptSchema } from "../lib/nova/schemas";
-import { usd } from "../lib/nova/format";
+import { money } from "../lib/nova/format";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 
@@ -26,7 +26,7 @@ export default defineTool({
     const focus = firstProduct
       ? ` for "${firstProduct.name}"${payload.productIds.length > 1 ? ` +${payload.productIds.length - 1} more` : ""}`
       : "";
-    const title = `${payload.startNow ? "Launch" : "Schedule"} "${payload.name}" on ${payload.channel} at ${usd(payload.dailyBudget)}/day${focus}`;
+    const title = `${payload.startNow ? "Launch" : "Schedule"} "${payload.name}" on ${payload.channel} at ${money(payload.dailyBudget)}/day${focus}`;
     return performAction(client, {
       type: "create_campaign",
       department: department ?? "marketing",

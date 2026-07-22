@@ -103,7 +103,7 @@ export async function buildLiveOps(storeId: string): Promise<string> {
     "## Live operating state (refreshed each turn)",
     "",
     `- Autonomy level: **${autonomy.level}** (0 observe · 1 recommend · 2 prepare · 3 auto low-risk · 4 operator)`,
-    `- Guardrails: max discount ${g.maxDiscountPct}% · max price change ${g.maxPriceChangePct}% · max budget change ${g.maxBudgetChangePct}% · margin floor ${g.minMarginPct}% · auto-PO cap $${g.maxAutoPurchaseOrderTotal}`,
+    `- Guardrails: max discount ${g.maxDiscountPct}% · max price change ${g.maxPriceChangePct}% · max budget change ${g.maxBudgetChangePct}% · margin floor ${g.minMarginPct}% · auto-PO cap ৳${g.maxAutoPurchaseOrderTotal}`,
     `- Prepared actions awaiting approval: **${prepared.length}**${
       prepared.length > 0 ? " — surface these when the owner checks in (`list_actions`)." : ""
     }`,
