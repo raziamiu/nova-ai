@@ -5,7 +5,7 @@ will deliver) it → concrete evidence (file / tool / test). This is the honest
 ledger — a row is ✅ only if the code named in Evidence backs it up.
 
 - **Status:** ✅ done · 🟡 partial · ⬜ planned
-- **Last updated:** 2026-07-21 (through Phase 05, plus Nova UI Build step 1)
+- **Last updated:** 2026-07-23 (through Phase 06 engineering; the Stage 0 gate is **not** signed off — see the phase-06 report)
 - **Legend for the "(live)" caveat:** many rows are ✅/🟡 *against the in-memory
   demo backend* by default (`NOVA_STORE_BACKEND` defaults to `demo`). Phase 02
   shipped a live path behind that env switch; rows tagged
@@ -21,7 +21,8 @@ ledger — a row is ✅ only if the code named in Evidence backs it up.
 | 03 | Two stores, one deployment, zero leakage | ✅ shipped | [phase-03](./capabilities/phase-03-multi-tenant-core.md) |
 | 04 | Cross-session recall + nightly reflection | ✅ shipped | [phase-04](./capabilities/phase-04-memory-and-learning.md) |
 | 05 | Per-tenant daily loop for a tenant fleet | ✅ shipped | [phase-05](./capabilities/phase-05-proactive-operations.md) |
-| 06–15 (v2) | Blueprint v2: one phase per Master Build PRD Stage 0–9 (Spine → Law → Consent → Proof → Craft → Conversation → Reach → Presence → Team → Launch) | ⬜ planned — UI Build step 1 (ledger + live feed) shipped and counts toward Stage 0 | [blueprint v2](../blueprint/README.md) · [nova-ui-build-01](./capabilities/nova-ui-build-01-ledger-feed.md) |
+| 06 | **Stage 0 "Spine"** — every write carries a receipt, lands in a door the founder already uses, and is reversible for 24h | 🟡 **engineering complete, gate NOT signed off** — the PRD §15 demo must be run by a non-builder on staging (H-1/H-2) | [phase-06](./capabilities/phase-06-stage0-spine.md) |
+| 07–15 (v2) | Blueprint v2: one phase per Master Build PRD Stage 1–9 (Law → Consent → Proof → Craft → Conversation → Reach → Presence → Team → Launch) | ⬜ planned | [blueprint v2](../blueprint/README.md) · [nova-ui-build-01](./capabilities/nova-ui-build-01-ledger-feed.md) |
 
 > **Build order was 1 → 3 → 4.** Phase 2 was jumped; only its async-`StoreClient`
 > refactor ("2a", `98beca3`) was pulled forward to unblock 3 and 4. See the
