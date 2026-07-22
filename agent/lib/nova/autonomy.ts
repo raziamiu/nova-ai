@@ -61,6 +61,7 @@ export const RISK_CLASS: Record<ActionType, RiskClass> = {
   assign_courier: "medium",
   create_purchase_order: "high",
   switch_supplier: "high",
+  bulk_refund: "high",
 };
 
 export interface GateDecision {

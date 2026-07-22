@@ -537,7 +537,9 @@ export type ActionType =
   | "create_purchase_order"
   | "switch_supplier"
   | "assign_courier"
-  | "import_product";
+  | "import_product"
+  /** Founder-only (PRD 5.4): Nova may propose, never execute. */
+  | "bulk_refund";
 
 /**
  * Derived compatibility projection of the receipt ({reason, expectedImpact,

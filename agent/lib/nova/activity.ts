@@ -12,6 +12,8 @@ import type { StoreClient } from "../store/client";
 
 /** Human-equivalent minutes a founder would spend doing this by hand. */
 const MINUTES_BY_ACTION: Record<ActionType, number> = {
+  // Reviewing and refunding a batch by hand, per the founder.
+  bulk_refund: 25,
   send_customer_message: 8,
   resolve_ticket: 12,
   publish_social_post: 35,

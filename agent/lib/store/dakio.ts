@@ -470,6 +470,14 @@ export class DakioStoreClient implements StoreClient {
     return authority;
   }
 
+  async setNoTouch(locks: string[]): Promise<string[]> {
+    const { noTouch } = await this.request<{ noTouch: string[] }>("/api/v1/agent-data/authority/no-touch", {
+      method: "PUT",
+      body: { noTouch: locks },
+    });
+    return noTouch;
+  }
+
   async setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig> {
     const { autonomy } = await this.request<{ autonomy: AutonomyConfig }>("/api/v1/agent-data/config", {
       method: "PUT",

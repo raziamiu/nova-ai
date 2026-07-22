@@ -167,6 +167,12 @@ export interface StoreClient {
    * and a silently-empty state would read as "no locks, no limits".
    */
   getAuthority(): Promise<AuthorityState>;
+  /**
+   * Replace the no-touch lock list, writing a NEW guardrails version.
+   * Guardrail rows are immutable so a receipt can always be re-read against
+   * the limits that judged it; this never edits the current row in place.
+   */
+  setNoTouch(locks: string[]): Promise<string[]>;
   setAutonomy(config: AutonomyConfig): Promise<AutonomyConfig>;
 
   listMemory(namespace?: MemoryNamespace): Promise<MemoryEntry[]>;

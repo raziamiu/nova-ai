@@ -51,6 +51,23 @@ type Executor = (client: StoreClient, payload: Record<string, unknown>) => Promi
 type Undoer = (client: StoreClient, undoData: Record<string, unknown>) => Promise<string>;
 
 export const executors: Record<ActionType, Executor> = {
+  /**
+   * Unreachable by design. `bulk_refund` is founder-only (PRD §5.4), so
+   * `evaluateAuthority` refuses it before `performAction` ever reaches an
+   * executor — at every level, on every path.
+   *
+   * It throws rather than returning something harmless because arriving here
+   * would mean the founder-only classification had been bypassed, and the
+   * correct response to "the safety gate didn't run" is a loud crash, not a
+   * quiet refund. The founder-side execution path lands with phase 08's
+   * approve transaction and a real dakio-api refund endpoint.
+   */
+  async bulk_refund() {
+    throw new Error(
+      "bulk_refund reached an executor — the founder-only gate did not run. This is a bug in the authority seam, not a refund to retry.",
+    );
+  },
+
   async update_campaign(client, raw) {
     const payload = updateCampaignPayload.parse(raw);
     const before = await client.getCampaign(payload.campaignId);

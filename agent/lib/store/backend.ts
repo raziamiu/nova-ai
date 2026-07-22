@@ -318,6 +318,11 @@ export class DemoStore implements StoreClient {
     };
   }
 
+  async setNoTouch(locks: string[]): Promise<string[]> {
+    this.data.noTouch = [...locks];
+    return this.data.noTouch;
+  }
+
   // ---- Grow Lab (read-only) ----
   //
   // The demo seed ships no Grow rows, so these read empty. That is the honest
