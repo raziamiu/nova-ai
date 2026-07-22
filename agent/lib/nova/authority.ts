@@ -104,7 +104,10 @@ export function normalizeForMatch(text: string): string {
   return text
     .normalize("NFC")
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    // \p{M} is load-bearing: Bangla matras and nuktas are combining MARKS, not
+    // letters. Without it a Bangla lock shreds into single letters, every token
+    // is dropped as noise, and the lock silently never matches anything.
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
     .trim();
 }
 

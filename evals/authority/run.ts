@@ -108,6 +108,12 @@ async function main(): Promise<void> {
   console.log("\n[2] No-touch locks");
   check("normalize folds case and punctuation", normalizeForMatch("SAREE — Pricing!") === "saree pricing");
   check("NFC: composed and decomposed Bangla compare equal", normalizeForMatch("শাড়ি".normalize("NFD")) === normalizeForMatch("শাড়ি".normalize("NFC")));
+  // Regression: the normalizer once stripped combining marks (\p{M}), which
+  // shredded Bangla into single letters — every token then dropped as noise, so
+  // a Bangla lock silently protected NOTHING. Caught by the shared vectors.
+  check("Bangla survives normalization intact (matras are marks, not letters)", normalizeForMatch("শাড়ির দাম") === "শাড়ির দাম", normalizeForMatch("শাড়ির দাম"));
+  check("a Bangla lock actually matches Bangla text", lockMatches("শাড়ির দাম", "শাড়ির দাম পরিবর্তন"));
+  check("and does not fire on unrelated English", !lockMatches("শাড়ির দাম", "shirt price change"));
   check("all lock tokens must appear (AND, not OR)", lockMatches("saree pricing", "saree pricing update") && !lockMatches("saree pricing", "saree restock"));
   check("token order doesn't matter", lockMatches("saree pricing", "pricing for the saree"));
   check("a near-miss does not fire", !lockMatches("saree pricing", "shirt pricing"));
