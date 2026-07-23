@@ -131,6 +131,19 @@ export function verifyDakioJwt(
     if (!ok) return null;
   }
 
+  // Dakio's live merchant tokens (dakio-api src/routes/auth.js) carry
+  // `{userId, tenantId, role}` rather than `{sub, storeId}`, and role is
+  // uppercase (`OWNER`). Normalize AFTER signature verification, BEFORE the
+  // fail-closed tenancy checks, so both token dialects pass the same gate.
+  // Explicit `sub`/`storeId` claims still win when present.
+  if (typeof claims.sub !== "string" || claims.sub.length === 0) {
+    if (typeof claims.userId === "string" && claims.userId.length > 0) claims.sub = claims.userId;
+  }
+  if (typeof claims.storeId !== "string" || claims.storeId.length === 0) {
+    if (typeof claims.tenantId === "string" && claims.tenantId.length > 0) claims.storeId = claims.tenantId;
+  }
+  if (typeof claims.role === "string") claims.role = claims.role.toLowerCase();
+
   // Tenancy is mandatory: a token with no storeId is useless and unsafe.
   if (typeof claims.storeId !== "string" || claims.storeId.length === 0) return null;
   if (typeof claims.sub !== "string" || claims.sub.length === 0) return null;

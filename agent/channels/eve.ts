@@ -60,8 +60,28 @@ function dakioJwt(): AuthFn<Request> {
   };
 }
 
+/**
+ * Browser CORS for the merchant dashboard's chat client. Auth still runs on
+ * every session request, and tokens travel in the Authorization header (no
+ * cookies), so a permissive default origin is acceptable in dev; deployments
+ * narrow it with NOVA_CORS_ORIGINS (comma-separated exact origins). Read at
+ * channel-compile time — changing the env var needs a server restart.
+ */
+function corsFromEnv() {
+  const origins = (process.env.NOVA_CORS_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return {
+    origin: origins.length > 0 ? origins : ("*" as const),
+    allowHeaders: ["authorization", "content-type", "x-dakio-client-context"] as const,
+    exposeHeaders: ["x-eve-session-id"] as const,
+  };
+}
+
 export default eveChannel({
   auth: [dakioJwt(), localDev()],
+  cors: corsFromEnv(),
   onMessage(ctx, _message) {
     const clientContext = parseClientContext(ctx.eve.request.headers.get("x-dakio-client-context"));
     return {
