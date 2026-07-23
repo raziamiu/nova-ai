@@ -7,7 +7,7 @@
     "#evals/*": "./evals/*"
   },
   "scripts": {
-    "postinstall": "node scripts/patch-eve-dev-host.mjs",
+    "postinstall": "node scripts/patch-eve.mjs",
     "build": "eve build",
     "dev": "eve dev",
     "start": "eve start",
