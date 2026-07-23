@@ -932,6 +932,55 @@ export interface MorningBrief {
   openedAt: string | null;
 }
 
+// ── Brand voice (E-12) + voice scoring (Stage 4 "Craft") ───────────────────
+
+export type BrandLanguage = "bn" | "en";
+
+export interface BrandRule {
+  kind: "do" | "dont";
+  /** The phrase or instruction, in English. */
+  text: string;
+  /** Bangla parity, when the rule is language-specific. */
+  textBn?: string;
+}
+
+/** E-12 — the structured brand profile. Memory stays the narrative layer; this
+ *  is the checkable truth a draft is scored against. One per tenant. */
+export interface BrandProfile {
+  toneWords: string[];
+  palette: string[];
+  rules: BrandRule[];
+  languages: BrandLanguage[];
+  assets: {
+    logoRef?: string;
+    boilerplateEn?: string;
+    boilerplateBn?: string;
+    hashtags?: string[];
+  };
+  /** Below this 0–100 score a draft is flagged off-voice. Default 70. */
+  threshold?: number;
+}
+
+export type ContentLanguage = "bn" | "en" | "mixed";
+
+export type ContentType =
+  | "post" | "reel" | "story" | "captions" | "email" | "sms" | "push" | "product_desc";
+
+export interface VoiceViolation {
+  /** Machine slug: banned_phrase | missing_required | language_mismatch | too_long | tone_thin | emoji_over | hashtag_over */
+  code: string;
+  /** Founder-facing sentence — cites the draft, never an unexplained score (§2.4). */
+  message: string;
+  /** The offending fragment, when there is one to quote. */
+  evidence?: string;
+}
+
+export interface VoiceScore {
+  score: number;
+  flagged: boolean;
+  violations: VoiceViolation[];
+}
+
 export interface StoreSeed {
   products: Product[];
   trendingProducts: TrendingProduct[];
