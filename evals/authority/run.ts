@@ -191,12 +191,16 @@ async function main(): Promise<void> {
     dutyKey: "support.refund_processing",
   });
   check("a duty above the effective level is refused", belowMin.verdict === "refuse" && belowMin.rule === "duty:min_level", `${belowMin.verdict} / ${belowMin.rule}`);
-  const noDoor = await evaluateAuthority(storeWith({ level: 4 }), {
+  // Stage 6 shipped the last four doors, so shipping.rate_compare is no longer a
+  // NEEDS DOOR duty — it must NOT be refused for lacking a door now (the door
+  // exists on the Reach page). The needs_door refusal mechanism itself stays in
+  // evaluateAuthority for any future undoored duty; today there are none.
+  const nowDoored = await evaluateAuthority(storeWith({ level: 4 }), {
     type: "assign_courier",
     payload: { orderId: "o", courierId: "c" },
     dutyKey: "shipping.rate_compare",
   });
-  check("a duty with no built door refuses honestly", noDoor.verdict === "refuse" && noDoor.rule === "duty:needs_door", `${noDoor.rule}`);
+  check("a now-doored duty is not refused for lacking a door", nowDoored.rule !== "duty:needs_door", `${nowDoored.rule}`);
 
   // ── 6. Guardrails ───────────────────────────────────────────────────────
   console.log("\n[6] Guardrails");
@@ -267,7 +271,7 @@ async function main(): Promise<void> {
 
   // ── 9. Every decision is explainable, in both languages ─────────────────
   console.log("\n[9] Explanations");
-  const samples = [locked, overDiscount, belowMin, noDoor, escalated, overCap];
+  const samples = [locked, overDiscount, belowMin, paused, escalated, overCap];
   check("every decision names a rule", samples.every((d) => d.rule.length > 0));
   check("every decision has an English explanation", samples.every((d) => d.explanation.trim().length > 10));
   check("every decision has a Bangla explanation", samples.every((d) => /[ঀ-৿]/.test(d.explanationBn)), samples.filter((d) => !/[ঀ-৿]/.test(d.explanationBn)).map((d) => d.rule).join(", "));
