@@ -682,6 +682,14 @@ export class DakioStoreClient implements StoreClient {
     return this.actionFromWire(row);
   }
 
+  async executePreparedAction(actionId: string): Promise<{ executed: boolean; note: string }> {
+    const res = await this.request<{ executed: boolean; note: string }>(
+      `/api/v1/agent-data/actions/${encodeURIComponent(actionId)}/approve`,
+      { method: "POST", body: {} },
+    );
+    return { executed: res.executed, note: res.note };
+  }
+
   async attributeDoorRecord(targetRef: string, actionId: string): Promise<void> {
     await this.request("/api/v1/agent-data/attribute", {
       method: "POST",

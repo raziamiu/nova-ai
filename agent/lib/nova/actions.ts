@@ -276,7 +276,16 @@ export async function approveAction(
   if (record.status !== "prepared") {
     throw new Error(`Action ${actionId} is ${record.status}, not awaiting approval.`);
   }
-  const execution = await executors[record.type](client, record.payload);
+  // The ledger holds verbs beyond this agent's own registry — advisory verbs
+  // (suggest_reorder…) and door executors that live backend-side (grow
+  // campaigns, coupons). Those approve through the backend's pipeline, which
+  // also claims the linked Desk card so the two surfaces can't double-run.
+  const execute = executors[record.type] as (typeof executors)[ActionType] | undefined;
+  if (!execute) {
+    const remote = await client.executePreparedAction(actionId);
+    return { actionId, detail: remote.note };
+  }
+  const execution = await execute(client, record.payload);
   await client.updateAction(actionId, {
     status: "executed",
     outcome: execution.outcome,

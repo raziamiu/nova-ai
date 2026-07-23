@@ -817,6 +817,29 @@ export class DemoStore implements StoreClient {
     return action;
   }
 
+  async executePreparedAction(actionId: string): Promise<{ executed: boolean; note: string }> {
+    // Mirror of dakio-api's approve pipeline for the in-memory store. The
+    // demo store has no door executors, so the two honest outcomes are the
+    // advisory acknowledgement and "nothing ran" — never a fabricated effect.
+    const ADVISORY = new Set(["suggest_reorder", "suggest_restock", "flag_rto_spike", "flag_risk", "recommend"]);
+    const action = this.mustFind(
+      this.data.actions.find((a) => a.id === actionId),
+      "Action",
+      actionId,
+    );
+    if (action.status !== "prepared") {
+      throw new Error(`Action is ${action.status}, not awaiting approval.`);
+    }
+    if (!ADVISORY.has(action.type)) {
+      return { executed: false, note: "No executor is registered for this action yet — nothing ran." };
+    }
+    action.status = "executed";
+    action.outcome = "Acknowledged — recommendation accepted; no automated store change.";
+    action.decidedAt = this.now();
+    action.executedAt = this.now();
+    return { executed: true, note: action.outcome };
+  }
+
   async attributeDoorRecord(_targetRef: string, _actionId: string): Promise<void> {
     // The in-memory demo store has no door tables to stamp; the live backend
     // (dakio.ts → POST /agent-data/attribute) persists the link.

@@ -251,6 +251,16 @@ export interface StoreClient {
     >,
   ): Promise<ActionRecord>;
   /**
+   * Approve-time execution for verbs the agent has NO local executor for —
+   * the backend owns executors for advisory verbs and its own doors (grow
+   * campaigns, coupons). Runs the backend approve pipeline: claims the linked
+   * Decision (so a chat approve can't race a Desk tap into a double
+   * execution), executes through the backend registry, and reports honestly
+   * whether anything ran. Throws with the backend's reason on a settled or
+   * frozen decision.
+   */
+  executePreparedAction(actionId: string): Promise<{ executed: boolean; note: string }>;
+  /**
    * by:nova attribution (Stage 0): stamp the door record a just-executed
    * action touched (`targetRef` = "type:id") with the action id, so the door
    * UI can render the chip + receipt drawer. Metadata, never authority —
