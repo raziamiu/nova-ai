@@ -13,9 +13,6 @@
  * "personality" is data: the row below plus its brand/goals memory.
  */
 
-import { anthropic } from "@ai-sdk/anthropic";
-import type { LanguageModel } from "ai";
-
 export type TenantStatus = "active" | "paused";
 
 /** Billing plan → model tier. Selection happens once at session start. */
@@ -40,18 +37,27 @@ export interface TenantRecord {
 }
 
 /**
- * Direct Anthropic model per plan tier (via `ANTHROPIC_API_KEY`). The core
- * operator loop is Sonnet-class; higher plans get an Opus-class model, entry
- * plans a cheaper Haiku-class one. Returned by `modelForPlan` and consumed by
- * the dynamic model selector in `agent.ts`.
+ * Model tier per plan, as Vercel AI Gateway model ids. The core operator loop
+ * is Sonnet-class; higher plans get an Opus-class model, entry plans a cheaper
+ * Haiku-class one. Returned by `modelForPlan` and consumed by the dynamic
+ * model selector in `agent.ts`.
+ *
+ * These are ID STRINGS, not provider objects, for two reasons: gateway routing
+ * (one credential — Vercel OIDC or `AI_GATEWAY_API_KEY` — instead of a
+ * per-provider key), and because eve only accepts serializable selections at
+ * session/turn scope. Returning a live `LanguageModel` here was silently
+ * rejected at runtime ("must be serializable"), so every tenant actually ran
+ * on the fallback model regardless of plan. Note the gateway's dotted version
+ * format (`claude-haiku-4.5`) vs the provider-native hyphenated one
+ * (`claude-haiku-4-5`).
  */
-const MODEL_BY_PLAN: Record<TenantPlan, LanguageModel> = {
-  starter: anthropic("claude-haiku-4-5"),
-  growth: anthropic("claude-sonnet-5"),
-  scale: anthropic("claude-opus-4-8"),
+const MODEL_BY_PLAN: Record<TenantPlan, string> = {
+  starter: "anthropic/claude-haiku-4.5",
+  growth: "anthropic/claude-sonnet-5",
+  scale: "anthropic/claude-opus-4.8",
 };
 
-export function modelForPlan(plan: TenantPlan | string | undefined): LanguageModel | null {
+export function modelForPlan(plan: TenantPlan | string | undefined): string | null {
   if (plan && plan in MODEL_BY_PLAN) {
     return MODEL_BY_PLAN[plan as TenantPlan];
   }
