@@ -27,7 +27,13 @@
  * with provider metadata. eve's `modelContextWindowTokens` is an escape hatch
  * for unlisted models only.
  */
-
+/* 
+= {
+  starter: "anthropic/claude-haiku-4.5",
+  growth: "anthropic/claude-sonnet-5",
+  scale: "anthropic/claude-opus-4.8",
+}; 
+*/
 import type { TenantPlan } from "./tenants";
 
 /**
@@ -40,7 +46,8 @@ import type { TenantPlan } from "./tenants";
  * live Dakio tenants today) lands here. M3 is the MiniMax flagship — a 1M
  * context window and vision/PDF input, at the same price as the lower tiers.
  */
-export const ROOT_MODEL = "minimax/minimax-m3";
+export const ROOT_MODEL = "anthropic/claude-opus-4.8";
+// export const ROOT_MODEL = "minimax/minimax-m3";
 
 /**
  * The nine department subagents (finance, growth, inventory, marketing,
@@ -50,7 +57,8 @@ export const ROOT_MODEL = "minimax/minimax-m3";
  * conversation, so they take the workhorse tier instead of the flagship — the
  * same mid-tier role they held before the MiniMax switch.
  */
-export const SUBAGENT_MODEL = "minimax/minimax-m2.7";
+// export const SUBAGENT_MODEL = "minimax/minimax-m2.7";
+export const SUBAGENT_MODEL = "anthropic/claude-sonnet-5";
 
 /**
  * Plan → model tier for the root agent, selected once per session.
@@ -59,9 +67,12 @@ export const SUBAGENT_MODEL = "minimax/minimax-m2.7";
  * ($0.30/$1.20 per 1M in/out): the plan buys capability, not spend. M2.5 and
  * M2.7 carry a 205k context window; M3 adds the 1M window and vision.
  */
+
 const MODEL_BY_PLAN: Record<TenantPlan, string> = {
-  starter: "minimax/minimax-m2.5",
-  growth: "minimax/minimax-m2.7",
+  starter: "anthropic/claude-haiku-4.5",
+  // starter: "minimax/minimax-m2.5",
+  growth: "anthropic/claude-sonnet-5",
+  // growth: "minimax/minimax-m2.7",
   scale: ROOT_MODEL,
 };
 
