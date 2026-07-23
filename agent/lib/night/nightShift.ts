@@ -17,20 +17,36 @@
 import type { StoreClient } from "../store/client";
 import type {
   ActionReceipt,
+  BrandProfile,
+  ContentItem,
   DecisionRecord,
   DepartmentGrade,
   NovaDepartment,
   PlanItem,
   ScoreMetric,
 } from "../types";
+import { scoreVoice } from "../nova/voice";
 
 export interface NightShiftResult {
   day: string;
   departments: DepartmentGrade[];
   planItems: PlanItem[];
   decisions: DecisionRecord[];
+  content: ContentItem[];
   briefId: string;
 }
+
+// A conservative default voice used to score night-shift drafts when the tenant
+// hasn't set a brand profile yet. The founder's profile (once set) tightens this
+// via the API; here it just keeps a shouty/off-voice draft from sailing through.
+const DEFAULT_VOICE: BrandProfile = {
+  toneWords: [],
+  palette: [],
+  rules: [{ kind: "dont", text: "cheap" }, { kind: "dont", text: "limited time only" }],
+  languages: ["en"],
+  assets: {},
+  threshold: 70,
+};
 
 function gradeFromPct(avgPct: number): string {
   if (avgPct >= 90) return "A";
@@ -107,6 +123,7 @@ export async function runNightShift(store: StoreClient): Promise<NightShiftResul
   const departments: DepartmentGrade[] = [];
   const planItems: PlanItem[] = [];
   const decisions: DecisionRecord[] = [];
+  const content: ContentItem[] = [];
 
   // ── Read real signals ────────────────────────────────────────────────────
   const [orders, campaigns, activity, lowStock] = await Promise.all([
@@ -206,6 +223,20 @@ export async function runNightShift(store: StoreClient): Promise<NightShiftResul
     nightShiftDate: day,
   }));
 
+  // ── Draft a piece of content, scored against the brand voice (Stage 4) ────
+  // The draft lands in the Content Studio review queue with its score, so the
+  // founder wakes to something to react to — not a blank composer.
+  const draftText = "Our cozy, handmade Eid collection is ready — warm colours, made to last. Tap to see the new arrivals.";
+  const voice = scoreVoice({ text: draftText, type: "post" }, DEFAULT_VOICE);
+  content.push(await store.fileContent({
+    type: "post",
+    title: "Eid collection — launch post",
+    language: "en",
+    body: { text: draftText },
+    voiceScore: voice.score,
+    violations: voice.violations,
+  }));
+
   // ── File the brief (tiles computed server-side from these very rows) ──────
   const brief = await store.fileBrief({
     day,
@@ -215,5 +246,5 @@ export async function runNightShift(store: StoreClient): Promise<NightShiftResul
       `collection into a Facebook campaign. Approve it on the desk and it goes live, reversible for 24h.`,
   });
 
-  return { day, departments, planItems, decisions, briefId: brief.id };
+  return { day, departments, planItems, decisions, content, briefId: brief.id };
 }

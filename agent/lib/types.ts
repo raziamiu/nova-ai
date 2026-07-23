@@ -981,6 +981,32 @@ export interface VoiceScore {
   violations: VoiceViolation[];
 }
 
+/** E-11 — a content item as returned by the store (Stage 4). */
+export interface ContentItem {
+  id: string;
+  type: ContentType;
+  title: string;
+  language: ContentLanguage;
+  body: Record<string, unknown>;
+  status: string;
+  voiceScore: number;
+  violations: VoiceViolation[];
+  createdAt: string;
+}
+
+/** What the night shift / generation files. `id` present = a regeneration. */
+export interface ContentDraftInput {
+  id?: string;
+  type: ContentType;
+  title: string;
+  language: ContentLanguage;
+  body: Record<string, unknown>;
+  voiceScore: number;
+  violations: VoiceViolation[];
+  decisionRef?: string | null;
+  novaActionId?: string | null;
+}
+
 export interface StoreSeed {
   products: Product[];
   trendingProducts: TrendingProduct[];

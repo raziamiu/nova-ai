@@ -25,6 +25,8 @@ import type {
   Courier,
   Customer,
   CustomerMessage,
+  ContentDraftInput,
+  ContentItem,
   DecisionRecord,
   DepartmentGrade,
   Discount,
@@ -644,6 +646,24 @@ export class DemoStore implements StoreClient {
       tiles: [], decisionRefs: [], openedAt: null,
     };
     this.nightBriefs.push(created);
+    return created;
+  }
+
+  private nightContent: ContentItem[] = [];
+  async fileContent(input: ContentDraftInput): Promise<ContentItem> {
+    if (input.id) {
+      const existing = this.nightContent.find((c) => c.id === input.id);
+      if (existing) {
+        Object.assign(existing, { body: input.body, voiceScore: input.voiceScore, violations: input.violations, status: "review" });
+        return existing;
+      }
+    }
+    const created: ContentItem = {
+      id: this.nextId("content"), type: input.type, title: input.title, language: input.language,
+      body: input.body, status: "review", voiceScore: input.voiceScore, violations: input.violations,
+      createdAt: this.now(),
+    };
+    this.nightContent.push(created);
     return created;
   }
 

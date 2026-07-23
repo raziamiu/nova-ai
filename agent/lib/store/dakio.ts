@@ -37,6 +37,8 @@ import type {
   AutonomyConfig,
   Campaign,
   CartRecoveryState,
+  ContentDraftInput,
+  ContentItem,
   Courier,
   Customer,
   CustomerMessage,
@@ -572,6 +574,10 @@ export class DakioStoreClient implements StoreClient {
 
   async fileBrief(input: { day?: string; narrative?: string }): Promise<MorningBrief> {
     return this.request<MorningBrief>("/api/v1/agent-data/briefs", { method: "POST", body: input });
+  }
+
+  async fileContent(input: ContentDraftInput): Promise<ContentItem> {
+    return this.request<ContentItem>("/api/v1/agent-data/content", { method: "POST", body: input });
   }
 
   async listPlaybooks(status?: NovaPlaybook["status"]): Promise<NovaPlaybook[]> {

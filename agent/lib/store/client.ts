@@ -29,6 +29,8 @@ import type {
   AutonomyConfig,
   Campaign,
   CartRecoveryState,
+  ContentDraftInput,
+  ContentItem,
   Courier,
   Customer,
   CustomerMessage,
@@ -218,6 +220,8 @@ export interface StoreClient {
   addPlanItem(item: Omit<PlanItem, "id">): Promise<PlanItem>;
   /** File the morning brief; tiles are computed server-side from real rows. */
   fileBrief(input: { day?: string; narrative?: string }): Promise<MorningBrief>;
+  /** File a scored content draft (E-11). `id` present = a regeneration round. */
+  fileContent(input: ContentDraftInput): Promise<ContentItem>;
 
   // Procedural memory — playbooks (reflection proposes, owner promotes)
   listPlaybooks(status?: NovaPlaybook["status"]): Promise<NovaPlaybook[]>;
