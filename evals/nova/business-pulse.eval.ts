@@ -12,8 +12,9 @@ export default defineEval({
     t.succeeded();
     t.calledTool("get_business_snapshot");
     t.noFailedActions();
-    // Numbers, not adjectives: the reply must cite dollar figures.
-    t.check(t.reply, includes("$"));
+    // Numbers, not adjectives: the reply must cite a money figure. Nova is a
+    // Bangladesh product — money is ৳ (taka), never $ (the old check was stale).
+    t.messageIncludes(/৳|taka|bdt|\d/i);
     // Never end a check-in with a generic "how can I help?" opener.
     t.messageIncludes(/revenue|orders|profit/i);
   },
