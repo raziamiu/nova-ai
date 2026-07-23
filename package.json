@@ -22,10 +22,11 @@
     "test:voice": "npx --yes tsx evals/voice/run.ts",
     "check:duty-seed": "npx --yes tsx scripts/check-duty-seed-sync.ts",
     "check:undo": "npx --yes tsx scripts/check-undo-coverage.ts",
-    "test": "npm run typecheck && npm run check:undo && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority && npm run test:decisions && npm run test:night && npm run test:voice && npm run test:generate && npm run test:conversation && npm run test:reach",
+    "test": "npm run typecheck && npm run check:undo && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority && npm run test:decisions && npm run test:night && npm run test:voice && npm run test:generate && npm run test:conversation && npm run test:reach && npm run test:research",
     "test:generate": "npx --yes tsx evals/generate/run.ts",
     "test:conversation": "npx --yes tsx evals/conversation/run.ts",
-    "test:reach": "npx --yes tsx evals/reach/run.ts"
+    "test:reach": "npx --yes tsx evals/reach/run.ts",
+    "test:research": "npx --yes tsx evals/research/run.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",
