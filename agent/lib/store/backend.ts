@@ -26,6 +26,7 @@ import type {
   Customer,
   CustomerMessage,
   DecisionRecord,
+  DepartmentGrade,
   Discount,
   ExpenseEntry,
   GrowBroadcast,
@@ -38,6 +39,7 @@ import type {
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
+  MorningBrief,
   NovaExperiment,
   NovaJob,
   NovaJobDef,
@@ -45,6 +47,7 @@ import type {
   NovaReport,
   Order,
   OrderStatus,
+  PlanItem,
   Product,
   PurchaseOrder,
   SocialPost,
@@ -608,6 +611,40 @@ export class DemoStore implements StoreClient {
     );
     Object.assign(activity, patch);
     return activity;
+  }
+
+  // ---- Night shift outputs (E-4/E-6/E-7/E-16) — in-memory twin for evals ----
+  private nightDepts: DepartmentGrade[] = [];
+  private nightPlan: PlanItem[] = [];
+  private nightBriefs: MorningBrief[] = [];
+
+  async setDepartment(dept: DepartmentGrade): Promise<DepartmentGrade> {
+    const saved: DepartmentGrade = { ...dept, gradedAt: dept.gradedAt ?? this.now() };
+    const idx = this.nightDepts.findIndex((d) => d.key === dept.key);
+    if (idx >= 0) this.nightDepts[idx] = saved;
+    else this.nightDepts.push(saved);
+    return saved;
+  }
+
+  async addPlanItem(item: Omit<PlanItem, "id">): Promise<PlanItem> {
+    const created: PlanItem = { ...item, id: this.nextId("plan") };
+    this.nightPlan.push(created);
+    return created;
+  }
+
+  async fileBrief(input: { day?: string; narrative?: string }): Promise<MorningBrief> {
+    const day = input.day ?? this.now().slice(0, 10);
+    const existing = this.nightBriefs.find((b) => b.day === day);
+    if (existing) {
+      if (input.narrative != null) existing.narrative = input.narrative;
+      return existing;
+    }
+    const created: MorningBrief = {
+      id: this.nextId("brief"), day, narrative: input.narrative ?? "",
+      tiles: [], decisionRefs: [], openedAt: null,
+    };
+    this.nightBriefs.push(created);
+    return created;
   }
 
   // ---- Procedural memory: playbooks ----

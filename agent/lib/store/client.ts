@@ -33,6 +33,7 @@ import type {
   Customer,
   CustomerMessage,
   DecisionRecord,
+  DepartmentGrade,
   Discount,
   ExpenseEntry,
   GrowBroadcast,
@@ -48,10 +49,12 @@ import type {
   NovaExperiment,
   NovaJob,
   NovaJobDef,
+  MorningBrief,
   NovaPlaybook,
   NovaReport,
   Order,
   OrderStatus,
+  PlanItem,
   Product,
   PurchaseOrder,
   SocialPost,
@@ -207,6 +210,14 @@ export interface StoreClient {
     id: string,
     patch: Partial<Pick<ActivityEntry, "revenueInfluence" | "revenueBasis" | "revenueProvenance">>,
   ): Promise<ActivityEntry>;
+
+  // ---- Night shift outputs (E-4/E-6/E-7/E-16, Stage 3) ----
+  /** Upsert a department's grade AND replace its day's score metrics in one call. */
+  setDepartment(dept: DepartmentGrade): Promise<DepartmentGrade>;
+  /** Author a plan-board row (WAITING_ON_YOU items carry a decisionRef). */
+  addPlanItem(item: Omit<PlanItem, "id">): Promise<PlanItem>;
+  /** File the morning brief; tiles are computed server-side from real rows. */
+  fileBrief(input: { day?: string; narrative?: string }): Promise<MorningBrief>;
 
   // Procedural memory — playbooks (reflection proposes, owner promotes)
   listPlaybooks(status?: NovaPlaybook["status"]): Promise<NovaPlaybook[]>;

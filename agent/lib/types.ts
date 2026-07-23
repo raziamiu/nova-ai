@@ -865,6 +865,73 @@ export interface DecisionRecord {
   createdAt: string;
 }
 
+// ── Night shift outputs (E-4 / E-6 / E-7 / E-16, Stage 3) ──────────────────
+
+/** E-6 — one of the three metrics a department's grade was computed from. */
+export interface ScoreMetric {
+  label: string;
+  value: string;
+  targetText: string;
+  pct: number;
+  tone: "good" | "warn" | "bad";
+}
+
+/** E-4 — a department's nightly grade, memo, and now/next, with the metrics. */
+export interface DepartmentGrade {
+  key: NovaDepartment;
+  grade: string;
+  statusLine?: string | null;
+  now?: string | null;
+  next?: string[];
+  memo?: string | null;
+  metrics?: ScoreMetric[];
+  gradedAt?: string;
+}
+
+export type PlanItemStatus = "DONE" | "IN_PROGRESS" | "WAITING_ON_YOU" | "SCHEDULED" | "NEEDS_DOOR";
+
+/** E-7 — a plan-board row. Over-authority items are born WAITING_ON_YOU with a
+ *  decisionRef that the approve transaction flips. */
+export interface PlanItem {
+  id: string;
+  department: NovaDepartment;
+  status: PlanItemStatus;
+  title: string;
+  detail?: string | null;
+  progressPct: number;
+  decisionRef?: string | null;
+  nightShiftDate?: string | null;
+}
+
+export interface BriefTile {
+  key: string;
+  label: string;
+  value?: number;
+  valueMinor?: number;
+  basis: "measured" | "estimated";
+  evidenceQuery: string;
+}
+
+export interface BriefDecisionRef {
+  id: string;
+  title: string;
+  impactLabel: string;
+  priority: number;
+  tag?: string;
+}
+
+/** E-16 — the structured morning brief. Tiles are computed server-side; the
+ *  night shift supplies only the narrative. */
+export interface MorningBrief {
+  id: string;
+  day: string;
+  narrative: string;
+  tiles: BriefTile[];
+  decisionRefs: BriefDecisionRef[];
+  plannedVsDone?: unknown;
+  openedAt: string | null;
+}
+
 export interface StoreSeed {
   products: Product[];
   trendingProducts: TrendingProduct[];

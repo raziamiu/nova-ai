@@ -41,6 +41,7 @@ import type {
   Customer,
   CustomerMessage,
   DecisionRecord,
+  DepartmentGrade,
   Discount,
   ExpenseEntry,
   GrowBroadcast,
@@ -53,6 +54,7 @@ import type {
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
+  MorningBrief,
   NovaExperiment,
   NovaJob,
   NovaJobDef,
@@ -60,6 +62,7 @@ import type {
   NovaReport,
   Order,
   OrderStatus,
+  PlanItem,
   Product,
   PurchaseOrder,
   SocialPost,
@@ -556,6 +559,19 @@ export class DakioStoreClient implements StoreClient {
       method: "PATCH",
       body: patch,
     });
+  }
+
+  // ---- Night shift outputs (E-4/E-6/E-7/E-16, Stage 3) ----
+  async setDepartment(dept: DepartmentGrade): Promise<DepartmentGrade> {
+    return this.request<DepartmentGrade>("/api/v1/agent-data/departments", { method: "POST", body: dept });
+  }
+
+  async addPlanItem(item: Omit<PlanItem, "id">): Promise<PlanItem> {
+    return this.request<PlanItem>("/api/v1/agent-data/plan-items", { method: "POST", body: item });
+  }
+
+  async fileBrief(input: { day?: string; narrative?: string }): Promise<MorningBrief> {
+    return this.request<MorningBrief>("/api/v1/agent-data/briefs", { method: "POST", body: input });
   }
 
   async listPlaybooks(status?: NovaPlaybook["status"]): Promise<NovaPlaybook[]> {
