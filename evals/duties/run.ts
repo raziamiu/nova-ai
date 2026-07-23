@@ -75,21 +75,21 @@ function main(): void {
   check("doors that don't exist declare the phase that builds them", Object.values(DOORS).every((s) => s.exists || !!s.buildPhase));
   check("the six Grow Lab modules all exist (they shipped ahead of Nova)", ["Campaigns", "Content Studio", "Broadcast", "Research", "Growth", "Goals"].every((d) => DOORS[d]?.exists === true));
 
-  console.log("\n[4] The honesty mechanism — NEEDS DOOR is exactly the PRD's four");
+  console.log("\n[4] The honesty mechanism — Stage 6 shipped the last four doors: zero NEEDS DOOR");
   const needsDoor = NEEDS_DOOR_DUTIES.map((d) => d.key).sort();
   check(
-    "exactly 4 duties have no door",
-    needsDoor.length === 4,
+    "zero duties have no door (Stage 6 built Rate/RTO/P&L/RFQ Compare)",
+    needsDoor.length === 0,
     `got ${needsDoor.length}: ${needsDoor.join(", ")}`,
   );
   check(
-    "they are the four the PRD names",
-    JSON.stringify(needsDoor) === JSON.stringify([...EXPECTED_NEEDS_DOOR].sort()),
-    needsDoor.join(", "),
+    "the PRD's four formerly-NEEDS-DOOR duties now point at a built door",
+    EXPECTED_NEEDS_DOOR.every((k) => DOORS[DUTY_BY_KEY.get(k)!.door]?.exists === true),
+    EXPECTED_NEEDS_DOOR.filter((k) => !DOORS[DUTY_BY_KEY.get(k)!.door]?.exists).join(", "),
   );
   check(
-    "no OTHER duty silently points at an unbuilt door",
-    DUTIES.filter((d) => !DOORS[d.door]?.exists).length === 4,
+    "no duty silently points at an unbuilt door",
+    DUTIES.filter((d) => !DOORS[d.door]?.exists).length === 0,
   );
 
   console.log("\n[5] Curation edits are deliberate, not drift");
@@ -134,9 +134,9 @@ function main(): void {
   console.log("\n[8] Status is computed, and honest");
   const rateCompare = DUTY_BY_KEY.get("shipping.rate_compare")!;
   check(
-    "no door beats level: NEEDS_DOOR even at L4",
-    dutyStatus(rateCompare, { effectiveLevel: 4 }) === "NEEDS_DOOR",
-    "raising autonomy must not imply an unbuilt screen became usable",
+    "a now-doored duty is ACTIVE at its level (Stage 6 built its door)",
+    dutyStatus(rateCompare, { effectiveLevel: 4 }) === "ACTIVE",
+    "Rate Compare shipped a real door on the Reach page — it's usable now",
   );
   const refund = DUTY_BY_KEY.get("support.refund_processing")!;
   check("L4 duty is LOCKED at L3", dutyStatus(refund, { effectiveLevel: 3 }) === "LOCKED");
@@ -152,8 +152,8 @@ function main(): void {
     Object.values(rollupL4).reduce((s, r) => s + r.total, 0) === 65,
   );
   check(
-    "at L4, active = 65 minus the 4 unbuilt doors",
-    Object.values(rollupL4).reduce((s, r) => s + r.active, 0) === 61,
+    "at L4, all 65 duties are active (zero NEEDS DOOR after Stage 6)",
+    Object.values(rollupL4).reduce((s, r) => s + r.active, 0) === 65,
     String(Object.values(rollupL4).reduce((s, r) => s + r.active, 0)),
   );
   const rollupL0 = dutyRollup(DUTIES, 0);

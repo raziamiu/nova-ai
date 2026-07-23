@@ -57,12 +57,13 @@ export const DOORS: Record<string, DoorSpec> = {
   Reports: { exists: true, route: "/reports" },
   "Store Studio": { exists: true, route: "/store-studio" },
   Dropshipping: { exists: true, route: "/dropshipping" },
-  // NEEDS DOOR — the four sub-views the PRD names. Duties bound here are real
-  // work Nova can do, with nowhere yet to show it.
-  "Rate Compare": { exists: false, buildPhase: "12" },
-  "RTO Analytics": { exists: false, buildPhase: "12" },
-  "P&L Reports": { exists: false, buildPhase: "12" },
-  "RFQ Compare": { exists: false, buildPhase: "12" },
+  // Stage 6 (Phase 12) shipped these four sub-view doors as read-model surfaces
+  // on the merchant Reach page (/nova/reach), backed by /api/nova/doors/*. Zero
+  // NEEDS DOOR remain — every duty now has a real door or an honest locked state.
+  "Rate Compare": { exists: true, route: "/nova/reach" },
+  "RTO Analytics": { exists: true, route: "/nova/reach" },
+  "P&L Reports": { exists: true, route: "/nova/reach" },
+  "RFQ Compare": { exists: true, route: "/nova/reach" },
 };
 
 export interface DutySpec {
