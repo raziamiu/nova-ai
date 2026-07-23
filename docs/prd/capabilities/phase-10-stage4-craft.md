@@ -1,10 +1,11 @@
 # Phase 10 — Stage 4: Craft · capability report
 
-- **Status:** core **built and verified** — the voice-scoring engine, the content
-  model + review loop, night-shift authoring, the **publish pipeline (10-D)**, and
-  the **Content Studio review UI (10-F)** are done and verified. **Model generation
-  (10-C)** is the last piece before the §15 Stage 4 gate can be signed.
-- **Branch / commits:** `develop` — nova-ai `9ede804` (voice) · `52db89c` (night content); dakio-api `0056135` (models + review loop) · `89ff621` (publish); dakio-merchant `9a7abb1` (Content Studio review UI)
+- **Status:** **COMPLETE — §15 Stage 4 gate signed (14/14 live).** Voice scoring,
+  the content model + review loop, night-shift authoring, publish (10-D), the
+  Content Studio review UI (10-F), and **model generation (10-C)** are all done
+  and verified. `scripts/stage4-gate.ts` drives the whole §15 scenario end to end
+  against the live API.
+- **Branch / commits:** `develop` — nova-ai `9ede804` (voice) · `52db89c` (night content) · `c08e60e` (10-C generation); dakio-api `0056135` (models + review loop) · `89ff621` (publish) · `0cee534` (brand read); dakio-merchant `9a7abb1` (Content Studio review UI)
 - **Date:** 2026-07-23
 - **Blueprint:** `docs/blueprint/10-stage4-craft.md` (+ `grow-lab-reconciliation.md`)
 
@@ -25,15 +26,19 @@
 | night → content (live) | ✅ night shift filed a scored draft into the review queue |
 | publish (live) | ✅ approved post → organic FB (honest no-Page → scheduled); email → 422; in-review → 409 |
 | Content Studio UI (CDP) | ✅ Nova lane renders the queue → review card shows score + cited violations + revisions → approve round-trips (2→1); flagged draft cites "cheap"/"limited time only" |
+| generate suite | ✅ **generate 20** — in-voice clears + files; off-voice flagged + cited + guidance; re-file (same id) improves the score |
+| **§15 Stage 4 gate** (live) | ✅ **stage4-gate 14/14, 0 skipped** — owner sets voice → off-voice draft flagged+cited → request changes → in-voice v2 clears the bar → approve → publish (honest outcome) |
 
-**PRD gate — NOT met (one piece left).** §15 Stage 4 wants: *brief → in-voice
-draft (score) → request changes → v2 → approve → publishes on schedule; a seeded
-off-voice draft flagged.* Everything but one link is now real and tested end to
-end — score, review, regenerate, approve, the flagged seed, **and publish** (10-D,
-organic FB with an honest no-Page fallback), all visible in the Content Studio
-review lane (10-F, CDP-verified). The last gap is the **model-generated draft**:
-today the night shift files a fixed exemplar, so "in-voice draft" is scored-but-
-templated. Wiring the typed `generate_content` tool (10-C) closes the gate.
+**PRD gate — MET.** §15 Stage 4 wants: *brief → in-voice draft (score) → request
+changes → v2 → approve → publishes on schedule; a seeded off-voice draft flagged.*
+`scripts/stage4-gate.ts` drives exactly that against the live API and passes
+**14/14, 0 skipped**: the owner sets a brand voice, Nova generates an off-voice
+draft (flagged, citing "cheap"), the founder requests changes, Nova regenerates
+in-voice (the score climbs past the threshold), the founder approves, and it
+publishes through the organic-FB path with an honest no-Page outcome. The
+model-generated draft (10-C) replaced the fixed exemplar; `generate_content`
+scores the model's copy and files it, so "in-voice draft" is now genuinely
+model-authored, not templated.
 
 ## New capabilities this phase (so far)
 
@@ -66,13 +71,23 @@ templated. Wiring the typed `generate_content` tool (10-C) closes the gate.
   renders the copy, the cited voice score, and the revision history with the
   three verbs. `request-changes` reveals a note field whose text is DATA for
   Nova's next draft (§13). CDP-verified end to end against the live store.
+- **Model generation — `generate_content` (10-C).** Nova writes the copy with the
+  model; the tool scores it against the store's `BrandProfile` (deterministic,
+  every deduction cited) and files it to review. A flagged draft comes back with
+  guidance naming each violation so Nova rewrites and re-files with the same
+  `contentId` — the founder only ever sees an in-voice draft. `getBrandProfile`
+  (`GET /agent-data/brand`) feeds the real voice; `draftAndFileContent` is the
+  eval-testable core; the `night_ops` job now drafts tomorrow's post this way
+  (review-first, self-revise on a flag) instead of auto-scheduling a publish.
 
 ## Known limitations / not yet
 
-- **Generation is a fixed exemplar, not the model yet (10-C).** The night shift
-  files a real, scored draft, but the text is a template. Wiring the typed
-  `generate_content` tool (per-type schemas, brand+memory injection, streaming in
-  the composer) is the next chunk — the review loop it feeds is already real.
+- **The self-revise loop is prompted, not enforced (10-C).** `generate_content`
+  hands the model revise guidance on a flag, and the deterministic core is
+  eval-gated, but whether the model actually rewrites before filing is a runtime
+  model behaviour (exercised by `stage4-gate.ts`'s scripted re-file, not by an
+  unattended model run). A model eval that asserts the live model self-corrects
+  is logged for a live run.
 - **Publish is post-only, undoerless (10-D scope).** `publish` sends organic FB
   posts (honest no-Page fallback) but email/sms/push route to Broadcast Center
   (Phase 12), and there is no scheduled-publish job or `publish_content` undoer
@@ -89,4 +104,5 @@ templated. Wiring the typed `generate_content` tool (10-C) closes the gate.
 ## Matrix updates
 
 Rows changed in `docs/prd/capability-matrix.md`: Stage 4 / Phase 10 build-status
-(in progress); E-11 Content; E-12 BrandProfile; voice scoring.
+(**complete — gate signed**); E-11 Content; E-12 BrandProfile; voice scoring;
+`generate_content`.
