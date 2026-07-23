@@ -23,6 +23,7 @@ import type {
   Campaign,
   CartRecoveryState,
   Courier,
+  BrandProfile,
   Customer,
   CustomerMessage,
   ContentDraftInput,
@@ -647,6 +648,24 @@ export class DemoStore implements StoreClient {
     };
     this.nightBriefs.push(created);
     return created;
+  }
+
+  // A seeded brand voice so evals (and a store that hasn't configured one) have
+  // a real profile to score against: warm/handmade/cozy tone, "cheap" and
+  // "limited time only" off-limits. The live backend serves the founder's own.
+  private brandProfile: BrandProfile = {
+    toneWords: ["warm", "handmade", "cozy"],
+    palette: [],
+    rules: [
+      { kind: "dont", text: "cheap" },
+      { kind: "dont", text: "limited time only" },
+    ],
+    languages: ["en", "bn"],
+    assets: {},
+    threshold: 70,
+  };
+  async getBrandProfile(): Promise<BrandProfile> {
+    return this.brandProfile;
   }
 
   private nightContent: ContentItem[] = [];

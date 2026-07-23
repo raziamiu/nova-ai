@@ -35,6 +35,7 @@ import type {
   ActivityEntry,
   AuthorityState,
   AutonomyConfig,
+  BrandProfile,
   Campaign,
   CartRecoveryState,
   ContentDraftInput,
@@ -574,6 +575,11 @@ export class DakioStoreClient implements StoreClient {
 
   async fileBrief(input: { day?: string; narrative?: string }): Promise<MorningBrief> {
     return this.request<MorningBrief>("/api/v1/agent-data/briefs", { method: "POST", body: input });
+  }
+
+  async getBrandProfile(): Promise<BrandProfile> {
+    const { brand } = await this.get<{ brand: BrandProfile }>("/api/v1/agent-data/brand");
+    return brand;
   }
 
   async fileContent(input: ContentDraftInput): Promise<ContentItem> {

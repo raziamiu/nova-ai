@@ -27,6 +27,7 @@ import type {
   ActivityEntry,
   AuthorityState,
   AutonomyConfig,
+  BrandProfile,
   Campaign,
   CartRecoveryState,
   ContentDraftInput,
@@ -220,6 +221,9 @@ export interface StoreClient {
   addPlanItem(item: Omit<PlanItem, "id">): Promise<PlanItem>;
   /** File the morning brief; tiles are computed server-side from real rows. */
   fileBrief(input: { day?: string; narrative?: string }): Promise<MorningBrief>;
+  /** The structured brand voice (E-12) a draft is scored against. Returns
+   *  sensible defaults when the founder hasn't configured one yet. */
+  getBrandProfile(): Promise<BrandProfile>;
   /** File a scored content draft (E-11). `id` present = a regeneration round. */
   fileContent(input: ContentDraftInput): Promise<ContentItem>;
 

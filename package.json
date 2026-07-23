@@ -22,7 +22,8 @@
     "test:voice": "npx --yes tsx evals/voice/run.ts",
     "check:duty-seed": "npx --yes tsx scripts/check-duty-seed-sync.ts",
     "check:undo": "npx --yes tsx scripts/check-undo-coverage.ts",
-    "test": "npm run typecheck && npm run check:undo && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority && npm run test:decisions && npm run test:night && npm run test:voice"
+    "test": "npm run typecheck && npm run check:undo && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority && npm run test:decisions && npm run test:night && npm run test:voice && npm run test:generate",
+    "test:generate": "npx --yes tsx evals/generate/run.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",

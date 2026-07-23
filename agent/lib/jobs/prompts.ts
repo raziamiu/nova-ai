@@ -57,8 +57,11 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
     "lead time (full justification each time).\n" +
     "3. Review open support tickets (get_support_tickets) and resolve what " +
     "can be resolved in the brand voice.\n" +
-    "4. Prepare tomorrow: one social post draft via publish_social_post " +
-    "(scheduled for tomorrow morning) tied to a product with momentum.\n" +
+    "4. Prepare tomorrow's content: write ONE in-voice post draft for a product " +
+    "with momentum and file it for the founder's review with generate_content " +
+    "(it scores your copy against the brand voice). If it comes back flagged " +
+    "off-voice, rewrite per the returned guidance and re-file with the SAME " +
+    "contentId — never leave an off-voice draft in the review queue.\n" +
     "5. File a night plan with file_report (kind \"night_plan\"): what was " +
     "done, what is queued for approval (with actionIds), and tomorrow's " +
     "single highest-impact focus.",

@@ -156,6 +156,45 @@ export const importProductPayload = z.object({
   activate: z.boolean().describe("true = live immediately, false = import as draft."),
 });
 
+/** Stage 4 "Craft" (E-11). The model writes the copy; the tool scores + files it. */
+export const CONTENT_TYPES = [
+  "post", "reel", "story", "captions", "email", "sms", "push", "product_desc",
+] as const;
+
+export const generateContentPayload = z.object({
+  type: z
+    .enum(CONTENT_TYPES)
+    .describe("What kind of content this is — post/reel/story/captions/email/sms/push/product_desc."),
+  title: z
+    .string()
+    .min(2)
+    .describe("Short internal title for the founder's review list — not published."),
+  text: z
+    .string()
+    .min(1)
+    .describe(
+      "The draft copy you wrote, in the store's brand voice. This is exactly what the founder reviews; write it as it would publish.",
+    ),
+  language: z
+    .enum(["bn", "en", "mixed"])
+    .optional()
+    .describe("Declared language; detected from the text when omitted."),
+  topic: z
+    .string()
+    .optional()
+    .describe("One line on what this is about and why now — recorded with the draft, not published."),
+  contentId: z
+    .string()
+    .optional()
+    .describe(
+      "Pass an existing draft's id to file a REVISION (the request-changes loop): your new text replaces the body, the prior version is kept, and it returns to review.",
+    ),
+  note: z
+    .string()
+    .optional()
+    .describe("When revising, the founder's change request you're addressing — recorded on the version."),
+});
+
 export type UpdateCampaignPayload = z.infer<typeof updateCampaignPayload>;
 export type CreateCampaignPayload = z.infer<typeof createCampaignPayload>;
 export type PublishSocialPostPayload = z.infer<typeof publishSocialPostPayload>;
@@ -166,4 +205,5 @@ export type ResolveTicketPayload = z.infer<typeof resolveTicketPayload>;
 export type CreatePurchaseOrderPayload = z.infer<typeof createPurchaseOrderPayload>;
 export type SwitchSupplierPayload = z.infer<typeof switchSupplierPayload>;
 export type AssignCourierPayload = z.infer<typeof assignCourierPayload>;
+export type GenerateContentPayload = z.infer<typeof generateContentPayload>;
 export type ImportProductPayload = z.infer<typeof importProductPayload>;

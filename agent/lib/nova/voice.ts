@@ -36,7 +36,7 @@ const LEN_CAP: Record<ContentType, number> = {
 function hasBangla(s: string): boolean { return /[ঀ-৿]/.test(s); }
 function hasLatin(s: string): boolean { return /[a-z]/i.test(s); }
 
-function detectLanguage(text: string): ContentLanguage {
+export function detectLanguage(text: string): ContentLanguage {
   const bn = hasBangla(text), en = hasLatin(text);
   if (bn && en) return "mixed";
   if (bn) return "bn";
