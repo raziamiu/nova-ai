@@ -17,6 +17,12 @@
  * never on a read hot path.
  */
 
+/* The model id lives in `lib/models.ts` with every other one. It gained its
+ * `voyage/` provider prefix on the way: the bare `voyage-3.5-lite` written
+ * here originally is not a valid gateway id and would have failed at request
+ * time — never hit, because this path is off unless `NOVA_EMBEDDINGS=gateway`. */
+import { EMBED_MODEL } from "../models";
+
 /**
  * Local-stub embedding dimension. The gateway model returns 1024 (the
  * `vector(1024)` column in the pgvector schema); the stub uses a smaller space
@@ -24,8 +30,6 @@
  * through {@link embedText}. Kept a power of two for clean hashing.
  */
 export const EMBED_DIM = 256;
-
-const EMBED_MODEL = "voyage-3.5-lite";
 
 /** Words that carry no retrieval signal — dropped before hashing. */
 const STOPWORDS = new Set([

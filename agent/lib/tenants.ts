@@ -36,33 +36,8 @@ export interface TenantRecord {
   readonly signature: string;
 }
 
-/**
- * Model tier per plan, as Vercel AI Gateway model ids. The core operator loop
- * is Sonnet-class; higher plans get an Opus-class model, entry plans a cheaper
- * Haiku-class one. Returned by `modelForPlan` and consumed by the dynamic
- * model selector in `agent.ts`.
- *
- * These are ID STRINGS, not provider objects, for two reasons: gateway routing
- * (one credential — Vercel OIDC or `AI_GATEWAY_API_KEY` — instead of a
- * per-provider key), and because eve only accepts serializable selections at
- * session/turn scope. Returning a live `LanguageModel` here was silently
- * rejected at runtime ("must be serializable"), so every tenant actually ran
- * on the fallback model regardless of plan. Note the gateway's dotted version
- * format (`claude-haiku-4.5`) vs the provider-native hyphenated one
- * (`claude-haiku-4-5`).
- */
-const MODEL_BY_PLAN: Record<TenantPlan, string> = {
-  starter: "anthropic/claude-haiku-4.5",
-  growth: "anthropic/claude-sonnet-5",
-  scale: "anthropic/claude-opus-4.8",
-};
-
-export function modelForPlan(plan: TenantPlan | string | undefined): string | null {
-  if (plan && plan in MODEL_BY_PLAN) {
-    return MODEL_BY_PLAN[plan as TenantPlan];
-  }
-  return null; // fall back to the agent's compiled default model
-}
+/* The plan → model mapping (`modelForPlan`) lives in `lib/models.ts`, the one
+ * registry for every model id in the repo. `TenantPlan` above is its key. */
 
 /** The two seeded demo tenants. Store ids match the keys in `resolve.ts`. */
 const TENANTS = new Map<string, TenantRecord>([
