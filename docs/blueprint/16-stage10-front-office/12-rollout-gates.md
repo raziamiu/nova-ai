@@ -98,9 +98,9 @@ this table is the phase-level ledger an implementer sequences by.
 
 | Phase | Gate requires these modules green | Migration (name · contents · owning modules) | Autonomy posture |
 |---|---|---|---|
-| **P1 Pipe + Shadow** | 01 · 02 · 03-core (link/verify/360/promise write + `NovaPromise`) · 08-core (lock, takeover/release, escalation transaction, T0 seeding) · 09-base (all P1 verbs checklisted, `DEPARTMENT_BY_INTENT`, `ATTRIBUTABLE`/`DOOR_OF`, `novaActionId` indexes) · 10-core (DraftBar, thread chips, takeover banner, `InboxMorningReview`) | `nova_inbox_p1` · `InboxMessage` {actor+backfill, novaActionId, metaTimestamp, attachmentType, purpose} · `InboxConversation` base + identity + handover/SLA columns · `InboxOutbound` · `NovaPromise` · indexes (01, 03, 08) | T0 Shadow: `assisted` seeded, ceiling 2 ⇒ every verb drafts; system holding/SLA template sends are the only unaided customer bytes |
-| **P2 Safe-intent auto + crisp handover** | + 08-full (trigger lexicons, SLA sweep, tier dial UI lockout) · 11-core (assessment schema, confidence bands, never-invent + rule 15, `negSentimentStreak`) · 04-passive (journey reducer + `JourneyTransition` from events; no proactive sends yet) · 09 (support scorecard metrics, `NovaAchievement` + nightly evaluator) | `nova_inbox_p2` · `InboxConversation` {lastAssessment, negSentimentStreak, buyingIntent, urgency} · `CustomerJourney` + `JourneyTransition` · `NovaAchievement` (11, 04, 09) | T1 Front Desk for pilots who passed shadow exit: `autonomous`, `inbox.autoIntents` allowlist gates sends; everything else drafts; echo-takeover live |
-| **P3 Orders + payments + cases** | + 05-full (orderCreate extraction, chat orders, discounts, payment-claim intake, cart match) · 06-core (`NovaCase`, WISMO, pre-dispatch confirm/address-fix, RTO movements 1–3) · 03-full (merge sweep, `conversation_distill`) · 09-full (nightly attribution pass, `rto_save` strict definition, `/nova/attribution` inbox door) · 11 (fraud re-check in order executor, trust outcome vocabulary + inbox slice) | `nova_inbox_p3` · `Order` {novaActionId, sourceConversationId, sourceChannel} · `NovaCase` (05, 06) | T2 Order Taker offered per tenant via promotion Decision (`inbox.orderAuto` flip); orders still draft until then |
+| **P1 Pipe + Shadow** | 01 · 02 · 03-core (link/verify/360/promise write + `NovaPromise`) · 08-core (lock, takeover/release, escalation transaction, T0 seeding) · 09-base (all P1 verbs checklisted, `DEPARTMENT_BY_INTENT`, `ATTRIBUTABLE`/`DOOR_OF`, `novaActionId` indexes) · 10-core (DraftBar, thread chips, takeover banner, `InboxMorningReview`) | `nova_inbox_p1` · `InboxMessage` {actor+backfill, novaActionId, metaTimestamp, attachmentType, purpose} · `InboxConversation` base + identity + handover/SLA columns · `InboxOutbound` · `NovaPromise` · `StorefrontLead.conversationId` · indexes (01, 03, 08) | T0 Shadow: `assisted` seeded, ceiling 2 ⇒ every verb drafts; system holding/SLA template sends are the only unaided customer bytes |
+| **P2 Safe-intent auto + crisp handover** | + 08-full (trigger lexicons, SLA sweep, tier dial UI lockout) · 11-core (assessment schema, confidence bands, never-invent + rule 15, `negSentimentStreak`) · 04-passive (journey reducer + `JourneyTransition` from events; no proactive sends yet) · 09 (support scorecard metrics, `NovaAchievement` + nightly evaluator) | `nova_inbox_p2` · `InboxConversation` {lastAssessment, negSentimentStreak, buyingIntent, urgency} · `CustomerJourney` + `JourneyTransition` · `NovaAchievement` · `InboxMessage @@index([conversationId, sentAt])` (11, 04, 09) | T1 Front Desk for pilots who passed shadow exit: `autonomous`, `inbox.autoIntents` allowlist gates sends; everything else drafts; echo-takeover live |
+| **P3 Orders + payments + cases** | + 05-full (orderCreate extraction, chat orders, discounts, payment-claim intake, cart match) · 06-core (`NovaCase`, WISMO, pre-dispatch confirm/address-fix, RTO movements 1–3) · 03-full (merge sweep, `conversation_distill`) · 09-full (nightly attribution pass, `rto_save` strict definition, `/nova/attribution` inbox door) · 11 (fraud re-check in order executor, trust outcome vocabulary + inbox slice) | `nova_inbox_p3` · `Order` {novaActionId, sourceConversationId, sourceChannel} · `NovaCase` · `StorefrontLead.recoveryMessage` · `TenantPolicy` (05, 06) | T2 Order Taker offered per tenant via promotion Decision (`inbox.orderAuto` flip); orders still draft until then |
 | **P4 Proactive + retention + channel slots** | + 04-full (NBA proactive lanes, `followup`/`journey_sweep` live sends, quiet hours + touch caps enforced at fire time) · 07-full (returns/complaints/reviews/repeat/win-back) · 06-full (loop-closers, restock waits, failed-attempt rescue) · WhatsApp/webchat/voice slots documented as reserved (no capability claim) | none | T3 Closer offered per tenant (`discountAuto` + `cancelAuto`); proactive lanes opt-in per tenant, `cart_recovery` added to `autoIntents` only on opt-in |
 
 ### 3. Shadow-week operational plan (T0 → T1, the founder's first week)
@@ -200,8 +200,9 @@ guard the tail, not the average. **OTel alarm keys (Phase-15 pattern):**
 - `inbox.jobs.claim_queue_depth` — alarm when priority-1/2 rows wait > 2 dispatcher ticks (a
   courier-meltdown day queuing case_updates behind inbox replies is the known failure shape)
 - `inbox.outbound.failed_rate` — alarm on Graph send failure spike (page token expiry smell)
-- `inbox.events.unprocessed_age` — alarm when the oldest unprocessed `message.received` event
-  exceeds 5 min (delivery lane down and fallback not draining)
+- `inbox.events.unprocessed_age` — two-level: warn when the oldest unprocessed `message.received`
+  event exceeds 120s, page when it exceeds 5 min (delivery lane down and fallback not draining;
+  same key and thresholds as module 01)
 
 Telemetry counters (`inbox.pacing.target_ms/actual_ms/model_ms`, `inbox.reply.bubbles`,
 `inbox.lang.detected`, `inbox.window.blocked_sends`, `inbox.c360.assembly_ms`,
@@ -213,6 +214,9 @@ journeys/tenant — checked at the P4 gate on the largest pilot tenant.
 
 The ladder, from narrowest to widest. Every level is independently reachable and reversible; the
 two starred items are the only new code this module ships (everything else reuses existing seams).
+`NOVA_INBOX_DELIVERY_DISABLED` is the *only* lane kill switch: module 01 ships no separate pipe
+flag (`NOVA_INBOX_PIPE_ENABLED` was cut) — events always persist, so the kill is replayable by
+design.
 
 | Level | Switch | Mechanism | Effect | Who can flip |
 |---|---|---|---|---|
@@ -232,7 +236,7 @@ two starred items are the only new code this module ships (everything else reuse
 | 03 identity-memory | `inbox.autoIntents` flip drafts link-adjacent replies; `merge_customer_records` always drafts (high risk) — no auto path to disable; `identity_merge_sweep`/`conversation_distill`/`promise_sweep` via `NOVA_PAUSED_JOB_KINDS` |
 | 04 lifecycle-nba | `inbox.maxProactiveTouchesPerWeek:0` kills all proactive sends (reactive unaffected — test-pinned); `followup`,`journey_sweep` via paused kinds; reducer is passive bookkeeping (no customer effect, no switch needed) |
 | 05 selling-conversion | `inbox.orderAuto:false`, `inbox.discountAuto:false`; `verify_payment_slip` always drafts by risk class — nothing to switch |
-| 06 delivery-rto | `courier_intervention`,`case_update`,`restock_check` via paused kinds; `flag_courier_issue` is forced-prepared by design; `confirm_order_intent` throttled via `inbox.autoIntents` removal of `cod_confirm` |
+| 06 delivery-rto | `courier_intervention`,`case_update`,`restock_check` via paused kinds; `flag_courier_issue` is forced-prepared by design; `confirm_order_intent` throttled by removing a tenant's explicit `cod_confirm` opt-in from `inbox.autoIntents` (or leaving it drafts-only) — `cod_confirm` is not in the default allowlist |
 | 07 aftersales-retention | Same guardrail/paused-kind levers as 04/05; review asks stop when `review_ask` leaves `inbox.autoIntents` |
 | 08 handover-authority | Escalation is never gated and has no off-switch by design; SLA sweep respects `inbox.slaMaxHoldingUpdates:0` (no SLA sends) |
 | 09 ledger-attribution | Nightly attribution/achievement pass is idempotent and read-only toward customers — pause via night_ops paused kind if ever needed |
@@ -375,6 +379,7 @@ migration ledger (§Design 2) and the two seed payloads the provisioning script 
   "inbox.paymentDisputeEscalateMinor": 200000,
   "inbox.vipLtvMinor": 5000000,        "inbox.vipPolicy": "notify",
   "inbox.slaHoldingHours": 4,          "inbox.slaMaxHoldingUpdates": 1,
+  "inbox.holdingTemplates": {},        // module 08's per-situation holding/SLA line registry
   "inbox.quietHours": { "start": "23:00", "end": "08:00" },
   "inbox.maxProactiveTouchesPerWeek": 4,
   "inbox.maxUnansweredProactiveStreak": 2,

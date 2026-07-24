@@ -22,7 +22,7 @@ highest-blast-radius pieces of Stage 10: the `orderCreate.js` extraction and the
 | **No Nova order create** — `/api/v1/store` has GET/PATCH orders only (novaStore.js:302-350, "No POST /orders — Nova cannot CREATE an order today") | `POST /api/v1/store/orders` (service token, `w()` idempotent) |
 | Lead auto-conversion on order: storefront converts OPEN leads by phone (store.js:876-881); merchant path converts by `leadId` (orders.js:969-984); Customer find-or-create by tenant+phone (store.js:556-569, orders.js:609-642) | `orderCreate.js` preserves both; chat orders also auto-link the conversation (`InboxConversation.customerId`) + write the `CustomerChannel` row — the order is the verified identity join moment |
 | `Coupon` model already supports `type FIXED\|PERCENT` + `novaActionId` attribution column (schema.prisma:875-895, novaActionId 889-891); Nova create is **PERCENT-only** (novaStore.js:470-490); toggle exists (novaStore.js:492-499) | `POST /discounts` gains FIXED type + `novaActionId` stamp + `minOrder`/`maxUses`; new `POST /discounts/validate`; `offer_chat_discount` verb with deactivate inverse |
-| `maxDiscountPct` guardrail live and enforced today, seeded default 20 (nova-ai agent/lib/nova/autonomy.ts:35, enforcement authority.ts:374-380, bn+en explanations) | The inbox branch on top: `inbox.discountAuto` + `inbox.discountPerCustomerDays` (fail-closed) |
+| `maxDiscountPct` guardrail live and enforced today, seeded default 20 (nova-ai agent/lib/nova/autonomy.ts:35, enforcement authority.ts:374-380, bn+en explanations) — 20 is the live nova-ai seed; 15 is the proposed inbox-specific ceiling pending founder decision OQ-5, and the `inbox.maxDiscountPct` guardrail reads the seed until OQ-5 resolves | The inbox branch on top: `inbox.discountAuto` + `inbox.discountPerCustomerDays` (fail-closed) |
 | Abandoned-cart projection `GET /carts` over StorefrontLead; `recoveryState` maps to lead `status` via `CART_STATUS_FROM_NOVA` (novaStore.js:422-438); **`recoveryMessage` accepted and dropped** (novaStore.js:407, 428-430); `emitCartAbandoned` event exists (store.js:1198) | `StorefrontLead.recoveryMessage` column persisted; `cart_sweep` conversation-match branch; in-window nudge flow |
 | Phone discipline: `normalizePhone`/`phoneVariants` (customerRisk.js:7-24); `calculateCustomerRisk` NEW/RISK/POSITIVE/MEDIUM (customerRisk.js:36-45, 69-127) | `GET /api/v1/store/customers/risk` read + mandatory server re-run inside the order executor path |
 | Tenant delivery config on Tenant (schema.prisma:52-53); **no returnPolicy/policy field exists on Tenant** (verified in CAP-14 recon); no Nova read exposes settings | `GET /api/v1/store/settings` + new `TenantPolicy` model (merchant-authored snippets Nova may quote) |
@@ -61,7 +61,12 @@ review asks, repeat-purchase flows → 07; escalation transaction, holding lines
 encoding → 08; MINUTES table ownership, nightly estimated→measured flip, metric registry → 09;
 fraud vocabulary, `check_customer_risk` tool semantics, assessment schema → 11. v2+: outbound
 photos, MESSAGE_TAG late recovery, payment-slip OCR, `wholesale_inquiry` case kind, quick-reply
-chips.
+chips, payment links, partial payments.
+
+Payment links — OUT (v2): Dakio has no payment-link generation; arrives with an online-payment
+provider integration.
+Partial payments — OUT (v2): Order carries no partial-payment model; requires a payments ledger
+extension.
 
 ---
 

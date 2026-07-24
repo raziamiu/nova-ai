@@ -65,7 +65,7 @@ Requirement coverage: all 35 founder requirements map into the table above; the 
         ┌───────────┼──┘   └─────┤  │                      │
         ▼           ▼            ▼  │                      ▼
    08 handover   05 selling   04 lifecycle-nba ◄───────(events)
-    authority     conversion     │      │
+    authority ──► conversion     │      │
         │   │        │   │       │      │
         │   └──►─────┤   └──►────┤      │
         │            ▼           ▼      │
@@ -91,13 +91,17 @@ Requirement coverage: all 35 founder requirements map into the table above; the 
 Wave 1:  01
 Wave 2:  02 ‖ 03*        (*03's server-side graph/360/promise work can start on 01;
                            its tool + instruction wiring completes after 02)
-Wave 3:  08 ‖ 05 ‖ 09†   (†09 lands base plumbing + metric registry against 02's verbs,
+Wave 3:  08 ‖ 09†        (†09 lands base plumbing + metric registry against 02's verbs,
                            extends as 05/06 verbs ship)
-Wave 4:  04 ‖ 06 ‖ 10
+Wave 4:  04 ‖ 05 ‖ 06 ‖ 10
 Wave 5:  07 ‖ 11
 Wave 6:  12  (gates run per rollout phase P1–P4, not only at the end:
               the P1 gate needs 01 + 02 + 03-core + 08-core + 09-base + 10-core green)
 ```
+
+05 sits in wave 4, behind 08, because its selling verbs (discounts, `create_order_from_chat`)
+resolve against 08's guardrail-key registry and autonomy-tier encoding — those must exist before
+05's authority checks can land.
 
 ## How to work this phase
 

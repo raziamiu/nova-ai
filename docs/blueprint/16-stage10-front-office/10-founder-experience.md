@@ -27,7 +27,7 @@ all Nova markers are render-side metadata joined at read time.
 | statusLine fallback chain feeds HQ ticker + Desk with zero UI change (`NovaContext.jsx:758-761`) | Inbox-aware statusLine format spec + dakio-api writer sharing the summary queries |
 | `NovaPresence` drop-in orb, renders nothing until hired (`NovaPresence.jsx:16-31`); today mounted only by GrowTabs (`GrowTabs.jsx:123`); /inbox has zero Nova rendering (recon §3) | Mount on /inbox + `Inbox` surface in `deriveSuggestions` (`suggestions.js:64-123`) |
 | Command surfaces: GrowLabTiles pattern (`NovaCommand.jsx:144-213`), MadeBySplit + `DOOR_OUTCOME` formatters + no-lift footer (`NovaCommand.jsx:227-309`), HoursTile (`483-497`), LiveFeed mono lines (`540-553`) | `InboxTile` (+cases/promises footer lines), `DOOR_OUTCOME.inbox` formatter, `FeedMilestoneRow` styling for `kind:'achievement'` |
-| Dept-room AgentBar Manual/Assisted/Autonomous switch persisting `PUT /nova/agents/:dept/mode` (`NovaDeptRoomPage.jsx:110-150`) | Reused as the v1 inbox autonomy dial + mirrored tier chip in the Inbox header |
+| Dept-room AgentBar Manual/Assisted/Autonomous switch visuals (`NovaDeptRoomPage.jsx:110-150`) | Switch VISUALS reused as the v1 inbox autonomy dial — writes module 08's `PUT /api/nova/inbox/tier`, never the `:dept/mode` route — + mirrored tier chip in the Inbox header |
 | WeeklyReportModal client-computed over the room's 7-day executed slice (`NovaDeptRoomPage.jsx:176-215`) | `INBOX` section grouping + summary line (pure client filter) |
 | BriefCard renders the filed morning brief (`NovaCommand.jsx:499-538`) | "While you slept" line spec (data produced by module 09's night pass) |
 | Honest-empty culture enforced: server-answered-empty beats fixture (`useNovaRoom.js:9-17`), no-lift footer (`NovaCommand.jsx:303-306`), no fake "Sent" (`Broadcast.jsx:20-23,70-72`) | Honest-empty rules applied to every new tile/tab/chip in this module |
@@ -49,7 +49,8 @@ open. None of this changes a single byte the customer sees.
 
 **In:** extended `/meta/conversations(/:id)` response shapes; server-side `novaState` /
 `novaDraft` / `novaComposing` derivation (`src/lib/novaInboxState.js`); `GET /nova/inbox-summary`;
-`PATCH /meta/conversations/:id/nova`; the inbox-aware statusLine writer; all new
+consumption of module 08's `PATCH /meta/conversations/:id/nova` (route shipped there); the
+inbox-aware statusLine writer; all new
 dakio-merchant components (`NovaThreadChip`, `NovaTypingRow`, `NovaThreadToggle`,
 `NovaDraftBar`, `NovaHandoverBanner`, `InboxMorningReview`, `InboxTile`, `FeedMilestoneRow`,
 `NovaCommitmentsDrawer`); receipt-drawer transparency extension; Needs-you tab; nav badges;
@@ -297,7 +298,10 @@ queries as `/nova/inbox-summary` (rule: every number re-derivable from the endpo
 moment). Formats — active: `Replying to 3 customers · 2 orders taken today`; quiet:
 `Inbox clear · 14 handled today`; escalated: `2 customers waiting on you in Messenger`.
 Renders through the existing fallback chain (`NovaContext.jsx:758-761`) with zero UI change.
-bn variants are v2 (need a statusLineBn column).
+bn variants are v2 (need a statusLineBn column). **Precedence:** the cron inbox-summary
+writer never overwrites a statusLine written by module 08's escalation transaction while
+that escalation is unresolved — whenever the needs-you count is > 0 the cron defers;
+escalation lines win.
 
 **Feed**: inbox work emits standard `activity.created` rows with the canonical
 `NovaActivity.kind` values (canonical §2.15 — `inbox_reply`, `chat_order`, `handover`,
@@ -411,10 +415,13 @@ HISTORY rows. Content spec (populated by modules 02/09; this module renders):
 
 ### D12. Autonomy dial UI — one dial, tier chip, v2 per-intent
 
-v1 reuses the Support room's `AgentBar` Manual/Assisted/Autonomous switch
-(`NovaDeptRoomPage.jsx:110-150`, persists `PUT /nova/agents/:dept/mode`) writing scope
-`door:inbox`, plus a mirrored compact chip in the Inbox header overflow menu writing the same
-scope. The chip label is computed client-side from mode + guardrail keys (canonical §2.13
+v1 reuses the Support room's `AgentBar` switch visuals (`NovaDeptRoomPage.jsx:110-150`), but
+the dial's only write path is module 08's **`PUT /api/nova/inbox/tier`** — it must NOT write
+through `PUT /nova/agents/:dept/mode` (that route rejects scope `door:inbox`). The server
+enforces the shadow-exit criteria itself: it **422-refuses any T1+ position** until module
+08's exit criteria pass, and the UI disables the T1+ positions to match — the disable is
+courtesy, the 422 is the gate. A mirrored compact chip in the Inbox header overflow menu
+calls the same route. The chip label is computed client-side from mode + guardrail keys (canonical §2.13
 encoding), pure function `tierLabel(mode, guardrails)`:
 
 | Condition | Label |
@@ -425,7 +432,8 @@ encoding), pure function `tierLabel(mode, guardrails)`:
 | `inbox.orderAuto && inbox.discountAuto && inbox.cancelAuto` | `T3 CLOSER` |
 
 Tier promotions flip guardrail keys via `kind:'promotion'` decisions (module 08); the dial
-itself only moves mode. Dialing DOWN is always allowed instantly (founder always wins);
+itself only moves the tier through `PUT /api/nova/inbox/tier`. Dialing DOWN is always
+allowed instantly (founder always wins);
 missing guardrail keys read `false` ⇒ the label degrades honestly toward T1. The v2
 per-intent dial (`Suggest / Draft / Auto` per intent, `refund_request` rendered permanently
 locked to `Ask you` mirroring FOUNDER_ONLY styling) needs per-intent authority floors —
@@ -529,8 +537,9 @@ tolerate a conversation id that 404s between polls (drop the row silently).
 }
 ```
 
-`PATCH /meta/conversations/:id/nova` `{ "enabled": false }` → `{ ok, novaEnabled }` — logs
-`recordFounderAction`; enforcement stays in module 02's reply guards (`duty:thread_off`).
+`PATCH /meta/conversations/:id/nova` (module 08's route — consumed here) `{ "enabled": false }`
+→ `{ ok, novaEnabled }` — logs `recordFounderAction`; enforcement stays in module 02's reply
+guards (`duty:thread_off`).
 
 `GET /nova/inbox-summary` (novaDashboard.js) →
 
@@ -563,8 +572,8 @@ producers are modules 01/06/08.
 - `src/lib/novaInboxState.js` (new) — `deriveNovaState`, `deriveNovaComposing`, `novaDraft`
   projection, shared summary queries (single source for meta.js / inbox-summary / statusLine).
 - `src/routes/meta.js` — extended `GET /conversations(/:id)` shapes (batched joins, no
-  N+1: one grouped pending-decisions query + one composing probe per page); new
-  `PATCH /conversations/:id/nova`.
+  N+1: one grouped pending-decisions query + one composing probe per page).
+  (`PATCH /conversations/:id/nova` is module 08's — consumed here, not added.)
 - `src/routes/novaDashboard.js` — `GET /nova/inbox-summary`; `GET /api/nova/followups`
   response gains promise join.
 - `src/lib/novaCron.js` — statusLine refresher entry (shares novaInboxState queries).

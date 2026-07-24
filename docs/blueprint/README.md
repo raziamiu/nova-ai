@@ -56,6 +56,7 @@ on the eve framework, from the shipped v1 foundation to the full
 | 13 | [Stage 7 — Presence](./13-stage7-presence.md) | 7 | Voice, memory H1.2, watchdog, hours-saved, tonight's plan | ⬜ |
 | 14 | [Stage 8 — Team](./14-stage8-team.md) | 8 | 11 agents, playbooks, negotiation, benchmarks | ⬜ |
 | 15 | [Stage 9 — Launch hardening](./15-stage9-launch.md) | 9 | GA: 30-day pilot fleet, SLOs, red team, economics | ⬜ |
+| 16 | [Stage 10 — Front Office](./16-stage10-front-office/README.md) (12-module suite + [PRD annex](../prd/PRD%20-%20Nova%20Front%20Office.md)) | 10 (annex) | Nova runs inbound customer conversations end-to-end: Messenger/IG inbox → identity → orders-in-chat → delivery/RTO orchestration → handover; ledgered + dept-attributed | ⬜ |
 
 ## Standing engineering rules (apply to every phase)
 

@@ -276,6 +276,31 @@ SLOs — then a **30-day pilot on ≥20 stores** hitting every number.
 
 ---
 
+### Stage 10 — Front Office *(phase 16, annex)*
+**Question: what happens when the customer talks back?**
+
+Everything before this stage is Nova working *for* the founder. Stage 10 turns Nova toward
+the customer: every Messenger and Instagram DM answered as the store itself — in the
+customer's own Bangla, English, or Banglish, at human pace, never sounding like a bot.
+Nova qualifies the lead, recommends what's actually in stock, takes the order inside the
+chat (COD, address, delivery fee, read-back confirm), watches the delivery, steps in before
+an RTO happens, and hands the thread to the founder the moment it leaves its authority —
+with a brief, a suggested reply, and a hard lock so two voices never talk at once.
+
+Under it: a 14-stage customer journey machine advanced only by real events, a promise
+ledger ("I'll check with the courier" becomes a tracked debt), next-best-action scaffolding
+where the server computes what's *allowed* and the model only chooses, and every action
+booked to the right department's ledger — so Sales sees chat revenue, Shipping sees RTO
+saves, Support sees resolutions. Week one is shadow mode: Nova drafts, the founder sends.
+Autonomy is earned from delivered outcomes, tier by tier, per intent.
+
+> **Demo:** a stranger DMs "dam koto?" at 11pm; by morning the founder wakes to a paid
+> order, a confirmed address, a scheduled follow-up — and a receipt for every step.
+
+📄 [16-stage10-front-office/README.md](./16-stage10-front-office/README.md)
+
+---
+
 ## How to keep reading
 
 | If you want… | Go to |

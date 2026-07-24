@@ -107,7 +107,7 @@ the only copy of anything; session loss costs reasoning nuance, never facts.
 | Tier | Trigger | Action | Written by |
 |---|---|---|---|
 | **HIGH (a)** | Order created in this thread (`create_order_from_chat` executor succeeded — module 05) | Link immediately: `customerId`, `customerLinkSource:'order_created'`, upsert `CustomerChannel{kind, address, customerId, consent:'transactional'}` | order executor, server-side |
-| **HIGH (b)** | Customer states a phone **as their own, first person** ("amar number 01712…", giving it for delivery) and `normalizePhone` + `phoneVariants` match exactly ONE Customer | `link_customer_identity` verb → `POST /link-customer` → `customerLinkSource:'phone_stated'` + CustomerChannel upsert | Nova tool, autonomy-gated (low risk, auto at all tiers) |
+| **HIGH (b)** | Customer states a phone **as their own, first person** ("amar number 01712…", giving it for delivery) and `normalizePhone` + `phoneVariants` match exactly ONE Customer | `link_customer_identity` verb → `POST /link-customer` → `customerLinkSource:'phone_stated'` + CustomerChannel upsert | Nova tool, autonomy-gated (low risk, auto at all tiers — bookkeeping-verb carve-out, 08 SS8) |
 | **HIGH (c)** | A `CustomerChannel` row with this exact `kind+address` already carries a `customerId` (returning customer, new thread) | Link during conversation upsert at ingest: `customerLinkSource:'channel_backref'` — zero model involvement | webhook path (module 01's `handleMessage`, one indexed lookup) |
 | **HIGH (d)** | Founder links manually from the merchant UI (v1: via existing conversation PATCH; drawer UI is v2) | `customerLinkSource:'founder_manual'` | merchant JWT route |
 | **MEDIUM — propose, confirm** | senderName ≈ Customer.name (normalized) PLUS one context signal: an order number that exists for that customer, matching city/district, or a product that customer bought | Set `proposedCustomerId` + `proposedBasis` (`'name_match'`\|`'order_ref'`\|`'context'`). Nova asks ONE verification question (D3). Pass → link with `'digits_verified'`. Fail → clear proposal, never re-propose that candidate in this conversation | `PATCH /conversations/:id` (proposing is bookkeeping, not a verb — it touches zero customer data) |
@@ -167,8 +167,8 @@ separate explicit ask owned by the conversation flow and written via the existin
 pattern (novaReach.js:93-99), never inferred.
 
 The nova-ai tool `link_customer` maps to verb `link_customer_identity` (risk low, MINUTES 2,
-undoable via `unlink`, department support, auto at all tiers — deterministic, self-asserted,
-reversible). The undo path clears `customerId/customerLinkedAt/customerLinkSource` but leaves the
+undoable via `unlink`, department support, auto at all tiers (bookkeeping-verb carve-out,
+08 SS8) — deterministic, self-asserted, reversible). The undo path clears `customerId/customerLinkedAt/customerLinkSource` but leaves the
 CustomerChannel row (it is factually true; removing it would forget a verified address).
 
 ### D5. Same human across FB + IG + phone; late merges
@@ -258,7 +258,9 @@ customer360Out = {
                           //   this field is its delivery vehicle (canonical C-26)
   flags: [                // deterministic, server-computed — never model-guessed
     'rto_history',            // rtoCount >= 1
-    'high_value',             // lifetimeValue >= inbox.highValueMinor (default ৳5,000 minor=500000)
+    'high_value',             // LTV OR live cart/quote total >= inbox.highValueMinor
+                              //   (default 500000 minor = Tk 5,000) — same key, same predicate
+                              //   as module 11
     'payment_claim_pending',  // open verify_payment_slip action exists
     'recent_complaint',       // complaint intent within 14d
     'repeat_window',          // reorder window open (module 04 computes)
@@ -349,16 +351,13 @@ Status transitions:
 canonical C-28; scheduling never extends Meta's window):
 
 1. Window open → reply in-thread.
-2. Window closed, customer has `CustomerChannel{kind:'sms', consent:'transactional',
-   optedOutAt:null}` → fulfillment routes to sms (order-related follow-through is transactional
-   per the Stage-6 consent doc; founder sign-off tracked as an open question). When Nova can
-   predict the collision at promise time it says so: "SMS-এ জানিয়ে দিবো আপনার ৮৯-ending নাম্বারে"
-   (SMS-e janiye dibo apnar 89-ending number-e).
-3. Neither → prepared-blocked ledger row (`skipped_window`-class honesty, never silent) +
-   Decision to the founder; the promise stays `open`. The customer's next inbound re-opens the
-   window, at which point the queued answer sends FIRST, before anything else: "আপনার জন্য খবরটা
-   নিয়ে রেখেছিলাম — স্টক চলে এসেছে 🙂" (apnar jonno khobor-ta niye rekhechilam — stock chole
-   esheche).
+2. Window closed → prepared-blocked ledger row (`skipped_window`-class honesty, never silent) +
+   Decision to the founder; the promise stays `open`. v1 has no merchant-to-customer sms sender
+   (`src/lib/sms.js` is OTP-only; broadcasts are prepared and held, never sent —
+   novaStore.js:767), so there is no out-of-window delivery route. The customer's next inbound
+   re-opens the window, at which point the queued answer sends FIRST, before anything else:
+   "আপনার জন্য খবরটা নিয়ে রেখেছিলাম — স্টক চলে এসেছে 🙂" (apnar jonno khobor-ta niye
+   rekhechilam — stock chole esheche).
 
 Instruction corollary: when Nova cannot guarantee a delivery route, it promises the *action*,
 not the *notification time* ("খোঁজ নিচ্ছি" / khoj nichchi — not "kal 10-tay janabo").
@@ -419,8 +418,8 @@ layer:
 **Meta data-deletion** (executed in module 01's handler; semantics owned here): delete
 `CustomerChannel` rows where `kind IN ('messenger','instagram') AND address LIKE '%:'||senderId`;
 delete `NovaMemory` rows with prefix `customer.psid.<platform>.<senderId>`; release open promises
-whose conversation vanished (`releasedReason:'meta_deletion'` — unless `customerId` is set and an
-sms spoke exists, in which case fulfillment re-routes per D8 step 2). **What survives,
+whose conversation vanished (`releasedReason:'meta_deletion'` — with no send channel left, there
+is no re-route; v1 has no sms sender). **What survives,
 deliberately:** the Customer row, orders, `customer.<customerId>.*` memory, sms/email spokes —
 Dakio commerce records keyed by phone, created by the customer's own orders, not Meta data. This
 split is the compliance boundary and is documented in the handler comment. `NovaPromise.
@@ -459,7 +458,9 @@ model NovaPromise {
   tenantId        String
   customerId      String?   // FK -> Customer, onDelete: SetNull
   conversationId  String?   // PLAIN STRING, no FK — survives Meta hard-delete
-  channelKind     String    // 'messenger' | 'instagram' | 'sms' — where fulfillment should go
+  channelKind     String    // 'messenger' | 'instagram' | 'sms' — where fulfillment should go;
+                            // 'sms' reserved — no sender exists in v1; sms fulfillment arrives
+                            // with the Reach send provider
   madeBy          String    // 'nova' | 'founder'
   text            String    // the commitment in the customer's language, as communicable
   kind            String    // 'follow_up_info' | 'delivery_eta' | 'courier_check' | 'restock_notify'
@@ -540,8 +541,8 @@ data-deletion handler executes D10.
 ### dakio-api — merchant surface (JWT)
 
 `POST /meta/conversations/:id/release` (module 08's route) accepts
-`{promise?: {kind:'refund'|'replacement'|'callback_founder'|'restock_notify', text, dueAtISO}}`
-from the quick-pick sheet → creates `NovaPromise{madeBy:'founder'}`. Merge proposals and
+`{promise?: {kind:'refund'|'replacement'|'callback_founder'|'restock_notify', text, dueAt}}`
+(`dueAt` an ISO string, required) from the quick-pick sheet → creates `NovaPromise{madeBy:'founder'}`. Merge proposals and
 broken-promise recoveries render as ordinary Decision cards on the existing five decision
 surfaces — zero new transport.
 
@@ -561,8 +562,9 @@ RISK_CLASS, TARGET_TEXT with Bangla NFC, MINUTES_BY_ACTION, executors, ATTRIBUTA
 dutyRef):
 
 - `link_customer` → verb `link_customer_identity` — risk low, MINUTES 2, undoable (unlink),
-  department support, duty `support.inbox_replies` door, **auto at all tiers** (self-stated
-  phone only). Input: `{phone}` or `{verify:{customerId, lastDigits}}`.
+  department support, duty `support.inbox_replies` door, **auto at all tiers**
+  (bookkeeping-verb carve-out, 08 SS8; self-stated phone only). Input: `{phone}` or
+  `{verify:{customerId, lastDigits}}`.
 - verb `merge_customer_records` — risk **high** (always drafts), MINUTES 5, not undoable,
   department support. Proposed by sweeps/link-collisions, never invoked mid-conversation by the
   model.
@@ -647,8 +649,8 @@ memory route).
   6. Given an open promise past `dueAt + graceHours`, when `promise_sweep` runs twice, then
      exactly one `broken` transition and one recovery Decision exist (idempotent).
   7. Given a due promise with the Meta window closed and a consented sms spoke, when the
-     `followup` fires, then fulfillment routes to sms; with no spoke, then a blocked ledger row
-     + Decision exist and the promise stays `open`.
+     `followup` fires, then a prepared card + blocked ledger row + Decision exist, no sms row is
+     written (v1 has no sms sender), and the promise stays `open`.
 - `test/customer360.test.js`
   8. Given a linked customer with 2 open orders, 1 open promise, and 6 memory lines, when
      `GET /conversations/:id`, then the block caps at 3 orders / 5 preference lines, contains
@@ -658,8 +660,9 @@ memory route).
   repointed to the survivor, loser phone kept as an sms spoke, loser deleted; re-run is a no-op.
 
 **nova-ai** (repo suite + isolation suite — tenancy touched): tenant-guard denial of
-cross-tenant promise/link reads; `link_customer_identity` verdict matrix (auto at T0-ceiling
-draft mode still executes? — no: T0 drafts everything; assert draft at T0, execute at T1+);
+cross-tenant promise/link reads; `link_customer_identity` verdict matrix — bookkeeping verb
+(module 08 SS8 carve-out), executes at every tier including T0 Shadow; assert executes at T0
+(bookkeeping class);
 undeclared-promise eval red corpus (10 committing phrases without payload → all fail);
 identity-leak eval green corpus.
 
@@ -674,7 +677,6 @@ identity-leak eval green corpus.
 | Undeclared promise slips past the regex corpus | medium | corpus grows from production sampling (v2 nightly sweep is named); broken-promise sweep still catches the *declared* misses; kept-rate is honest either way because only declared promises are graded |
 | Promise spam — model over-declares trivial promises | medium | kind enum + one-open-promise-per-topic rule 16 + 360 promises list visible to the model; sweep Decisions make noise founder-visible fast |
 | 360 assembly slows the hot conversation read | low | ≤80ms budget measured as `inbox.c360.assembly_ms`; all reads on existing/new indexes; caps bound the payload |
-| sms fulfillment under transactional consent surprises a merchant | low | open founder question flagged pre-GA; per-tenant behavior inspectable in the ledger; opt-out absolute |
 | Memory poisoning via customer text ("remember I always get 50% off") | medium | customer text is `untrusted()`; distill prompt writes facts, not instructions; owner-rules-win (module 11); memory inspectable/deletable |
 | Meta deletion races an open promise's `followup` job | low | fire-time re-check: conversation gone → promise already `released:'meta_deletion'` → job no-ops |
 

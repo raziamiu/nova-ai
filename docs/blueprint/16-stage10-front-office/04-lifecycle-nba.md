@@ -149,7 +149,7 @@ Chat events arrive via module 01's drain (`message.received`); commerce events a
 | `ordered` | `order.created` whose normalized phone matches this journey (or creates it) — status PENDING/APPROVED, `confirmedAt` null | confirmed, at_risk, lost (cancelled + silent) | `{activeOrderId, orderNumber, codTotal}` |
 | `confirmed` | `Order.confirmedAt` set (confirm writeback, module 06, or merchant manual) — detected via `order.confirmed` event (dedupeKey `order.confirmed:<orderId>`) | in_delivery, at_risk | same |
 | `in_delivery` | `order.updated` status SHIPPED, or `courierSentAt` set (booking) | delivered, at_risk | `{activeOrderId, courierProvider, courierTrackingId}` |
-| `delivered` | `order.updated` status DELIVERED (courier webhook auto-map; COD auto-paid) | retained (quiet 7d), at_risk (complaint), repeat_buyer (2nd delivered) | `{deliveredOrderIds[], reviewEligibleAt?, reviewAskedAt?, sentiment}` |
+| `delivered` | `order.updated` status DELIVERED (courier webhook auto-map; COD auto-paid) | retained (quiet 7d), at_risk (complaint), repeat_buyer (2nd delivered) | `{deliveredOrderIds[], reviewEligibleAt?, reviewAsks:{[orderId]: askedAt}, sentiment}` |
 | `at_risk` | From ordered/confirmed/in_delivery/delivered on ANY of: (a) courier failed-attempt/hold status, (b) sweep stagnation — `courierSentAt`+4d, not DELIVERED, `courierStatus` unchanged 48h, (c) `fakeProtectionAction` set + unconfirmed, (d) `complaint` intent inbound while an order is open, (e) cancel ask post-dispatch | resumeStage (resolved / courier moving), delivered, lost (RTO'd + 2 unanswered contact attempts) | `{riskReason, resumeStage, contactAttempts:int, escalatedActionId?}` |
 | `retained` | delivered + 7d, no complaint intent, no open at_risk | repeat_buyer, dormant | `{}` |
 | `repeat_buyer` | 2nd DELIVERED order lifetime (count via `customerId` join at reducer time) | dormant (silence past refill cycle) | `{deliveredCount, medianGapDays?, categoryKeys[]}` |
@@ -312,12 +312,14 @@ semantics owned by module 03).
 **The `schedule_follow_up` verb** (full new-verb checklist): RISK_CLASS **low** ·
 `MINUTES_BY_ACTION: 1` · TARGET_TEXT extractor over `reason` + conversation subject (Bangla NFC) ·
 department from `DEPARTMENT_BY_INTENT[plannedIntent]` · targetRef `inbox_conversation:<id>` ·
-**undoable** (undo = cancel the job) · **auto at all tiers** — it sends nothing; the later send is
-gated on its own. Executor calls `POST /api/v1/inbox/followups`: validates delay ∈ `allowedDelays`
+**undoable** (undo = cancel the job) · **bookkeeping verb** (module 08 SS8 carve-out) — executes at
+every tier including T0; it sends nothing customer-visible, and the later send is gated on its own. Executor calls `POST /api/v1/inbox/followups`: validates delay ∈ `allowedDelays`
 from the NBA block (`2h | 4h | 24h | 3d`; 3d only for delivered/retained stages — the model picks
 from the list, it cannot invent "in 10 minutes" pressure loops), applies quiet-hour shifting, and
 enforces **one outstanding follow-up per conversation** — an existing `due` followup is superseded
-(`status:'skipped'`, `lastError:'superseded'`) before the new row is created.
+(`status:'skipped'`, `lastError:'superseded'`) before the new row is created. **Exemption:** jobs
+carrying `payload.promiseId` (promise fulfillment, module 03) are NEVER superseded by NBA
+follow-ups — supersession applies only to plain NBA rows.
 
 **Firing** — dispatcher claims the job → runtime receives the payload → deterministic re-check
 sequence BEFORE the model speaks:
@@ -378,7 +380,9 @@ thread to be Nova's (never ping an owned thread) and pass the D7 re-checks. "Win
 v1 has no MESSAGE_TAG support, so out-of-window = `skipped_window` receipt or prepared card,
 honestly. Autonomy is expressed through the canonical mechanism: a send executes only when tier ≥
 T1 AND its purpose slug ∈ `inbox.autoIntents` (fail-closed founder-editable allowlist) — rows
-whose default purpose is outside the default list draft until the founder extends the key.
+whose default purpose is outside the default list draft until the founder extends the key. The
+Dept column is derived deterministically from `DEPARTMENT_BY_INTENT` — trigger rows never
+override it (`delivery_issue` → shipping, `general` → support, win-back → sales).
 
 | # | Trigger | Detector (exact) | Purpose slug | Window v1 | v2 w/ tags | Default behavior | Dept |
 |---|---|---|---|---|---|---|---|
@@ -387,8 +391,8 @@ whose default purpose is outside the default list draft until the founder extend
 | 3 | Shipped notification + tracking link | `order.updated` SHIPPED (courier webhook) | `order_status` | if open, else skip | POST_PURCHASE_UPDATE | auto at T1+ | shipping |
 | 4 | COD-ready reminder (out-for-delivery) | `order.updated` raw status maps out-for-delivery | `delivery_eta` | if open, else skip | POST_PURCHASE_UPDATE | auto at T1+ | shipping |
 | 5 | Delivery-delay apology + status | sweep stagnation rule (`courierSentAt`+4d, status unchanged 48h) → at_risk | `delivery_issue` | if open, else prepared card ("window closed — call them?") | POST_PURCHASE_UPDATE | draft (not in default allowlist); module 06 flow | shipping |
-| 6 | Failed delivery attempt → reschedule intake | courier failed-attempt status → at_risk | `delivery_issue` | if open, else prepared card | POST_PURCHASE_UPDATE | draft; module 06 flow | support |
-| 7 | Stock issue on open order | `order.item_unfulfillable` event (module 06 wires the hook) | `general` | if open, else prepared card | POST_PURCHASE_UPDATE | **draft at all tiers** (bad news + alternatives = founder judgment early) | operations |
+| 6 | Failed delivery attempt → reschedule intake | courier failed-attempt status → at_risk | `delivery_issue` | if open, else prepared card | POST_PURCHASE_UPDATE | draft; module 06 flow | shipping |
+| 7 | Stock issue on open order | `order.item_unfulfillable` event (module 06 wires the hook) | `general` | if open, else prepared card | POST_PURCHASE_UPDATE | **draft at all tiers** (bad news + alternatives = founder judgment early) | support |
 | 8 | Payment problem (claim rejected) | `payment.claim_rejected` event (module 05 producer) | `payment_claim` | if open, else card | not tag-legal — card | draft always | finance |
 | 9 | Restock of asked-for product | sweep joins `stageData.askedProductIds` × stock 0→positive | `availability_check` | if open, else **skip silently** (marketing-shaped, no legal tag) | window-only | auto at T1+ | sales |
 | 10 | Expiring offer reminder | sweep: in-thread Coupon (`novaActionId` set) expiring <24h, unused | `price_query` | if open, else skip silently | window-only | auto at T1+, max ONE reminder per coupon | sales |
@@ -396,7 +400,7 @@ whose default purpose is outside the default list draft until the founder extend
 | 12 | Abandoned chat checkout (slot stall) | sweep: `negotiating` + slotState incomplete + no inbound 4h → followup job | `checkout_help` | followup path (D7) | window-only | auto at T1+ via schedule_follow_up + send gate | sales |
 | 13 | Repeat-purchase window | sweep refill-cycle math (D10) | `upsell` | almost always closed → **prepared card** ("repeat window open for Rahima — suggest SMS via Reach or wait") | window-only; Reach/SMS owns out-of-window | prepared card v1 | sales |
 | 14 | Review ask post-delivery | delivered + positive/neutral organic inbound reopens window (D10 arming; module 07 flow) | `review_ask` | organic-window only (by design) | keep organic anyway | draft by default (slug not in allowlist); founder may extend at T1+ | support |
-| 15 | Win-back for dormant | sweep dormancy → segment feed to Reach; Messenger only if customer returns | — | window closed by definition → **never a v1 Messenger send** | tags don't cover it honestly | Reach machinery (prepared, own consent) | marketing |
+| 15 | Win-back for dormant | sweep dormancy → segment feed to Reach; Messenger only if customer returns | — | window closed by definition → **never a v1 Messenger send** | tags don't cover it honestly | Reach machinery (prepared, own consent) | sales |
 
 Rows 13/15 deliberately hand off to Stage 6 Reach instead of pretending Messenger can do it: the
 journey engine detects and segments; Reach sends (when a real provider lands). Until then,
@@ -437,7 +441,8 @@ ANY new order from a dormant journey — including ones the founder's own SMS/of
 **Review-eligibility arming** (steps 1–2 here; ask flow, unhappy gate, and copy in module 07):
 1. Order DELIVERED → sweep sets `stageData.reviewEligibleAt = deliveredAt + 2d`.
 2. `ask_review` becomes NBA-eligible only when: stage ∈ delivered/retained/repeat_buyer,
-   `reviewEligibleAt` passed, `reviewAskedAt` null (once per order, ever), window open
+   `reviewEligibleAt` passed, `stageData.reviewAsks[orderId]` unset for the order in question
+   (once per order, ever — per-order `reviewAsks` map, module 07's shape is canonical), window open
    **organically** (the customer messaged post-delivery — v1 never synthesizes a ping to ask), and
    module 07's unhappy gate passes (any complaint/return intent, negative sentiment, or open
    at_risk/escalation → ineligible, reason `unhappy_gate`).
@@ -582,7 +587,7 @@ Migration notes:
 |---|---|
 | `agent/lib/types.ts` ActionType | += `schedule_follow_up` |
 | `agent/lib/nova/schemas.ts` | `scheduleFollowUpPayload {conversationId, journeyId, delay, reason, plannedIntent, promiseId?}` |
-| `agent/lib/nova/autonomy.ts` RISK_CLASS | `low`; no guardrail branch — auto at all tiers (sends nothing; the later send is gated) |
+| `agent/lib/nova/autonomy.ts` RISK_CLASS | `low`; no guardrail branch — bookkeeping verb (module 08 SS8 carve-out): executes at every tier including T0 (sends nothing customer-visible; the later send is gated) |
 | `agent/lib/nova/authority.ts` TARGET_TEXT | reason + conversation subject, Bangla NFC-normalized |
 | `agent/lib/nova/activity.ts` MINUTES_BY_ACTION | `1` |
 | Executor | `agent/lib/nova/executors.ts` → `POST /api/v1/inbox/followups`; dakio-api `EXECUTORS.schedule_follow_up` no-op passthrough (already-executed rows) |
@@ -618,6 +623,8 @@ returns before composing.
   drain stubs (module 01 D2 steps 4–5) replaced with real reducer + cancel semantics
 - `src/routes/novaDashboard.js` — `GET /api/nova/followups`, `POST /api/nova/followups/:jobId/cancel`
 - `src/lib/novaExecutors.js` — `EXECUTORS.schedule_follow_up` (approve-path passthrough)
+- `src/routes/novaReach.js` — opt-out handler emits the `channel.opted_out` event (producer for the
+  `lost` transition this module consumes)
 - guardrail defaults doc — `inbox.quietHours`, `inbox.maxProactiveTouchesPerWeek`,
   `inbox.maxUnansweredProactiveStreak` in the `inbox.*` key registry
 
@@ -653,7 +660,7 @@ returns before composing.
   5. Given `optedOutAt` set (`channel.opted_out`), then journey → `lost` and every proactive
      candidate is ineligible while `answer` stays eligible on inbound.
 - `test/nova-nba.test.js` (new)
-  1. Given a `delivered` journey with `reviewAskedAt` set, when the block is assembled, then
+  1. Given a `delivered` journey with `reviewAsks[orderId]` set for its active order, when the block is assembled, then
      `ask_review` is ineligible with reason `stage_not_…`/gate reason, and `escalate` +
      `do_nothing` are eligible in EVERY assembled block (pinned invariant).
   2. Given quiet hours now, then `proactive_ping` ineligible `quiet_hours` but `answer` eligible
@@ -719,8 +726,9 @@ Measurable checks: reducer idempotence test suite green; the three pinned invari
 (escalate/do_nothing always eligible; reactive-never-budgeted; fire-time window re-check) green in
 CI; zero `journey.unmapped_event` rows after replaying the staging courier-webhook corpus.
 
-**Rollback (no deploy):** pause `journey_sweep` and `followup` by disabling their NovaJobDef rows
-(existing kill path — no cron, no fires); set `inbox.maxProactiveTouchesPerWeek: 0` (fail-closed:
+**Rollback (no deploy):** pause `journey_sweep` by disabling its NovaJobDef row (existing kill
+path — no cron, no fires); `followup` has no NovaJobDef cron row (event-scheduled only) — pause it
+via module 12's `NOVA_PAUSED_JOB_KINDS`, not job-def disabling; set `inbox.maxProactiveTouchesPerWeek: 0` (fail-closed:
 every proactive candidate ineligible `touch_budget_reached`, reactive replies unaffected); the
 reducer keeps recording stages passively — it sends nothing by itself, so journeys stay warm for
 re-enable. Per-thread and per-tenant kill switches from modules 01/08 apply on top.
