@@ -9,7 +9,7 @@
   "scripts": {
     "postinstall": "node scripts/patch-eve.mjs",
     "build": "eve build",
-    "dev": "eve dev",
+    "dev": "eve dev --port 2000",
     "start": "eve start",
     "typecheck": "tsc",
     "test:isolation": "npx --yes tsx evals/isolation/run.ts",
