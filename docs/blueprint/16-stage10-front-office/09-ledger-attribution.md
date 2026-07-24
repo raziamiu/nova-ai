@@ -300,7 +300,10 @@ real rows, computed in the same pass):
   conversation recorded a discount ask with no executed `offer_chat_discount`),
   `inbox.policy_gaps_surfaced` (support — founder-answered policy-gap Decisions),
   `inbox.return_intakes` (support — `damaged_item` cases opened via chat),
-  `inbox.exchange_saves` (support — `damaged_item` cases resolved with a replacement, no refund).
+  `inbox.exchange_saves` (support — `damaged_item` cases resolved with a replacement, no refund),
+  `discount_cost_bdt` (sales — Σ discountValue over executed `offer_chat_discount` actions whose
+  coupon was redeemed, minor units; the cost side of the negotiation metrics so chat-discount
+  ROI is computable as `chat_revenue` against it).
 - Telemetry (counters, not tiles): `inbox.pacing.target_ms/actual_ms/model_ms`,
   `inbox.reply.bubbles`, `inbox.lang.detected`, `inbox.window.blocked_sends`,
   `inbox.c360.assembly_ms`, `inbox.memory.distilled`.
