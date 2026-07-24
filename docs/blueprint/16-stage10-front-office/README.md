@@ -24,13 +24,13 @@ never the model — is the only customer-visible byte, delivered with human timi
 trust, metrics) own all state; the model classifies, composes, and chooses among server-computed
 candidates. It never authorizes, never sets stage, never self-reports a win.
 
-Two documents are binding on every module in this phase:
-[`canonical-decisions`-derived names and rules baked into each doc] and the
-[module doc contract](#how-to-work-this-phase). Where an older design draft disagrees with a
-module doc here, the module doc wins — the conflict was already adjudicated (34 logged conflicts,
-e.g. verb names, `actor` vs `author`, derived `novaState`, one `NovaPromise` store). Everything
-follows the [blueprint README](../README.md)'s 11 standing engineering rules; the rules below are
-Stage-10 additions, not replacements.
+The twelve module docs in this directory are the single source of truth for Stage-10 names —
+verbs, columns, routes, job kinds, metric keys, guardrail keys. Where an earlier design draft or
+discussion disagrees with a module doc here, the module doc wins: the conflicts were adjudicated
+during planning (verb naming, `actor` vs `author`, derived-not-stored `novaState`, one
+`NovaPromise` store, and some thirty others). Everything follows the
+[blueprint README](../README.md)'s 11 standing engineering rules; the rules below are Stage-10
+additions layered on top, not replacements.
 
 ## Module map
 
