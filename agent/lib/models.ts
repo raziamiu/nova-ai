@@ -43,10 +43,18 @@ import type { TenantPlan } from "./tenants";
  * This is also the compiled fallback in `agent.ts`, and in practice the model
  * most turns actually run on: the per-plan ladder below only resolves for
  * stores present in the tenant registry, so every store outside it (including
- * live Dakio tenants today) lands here. M3 is the MiniMax flagship — a 1M
- * context window and vision/PDF input, at the same price as the lower tiers.
+ * live Dakio tenants today) lands here.
+ *
+ * Sonnet, not Opus, for the ROOT: this model holds the real-time founder
+ * chat, where latency is the product. Opus 4.8 made a simple 3-tool turn take
+ * ~50s and pushed any subagent-delegating turn past the client's 180s abort —
+ * the chatbox "talks forever". Sonnet 5 is ~2–3× faster to first token and
+ * through generation at very close capability, which is the right trade for a
+ * conversational surface. Bump to opus-4.8 only if a store needs the extra
+ * reasoning and can tolerate the wait.
  */
-export const ROOT_MODEL = "anthropic/claude-opus-4.8";
+export const ROOT_MODEL = "anthropic/claude-sonnet-5";
+// export const ROOT_MODEL = "anthropic/claude-opus-4.8";
 // export const ROOT_MODEL = "minimax/minimax-m3";
 
 /**
