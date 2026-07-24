@@ -87,6 +87,24 @@ const TENANTS = new Map<string, TenantRecord>([
       signature: "Nova at Mayer Doya Store",
     },
   ],
+  // Second live Dakio dev tenant (admin.dakio@gmail.com) — provisioned so the
+  // founder can drive Nova from that store's dashboard. Its own scoped service
+  // token lives in NOVA_SERVICE_TOKENS (never the Mayer Doya fallback).
+  [
+    "cmrm6rzoz0003stc0uxugcq1d",
+    {
+      storeId: "cmrm6rzoz0003stc0uxugcq1d",
+      name: "Dakio",
+      vertical: "General commerce",
+      currency: "BDT",
+      locale: "en-BD",
+      timezone: "Asia/Dhaka",
+      status: "active",
+      plan: "growth",
+      voiceSummary: "Default voice — replace once the store's brand memory is set.",
+      signature: "Nova at Dakio",
+    },
+  ],
 ]);
 
 /** Every known tenant (for the isolation suite and fleet-wide dev tooling). */
