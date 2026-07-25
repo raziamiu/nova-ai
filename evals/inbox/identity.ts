@@ -40,13 +40,14 @@
  * (`npx -y tsx evals/inbox/identity.ts`).
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { resolve as resolvePath } from "node:path";
+import { dirname, resolve as resolvePath } from "node:path";
 
 import { customerPersonaMarkdown } from "../../agent/lib/customer/persona";
 import { renderCustomerInbox } from "../../agent/instructions/50-customer-inbox";
 import { customerPrincipal } from "../../agent/lib/customer/principal";
-import { executors } from "../../agent/lib/nova/executors";
+import { executors, undoers } from "../../agent/lib/nova/executors";
 import { linkCustomerPayload } from "../../agent/lib/nova/schemas";
 import { DemoStore } from "../../agent/lib/store/backend";
 import { resetStores, storeFor } from "../../agent/lib/store/resolve";
@@ -476,6 +477,31 @@ export async function runIdentityLeakSuite(): Promise<SuiteResult> {
     check("the ledger outcome leaks nothing", outcomeLeaks.length === 0, outcomeLeaks.join(", "));
     check("the failed link is still reported honestly", executed.after?.matched === false, JSON.stringify(executed.after));
 
+    // …and it must not describe a state that does not exist. The `{phone}` arm
+    // parks the number as `claimedPhone` so the join materializes when an order
+    // creates the record; the `verify` arm holds NOTHING — the proposal was
+    // cleared and the candidate burned for this thread. One sentence for both
+    // arms told the founder, on a row they can read, that a number was kept
+    // when none was.
+    check(
+      "a failed digit check does not claim a number is held for a future order",
+      !/held for when an order creates the record/.test(executed.outcome),
+      executed.outcome,
+    );
+    demo.seedInboxConversation({
+      id: "conv-no-match",
+      messages: [{ direction: "in", actor: "customer", text: "amar number 01766666666", id: "m1" }],
+    });
+    const zeroMatch = await executors.link_customer_identity(demo, {
+      conversationId: "conv-no-match",
+      phone: "01766666666",
+    });
+    check(
+      "…while the zero-match phone arm still says the number IS held, because it is",
+      /held for when an order creates the record/.test(zeroMatch.outcome),
+      zeroMatch.outcome,
+    );
+
     // The next turn's read is the real exposure: whatever `get_conversation`
     // renders goes straight into the model's context.
     const principal = customerPrincipal(AURORA, CONV, "messenger");
@@ -569,6 +595,81 @@ export async function runIdentityLeakSuite(): Promise<SuiteResult> {
         verify: { customerId: "cust-1", lastDigits: "8" },
       }).success === false,
     );
+    // `verify.customerId` is OPTIONAL, and that is a safety property rather
+    // than a looseness. The server tests the conversation's own
+    // `proposedCustomerId` and ignores whatever the caller names, and
+    // `InboxThread.proposal` is basis-only — so the model has no way to LEARN a
+    // candidate id, and a required field made the whole digit rung unreachable
+    // from the customer plane. A caller that could name the candidate could
+    // walk the customer table two digits at a time.
+    check(
+      "verify works with no customerId at all — the server chooses the candidate",
+      linkCustomerPayload.safeParse({ conversationId: "c1", verify: { lastDigits: "89" } }).success === true,
+    );
+  }
+
+  // 7. UNDO — the inverse has to be REACHABLE, not just defined.
+  console.log("\n[7] UNDO — the founder's Undo button reaches the inverse");
+  {
+    resetStores();
+    const demo = storeFor(AURORA) as DemoStore;
+    demo.seedCustomerPhone("01712345678", "cust-linkable");
+    demo.seedInboxConversation({
+      id: "conv-undo",
+      messages: [{ direction: "in", actor: "customer", text: "amar number 01712345678", id: "m1" }],
+    });
+    const linked = await executors.link_customer_identity(demo, {
+      conversationId: "conv-undo",
+      phone: "01712345678",
+    });
+
+    check("a successful link is undoable", linked.undoable === true);
+    // TWO MAPS, TWO KEYING SCHEMES. nova-ai's `undoers` is keyed by VERB name
+    // (`check-undo-coverage.ts` matches it against executor names both ways);
+    // dakio-api's `UNDO` is keyed by `undoData.kind`, because `runUndo`
+    // dispatches on the stored descriptor. A founder pressing Undo on the
+    // Decision Desk goes through the SECOND one, so an `undoData` with no
+    // `kind` reaches them as "No inverse is defined for undefined".
+    check(
+      "…and its undoData carries the `kind` dakio-api's runUndo dispatches on",
+      (linked.undoData as Record<string, unknown> | null)?.kind === "unlink_customer",
+      JSON.stringify(linked.undoData),
+    );
+    check(
+      "…without losing the conversation the inverse actually needs",
+      (linked.undoData as Record<string, unknown> | null)?.conversationId === "conv-undo",
+    );
+    check("the local undoer is still keyed by verb name", typeof undoers.link_customer_identity === "function");
+    // And it really runs, against the same demo backend: the join goes, the
+    // verified channel address stays (D4).
+    const undone = await undoers.link_customer_identity!(demo, linked.undoData as Record<string, unknown>);
+    check("the undoer unlinks the thread", /Unlinked conversation conv-undo/.test(undone));
+
+    // The receiving half lives in the other repo, so this reads it. Same
+    // assumption and same honest outcome as `privacy.ts` gate 1: skip loudly
+    // when dakio-api is not checked out beside this one, never fail.
+    const undoMapPath = resolvePath(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../dakio-api/src/lib/novaExecutors.js",
+    );
+    if (!existsSync(undoMapPath)) {
+      console.warn(`  ○ SKIPPED: ${undoMapPath} not present (dakio-api not checked out beside this repo).`);
+      console.warn("    The key above is only half a contract; the other half is in the sibling repo.");
+    } else {
+      const source = readFileSync(undoMapPath, "utf8");
+      // Read as TEXT, not imported: `novaExecutors.js` pulls in Prisma and half
+      // the commerce layer, and what is being pinned here is a map KEY.
+      check(
+        "dakio-api's UNDO map has the receiving half under that exact key",
+        /^\s{2}unlink_customer:\s*async/m.test(source),
+        "expected `unlink_customer:` in dakio-api/src/lib/novaExecutors.js's UNDO map",
+      );
+      check(
+        "…and runUndo still dispatches on undoData.kind, which is what makes the key load-bearing",
+        /UNDO\[action\.undoData\.kind\]/.test(source),
+      );
+    }
+    resetStores();
   }
 
   return { passed, failures };

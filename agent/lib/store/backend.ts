@@ -1280,18 +1280,29 @@ export class DemoStore implements StoreClient {
     const c = thread.conversation;
 
     // The digit check (D3): the caller supplies the digits the customer just
-    // said and the CANDIDATE's id — never the number being checked against. A
-    // failed check is an answer, and it clears the proposal rather than leaving
-    // a candidate the next turn would re-ask about.
+    // said — never the number being checked against. A failed check is an
+    // answer, and it clears the proposal rather than leaving a candidate the
+    // next turn would re-ask about.
+    //
+    // WHERE THE CANDIDATE COMES FROM, and how this differs from production:
+    // the real route resolves it from the conversation's own
+    // `proposedCustomerId` column and IGNORES `verify.customerId`, which is
+    // advisory (it lands on the failure receipt and nowhere else). This demo
+    // backend has no proposal column beyond the basis label, so it stands in
+    // for that lookup with the advisory id — and when there is none, there is
+    // no candidate to test, so the check fails, which is exactly what the real
+    // route answers for a thread with no live proposal.
     if (input.verify) {
-      const known = this.customerPhones.find((row) => row.customerId === input.verify!.customerId);
+      const candidateId = input.verify.customerId ?? null;
+      const known =
+        candidateId === null ? undefined : this.customerPhones.find((row) => row.customerId === candidateId);
       const digits = input.verify.lastDigits.replace(/\D+/g, "");
       const passed = known !== undefined && digits.length > 0 && known.phone.endsWith(digits);
       thread.proposal = null;
-      if (!passed) return { matched: false, channelWritten: false };
-      c.customerId = input.verify.customerId;
+      if (!passed || candidateId === null) return { matched: false, channelWritten: false };
+      c.customerId = candidateId;
       thread.customerLinkSource = "digits_verified";
-      return { matched: true, customerId: input.verify.customerId, channelWritten: false };
+      return { matched: true, customerId: candidateId, channelWritten: false };
     }
 
     // The self-stated phone (D4). Zero matches is not a failure: the number is

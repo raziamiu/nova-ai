@@ -531,12 +531,31 @@ export const executors: Record<ActionType, Executor> = {
         ? `Linked this conversation to customer ${result.customerId}${result.channelWritten ? " and recorded the channel as a verified address" : ""}.`
         : result.mergeProposed
           ? "That number matches more than one customer record, so nothing was linked — a merge decision is with the founder."
-          : "No customer matched that number; the thread stays unlinked and the number is held for when an order creates the record.",
+          : payload.verify
+            // The two failure arms are DIFFERENT facts and the ledger row is
+            // founder-readable, so they may not share a sentence. Nothing is
+            // held on a failed digit check: the server cleared the proposal and
+            // burned that candidate for this thread (D3, one attempt), so a
+            // line promising a number "held for when an order creates the
+            // record" would describe a state that does not exist.
+            ? "The digits given did not match the record on file, so nothing was linked — the thread stays unlinked and that candidate is not asked again."
+            : "No customer matched that number; the thread stays unlinked and the number is held for when an order creates the record.",
       // D4: the undo clears customerId/customerLinkedAt/customerLinkSource and
       // LEAVES the CustomerChannel row alone — the address is factually
       // verified, and removing it would forget something true.
       undoable: true,
-      undoData: { conversationId: payload.conversationId },
+      // `kind` is what dakio-api's `runUndo` dispatches on — it looks the
+      // inverse up in `UNDO[undoData.kind]` (`src/lib/novaExecutors.js`), NOT by
+      // verb name, so an undoData without it reaches a founder pressing Undo on
+      // the Decision Desk as "No inverse is defined for undefined". The
+      // receiving half is `UNDO.unlink_customer`; this key is the only thing
+      // that connects the two, and `evals/inbox/identity.ts` [7] pins the pair
+      // by reading that map across the repo boundary.
+      //
+      // nova-ai's own `undoers` map below stays keyed by VERB name, because
+      // `scripts/check-undo-coverage.ts` matches undoer keys against executor
+      // names in both directions. Two maps, two keying schemes, both correct.
+      undoData: { kind: "unlink_customer", conversationId: payload.conversationId },
       // A link claims no revenue. Orders do (module 05).
       revenueInfluence: 0,
       relatedId: payload.conversationId,

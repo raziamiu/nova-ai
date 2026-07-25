@@ -150,6 +150,17 @@ import { storeFor } from "../../agent/lib/store/resolve";
 import { isFramed } from "../../agent/lib/launch/hardening";
 import getConversation from "../../agent/tools/get_conversation";
 
+// --- module 03: the four corpora, folded in (D-33) ---------------------------
+// A corpus outside `package.json`'s `test` `&&` chain is not a gate, it is a
+// file. Each of these exports a runner and is inert on import (they self-run
+// only when invoked directly), so they are called at the end of `main()` below
+// and their counts join this suite's totals — one wiring decision for all four,
+// and `test:inbox` is already in the chain, so no new script is needed.
+import { runC360Suite } from "./c360";
+import { runIdentityLeakSuite } from "./identity";
+import { runPromisesSuite } from "./promises";
+import { runPrivacySuite } from "./privacy";
+
 const AURORA = "store-aurora";
 const BEACON = "store-beacon";
 const SECRET = "inbox-suite-secret";
@@ -1986,6 +1997,26 @@ async function main(): Promise<void> {
       outage instanceof Error && !(outage instanceof MemoryWriteRefused),
     );
     resetStores();
+  }
+
+  // --- module 03 corpora (D-33) ---
+  // Run LAST and folded into the same totals, so `npm run test:inbox` is one
+  // gate with one number rather than four files somebody has to remember to
+  // invoke. Each returns its own tally instead of exiting, and each failure is
+  // prefixed with the corpus it came from so the report still says which suite
+  // broke. `privacy` gate 1 SKIPS loudly (never fails) when dakio-api is not
+  // checked out beside this repo — that is intended: the cross-repo half is
+  // only runnable in a full local workspace.
+  for (const [label, runSuite] of [
+    ["identity-leak", runIdentityLeakSuite],
+    ["customer-360", runC360Suite],
+    ["undeclared-promise", runPromisesSuite],
+    ["privacy", runPrivacySuite],
+  ] as const) {
+    console.log(`\n─── module 03 corpus: ${label} ${"─".repeat(Math.max(0, 34 - label.length))}`);
+    const result = await runSuite();
+    passed += result.passed;
+    for (const f of result.failures) failures.push(`[${label}] ${f}`);
   }
 
   // --- report ---

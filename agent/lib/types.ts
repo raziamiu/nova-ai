@@ -987,8 +987,16 @@ export interface LinkCustomerRequest {
   novaActionId: string;
   /** Self-stated, first person. Normalized and variant-matched server-side. */
   phone?: string;
-  /** The server compares; the model never holds the digits it is checking. */
-  verify?: { customerId: string; lastDigits: string };
+  /**
+   * The server compares; the model never holds the digits it is checking, and
+   * never chooses WHO is checked — the route tests the conversation's own
+   * `proposedCustomerId` and ignores this id for selection. `customerId` is
+   * therefore OPTIONAL and advisory: it exists only so that a caller which
+   * named a different candidate is visible on the failure receipt. Optional
+   * because `InboxThread.proposal` is basis-only, so the customer plane has no
+   * way to learn a candidate id in the first place.
+   */
+  verify?: { customerId?: string; lastDigits: string };
 }
 
 /**

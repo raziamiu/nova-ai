@@ -311,12 +311,24 @@ export const linkCustomerPayload = z
       ),
     verify: z
       .object({
-        customerId: z.string().min(1),
+        // OPTIONAL, and advisory only. The server tests the conversation's own
+        // `proposedCustomerId` and NOTHING else — it reads this field solely to
+        // record on the failure receipt that a caller named a different
+        // candidate (dakio-api `lib/customerLink.js` `linkByDigitCheck`, which
+        // ignores it for selection). It is optional because
+        // `InboxThread.proposal` is basis-only by design: the model is never
+        // told WHO the candidate is, so a required id made this rung
+        // unreachable from the customer plane — there was no valid value to
+        // put in it. A caller that could choose the candidate could walk the
+        // customer table two digits at a time, which is the attack the
+        // propose/confirm split exists to stop. The wire now says what the
+        // server already enforced.
+        customerId: z.string().min(1).optional(),
         lastDigits: z.string().min(2).max(4),
       })
       .optional()
       .describe(
-        "The last 2–4 digits the customer just told you. The SERVER compares — you never see the number you are checking against.",
+        "The last 2–4 digits the customer just told you. The SERVER compares them against the candidate IT proposed — you never see the number you are checking against, and you never choose who is checked.",
       ),
   })
   .refine((v) => (v.phone == null) !== (v.verify == null), {
