@@ -959,9 +959,16 @@ export class DakioStoreClient implements StoreClient {
         method: "POST",
         body: input,
         // Idempotent per (journeyId, messageId): one turn answers one inbound,
-        // and a retried callback must not write a second `nba.do_nothing`
-        // marker row — `journey.silences_chosen` counts those rows, so a
-        // double-post would inflate the one metric that proves restraint.
+        // so a retried callback must not post a second observation of the same
+        // turn — the reducer treats each post as evidence and a double-post
+        // would count one choice twice.
+        //
+        // NOT because `journey.silences_chosen` counts the rows: that metric is
+        // explicitly NOT IMPLEMENTED on this side (`DO_NOTHING_REPORTING` in
+        // `agent/channels/customer.ts`), because silence calls no verb and there
+        // is no customer-plane way for the model to DECLARE it — so nothing here
+        // ever posts `nbaAction: "do_nothing"` in the first place. The key is
+        // right; the older rationale over-claimed a counter that does not exist.
         idempotencyKey: `${journeyId}:${input.messageId}`,
       },
     );

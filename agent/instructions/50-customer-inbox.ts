@@ -19,9 +19,9 @@
  * per-tenant half is cached, so the per-turn cost is one authority read.
  *
  * Rule numbering is FROZEN. Rules 1–14 are module 02's and were never
- * renumbered; module 03 filled slots 16 and 17, and slot 15 (READ FIRST) is
- * still module 11's and still renders nothing. That is why `HARD_RULES` is
- * keyed BY NUMBER rather than by array position (module 03 D-35): appending to
+ * renumbered; module 03 filled slots 16 and 17, module 04 filled 18, and slot 15
+ * (READ FIRST) is still module 11's and still renders nothing. That is why
+ * `HARD_RULES` is keyed BY NUMBER rather than by array position (module 03 D-35): appending to
  * an index-numbered array would have rendered the new rules as 15 and 16,
  * silently stealing module 11's slot and invalidating every rule-string
  * reference in the blueprint and every eval that pins one. Gaps are legal and
@@ -73,6 +73,7 @@ const HARD_RULES: Readonly<Record<number, string>> = {
   // 15 is module 11's READ FIRST. It is absent, not empty — see RESERVED_RULE_SLOTS.
   16: `PROMISES ARE DEBTS: any reply that commits to a future action or answer — "check kore janachchi", "kal janabo", "courier er sathe kotha bolchi", "stock asle inform korbo", "কাল সকালে আপডেট দেবো", "I'll confirm by tomorrow" — MUST carry the promise field on \`reply_in_thread\`, with a dueAt you can actually meet. Say it without that field and the shop owes something nobody wrote down, which is how a page ends up ghosting someone who screenshotted the conversation. No tool path to the answer → promise the ACTION, never a clock time ("khoj nichchi", not "kal 10-tay janabo"); if you cannot even do that, \`flag_handover\` instead of naming an hour. One open promise per topic: read the promises in \`get_conversation\` first, and if one is already broken, own it in your first bubble before you sell anything. PAYING ONE BACK is the other half: when the reply you are sending IS the answer you owed, set promiseId on it to that promise's id from the same list — that is the only thing that closes a debt. Answer the person and leave the id off and the books still say you never delivered.`,
   17: `REFERENCE FACTS, NOT SURVEILLANCE: use what the shop knows about this person without narrating how you know it. "apnar order ta kal courier e uthbe" is a shopkeeper remembering; "apni Messenger-e bolechilen je…" is a system reading logs — never say where, when or on which app you learned something, and never recite back what you have on file. You are given a masked number and an area, never the full number or the street address: say them exactly as you were given them, and ask for the rest at order time. Never echo or store an OTP, a bKash/Nagad PIN or an NID number — warn once, and carry on.`,
+  18: `NEXT BEST ACTION: \`get_conversation\` also returns the shop's own read of this person — their stage, what "forward" means from it, the messaging window, how many proactive touches are left this week, and a list of candidate moves. THE ELIGIBLE ONES ARE THE WHOLE MENU: picking anything else is refused before it reaches anyone, so the customer just hears silence. Each ineligible one carries a machine reason (window_closed, quiet_hours, touch_budget_reached, review_already_asked, unhappy_gate…) — those are facts about the shop's own rules: let them steer what you do, never read one out, never apologize for one. \`do_nothing\` is on that list because it is a real answer — a thread you have nothing useful to add to is one you leave alone this turn, and choosing that is not failing. The list says what is ALLOWED, never what to say: the words are still yours, every rule above still binds, and every fact still comes from a tool result.`,
 };
 
 /**
@@ -84,15 +85,28 @@ const HARD_RULES: Readonly<Record<number, string>> = {
  *   15 READ FIRST                        — module 11 (assessment modulation)  RESERVED
  *   16 PROMISES ARE DEBTS                — module 03 (promise declaration)    FILLED
  *   17 REFERENCE FACTS, NOT SURVEILLANCE — module 03 (memory usage)           FILLED
+ *   18 NEXT BEST ACTION                  — module 04 (lifecycle & NBA)        FILLED
  *
- * The three label strings are pinned by an eval and must stay byte-identical:
- * they are how a reader of the blueprint, which cites rules by number and
- * label, checks that the prompt still says what the spec claims it says.
+ * The label strings are pinned by an eval and must stay byte-identical: they are
+ * how a reader of the blueprint, which cites rules by number and label, checks
+ * that the prompt still says what the spec claims it says.
+ *
+ * 18 is module 04's, and it is the reason OD-12's "no new hard rule" default was
+ * overturned during integration. The NBA scaffold rides `get_conversation` and
+ * the block is delivered correctly — but a scaffold nothing in the register
+ * MENTIONS is one the model was never told it has: it can read the block, and
+ * nothing tells it the candidate list is a constraint, that an ineligible row's
+ * reason code is a shop rule rather than something to narrate at a customer, or
+ * that `do_nothing` is an answer rather than a failure to answer. It landed with
+ * a `CUSTOMER_PROMPT_BUDGET` raise in the same change (module 03's precedent),
+ * because the alternative — squeezing it into 26 tokens of headroom — is how a
+ * rule ends up too terse to obey.
  */
 export const RESERVED_RULE_SLOTS: Readonly<Record<number, string>> = {
   15: "READ FIRST",
   16: "PROMISES ARE DEBTS",
   17: "REFERENCE FACTS, NOT SURVEILLANCE",
+  18: "NEXT BEST ACTION",
 };
 
 /**

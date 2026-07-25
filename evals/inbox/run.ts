@@ -384,7 +384,7 @@ function estimateTokens(text: string): number {
  * promises a reply in 10–30s, so the layer that loads on EVERY customer turn
  * gets a hard budget, not a good intention.
  *
- * MEASURED at 2599 tokens on this commit — the suite prints the live figure in
+ * MEASURED at 2910 tokens on this commit — the suite prints the live figure in
  * the check label below on every run, so this number can be re-verified without
  * editing anything. Module 03 raised the ceiling from 1900 and accounts for
  * ~710 of that render: rule 16 PROMISES ARE DEBTS (~204), rule 17 REFERENCE
@@ -393,11 +393,19 @@ function estimateTokens(text: string): number {
  * script costs far more real tokens than this ~4-chars-per-token estimate
  * suggests, so treat the headroom as tighter than it looks).
  *
- * The remaining ~100 is for edits, NOT for reserved rule 15: module 11 must
- * raise this number in the same commit that adds its rule, so the growth stays
- * a deliberate line in a diff rather than a silent latency regression.
+ * Module 04 raised it from 2700 and accounts for ~236 of the render: rule 18
+ * NEXT BEST ACTION. That rule exists because the NBA scaffold rides
+ * `get_conversation` correctly while the register never mentioned it — a
+ * constraint the model was never told it had, which is indistinguishable from no
+ * constraint at all. OD-12 had defaulted to "no new hard rule" on the strength
+ * of 26 tokens of headroom; the raise landed in the SAME change as the rule
+ * (module 03's precedent), so the growth is one deliberate line in a diff rather
+ * than a silent latency regression.
+ *
+ * The remaining ~40 is for edits, NOT for reserved rule 15: module 11 must raise
+ * this number in the same commit that adds its rule, on the same terms.
  */
-const CUSTOMER_PROMPT_BUDGET = 2700;
+const CUSTOMER_PROMPT_BUDGET = 2950;
 
 /** A founder principal — what the customer register must never render for. */
 const FOUNDER: SessionAuthContext = {
@@ -1043,18 +1051,20 @@ async function main(): Promise<void> {
     // index-numbered array would have rendered these as 15 and 16 and passed a
     // weaker version of this check.
     check(
-      "rules render under their own numbers: 1–14 unmoved, 16/17 filled, 15 still absent",
+      "rules render under their own numbers: 1–14 unmoved, 16/17/18 filled, 15 still absent",
       customerPrompt.includes("\n1. MIRROR") &&
         customerPrompt.includes("\n14. HANDOVER") &&
         customerPrompt.includes("\n16. PROMISES ARE DEBTS") &&
         customerPrompt.includes("\n17. REFERENCE FACTS, NOT SURVEILLANCE") &&
+        customerPrompt.includes("\n18. NEXT BEST ACTION") &&
         !customerPrompt.includes("\n15. "),
     );
     check(
-      "slot 15 stays reserved for module 11; 16/17 keep the labels module 03 shipped them under",
+      "slot 15 stays reserved for module 11; 16/17/18 keep the labels they shipped under",
       RESERVED_RULE_SLOTS[15] === "READ FIRST" &&
         RESERVED_RULE_SLOTS[16] === "PROMISES ARE DEBTS" &&
-        RESERVED_RULE_SLOTS[17] === "REFERENCE FACTS, NOT SURVEILLANCE",
+        RESERVED_RULE_SLOTS[17] === "REFERENCE FACTS, NOT SURVEILLANCE" &&
+        RESERVED_RULE_SLOTS[18] === "NEXT BEST ACTION",
     );
     // Rule 16 is only as good as the field it names, and rule 17 is only as
     // good as the thing it forbids — so pin the load-bearing clause of each
@@ -1068,6 +1078,17 @@ async function main(): Promise<void> {
       "rule 17 bans narrating the source of a remembered fact",
       customerPrompt.includes("without narrating how you know it") &&
         customerPrompt.includes("apni Messenger-e bolechilen"),
+    );
+    // Rule 18 exists because the NBA scaffold shipped delivered-but-unmentioned:
+    // `get_conversation` returns the block correctly and the register named it
+    // ZERO times, so the model was handed a constraint nobody told it about. The
+    // three clauses pinned here are exactly the three things it has to know, and
+    // any one of them missing puts the scaffold back where it was.
+    check(
+      "rule 18 makes the candidate list a constraint, its reasons unspeakable, and do_nothing an answer",
+      customerPrompt.includes("THE ELIGIBLE ONES ARE THE WHOLE MENU") &&
+        customerPrompt.includes("never read one out") &&
+        customerPrompt.includes("`do_nothing` is on that list because it is a real answer"),
     );
     // D3's floor, which every other sentence in that block narrows: a customer
     // who will not verify is still a customer. Without it a verification script
@@ -1212,7 +1233,12 @@ async function main(): Promise<void> {
     // `schedule_follow_up`: the tool-list check only walked the tool LIST, not
     // the rules. Backticked tokens that are not tools are enumerated here once,
     // so a new one has to be justified in a diff rather than assumed benign.
-    const NON_TOOL_TOKENS = new Set(["chunks", "replyTo"]);
+    // `do_nothing` (module 04) is the one NBA candidate that maps to no verb at
+    // all — D6's `VERB_BY_CANDIDATE` gives it `null` deliberately, because
+    // restraint executes nothing. Rule 18 has to be able to name it, and it is
+    // enumerated here rather than exempted by a pattern so the next addition is
+    // still a line somebody has to argue for.
+    const NON_TOOL_TOKENS = new Set(["chunks", "replyTo", "do_nothing"]);
     const playbook = String((await resolveLayer(inboxSkill, "turn.started", customerCtx))?.markdown ?? "");
     const namedVerbs = new Set<string>();
     for (const text of [customerPrompt, playbook]) {
