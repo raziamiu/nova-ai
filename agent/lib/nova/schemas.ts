@@ -144,6 +144,23 @@ export const inboxChunkSchema = z.object({
     ),
 });
 
+/**
+ * The closed promise taxonomy (module 03 D7). Byte-equal to the
+ * `NovaPromise.kind` column and to `PromiseKind` in types.ts — the model names
+ * which KIND of debt it just took on, it does not invent categories.
+ */
+export const PROMISE_KINDS = [
+  "follow_up_info",
+  "delivery_eta",
+  "courier_check",
+  "restock_notify",
+  "refund",
+  "replacement",
+  "callback_founder",
+  "price_hold",
+  "other",
+] as const;
+
 export const sendInboxReplyPayload = z.object({
   conversationId: z.string().min(1).describe("The conversation you are replying in."),
   inReplyToMessageId: z
@@ -191,6 +208,30 @@ export const sendInboxReplyPayload = z.object({
     .object({ asked: z.boolean(), given: z.boolean() })
     .optional()
     .describe("Set when the customer asked whether they are talking to a bot, and whether you told them."),
+  // Module 03 D7. Declared at send time, never mined from the text afterwards:
+  // the model that just wrote "kal janabo" is the only thing that knows what it
+  // meant by it, and an NLP pass over outbound copy would both miss debts and
+  // invent them. dakio-api writes the NovaPromise row inside the same
+  // transaction as the outbound and deletes it if the send is canceled — an
+  // unsent promise was never made.
+  promise: z
+    .object({
+      text: z
+        .string()
+        .min(3)
+        .describe("The commitment itself, in the customer's own language, as you said it."),
+      kind: z
+        .enum(PROMISE_KINDS)
+        .describe("Which kind of debt this is. One of the defined set — never a free-form category."),
+      dueAtISO: z
+        .string()
+        .min(10)
+        .describe("When the customer expects to hear back, ISO 8601. Never name a time you have no tool path to."),
+    })
+    .optional()
+    .describe(
+      "REQUIRED whenever this reply commits to a future action or answer ('janachchi', 'kal janabo', 'stock asle inform korbo'). A committing reply without this field is a debt with no ledger row.",
+    ),
   // assessment: <reserved slot — schema owned by module 11, and reserved on
   // escalateConversationPayload and createOrderFromChatPayload too. Left out
   // rather than stubbed: an unused field the model can fill is a field that
@@ -244,6 +285,57 @@ export const escalateConversationPayload = z.object({
     )
     .default([])
     .describe("Everything you verified before escalating, so the founder does not re-check it."),
+});
+
+/* ── Front Office (Stage 10 module 03) ──────────────────────────────────────
+ *
+ * Identity. The SERVER resolves it — these two payloads carry an assertion and
+ * an evidence label, never a resolved answer, because a model that could name
+ * the customerId to link to is a model that can be talked into naming someone
+ * else's.
+ */
+
+/**
+ * Identity link (module 03 D4). Exactly one of `phone` / `verify` — the server
+ * normalizes, variant-matches and decides. It LINKS, it never CREATES:
+ * Customers materialize through orders, and chat must not invent one.
+ */
+export const linkCustomerPayload = z
+  .object({
+    conversationId: z.string().min(1).describe("The conversation you are linking."),
+    phone: z
+      .string()
+      .optional()
+      .describe(
+        "A phone the customer stated AS THEIR OWN, first person. Never a number given about someone else, and never one you inferred.",
+      ),
+    verify: z
+      .object({
+        customerId: z.string().min(1),
+        lastDigits: z.string().min(2).max(4),
+      })
+      .optional()
+      .describe(
+        "The last 2–4 digits the customer just told you. The SERVER compares — you never see the number you are checking against.",
+      ),
+  })
+  .refine((v) => (v.phone == null) !== (v.verify == null), {
+    message: "exactly one of phone | verify",
+  });
+
+/**
+ * Late-merge of two Customer rows (module 03 D5). The model never picks the
+ * survivor — D5 fixes that server-side (more orders; tie → older) — so this
+ * payload names the pair and the evidence, nothing else. A payload that named
+ * a survivor would let the model choose whose records get rewritten. Proposed
+ * by the merge sweep or by a link collision; never invoked mid-conversation.
+ */
+export const mergeCustomerRecordsPayload = z.object({
+  customerIdA: z.string().min(1),
+  customerIdB: z.string().min(1),
+  basis: z
+    .enum(["phone_variant", "link_collision"])
+    .describe("Why these two look like one person."),
 });
 
 export const resolveTicketPayload = z.object({
@@ -330,6 +422,8 @@ export type CreateDiscountPayload = z.infer<typeof createDiscountPayload>;
 export type SendCustomerMessagePayload = z.infer<typeof sendCustomerMessagePayload>;
 export type SendInboxReplyPayload = z.infer<typeof sendInboxReplyPayload>;
 export type EscalateConversationPayload = z.infer<typeof escalateConversationPayload>;
+export type LinkCustomerPayload = z.infer<typeof linkCustomerPayload>;
+export type MergeCustomerRecordsPayload = z.infer<typeof mergeCustomerRecordsPayload>;
 export type ResolveTicketPayload = z.infer<typeof resolveTicketPayload>;
 export type CreatePurchaseOrderPayload = z.infer<typeof createPurchaseOrderPayload>;
 export type SwitchSupplierPayload = z.infer<typeof switchSupplierPayload>;

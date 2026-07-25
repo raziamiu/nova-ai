@@ -22,6 +22,14 @@ export const MINUTES_BY_ACTION: Record<ActionType, number> = {
   // a lie at scale.
   send_inbox_reply: 3,
   escalate_conversation: 2,
+  // Module 03. Looking a customer up by the number they just gave, confirming
+  // it is them, and writing the join into the CRM by hand is ~2 minutes — the
+  // same order as an escalation, and it fires on most linked threads, so an
+  // inflated number would inflate the headline. The merge is 5: pulling both
+  // records, comparing order histories and re-keying by hand is a careful few
+  // minutes, and it fires rarely enough that a modest number costs nothing.
+  link_customer_identity: 2,
+  merge_customer_records: 5,
   resolve_ticket: 12,
   publish_social_post: 35,
   update_campaign: 20,

@@ -31,16 +31,24 @@ import { isCustomerSession, type CustomerSessionContext } from "./principal";
  * The tools a customer conversation may call. Shipped, gated, and advertised —
  * the register names exactly these and no more.
  *
- * `remember` is deliberately NOT here even though it is shipped: a customer
- * can dictate a "brand note" that renders back as trusted shop fact in every
- * later session, so customer memory stays closed until module 03 lands its
- * customer-scoped keying and provenance. See `SLIM_TOOLS_WITHHELD`.
+ * `link_customer` joined in module 03 (D-38). It is on the customer plane on
+ * purpose: recognising the person in the thread is something they ask for by
+ * stating their own number, and the tool hands that assertion to the SERVER to
+ * resolve — the model never picks whom to link to, so the widest failure this
+ * opens is "no match", not "the wrong person's history".
+ *
+ * `remember` is deliberately still NOT here even though it is shipped and
+ * module 03 has landed: a customer can dictate a "brand note" that renders back
+ * as trusted shop fact in every later session, so customer memory is written by
+ * the server-side `conversation_distill` job instead of by anything the model
+ * can be talked into calling. See `SLIM_TOOLS_WITHHELD`.
  */
 export const CUSTOMER_SLIM_TOOLS: readonly string[] = [
   "get_conversation",
   "reply_in_thread",
   "flag_handover",
   "get_products",
+  "link_customer",
 ];
 
 /**

@@ -56,6 +56,36 @@ function memoryValue(entries: MemoryEntry[], namespace: MemoryNamespace, key: st
   return entries.find((m) => m.namespace === namespace && m.key === key)?.value ?? null;
 }
 
+/**
+ * One named person's distilled notes (Stage 10 module 03 D9 keying:
+ * `customer.<customerId>.<facet>` and the pre-link `customer.psid.<platform>.<senderId>`).
+ *
+ * These must never enter the FOUNDER's prompt through automatic recall, and
+ * that is a leak module 03 would otherwise have created rather than a rule it
+ * inherited. The customer plane is already safe — `30-memory.ts` returns null
+ * for a customer session, so L3 never renders there at all — but L3 DOES render
+ * for the founder, and `retrieveRelevant` sweeps every namespace including
+ * `customers`. Distillation writes one row per person per facet, so within a
+ * week a founder asking "how are deliveries looking" would get two or three
+ * strangers' sizes, tones and complaint outcomes injected above the answer, on
+ * a turn that had nothing to do with any of them. Semantic similarity is a good
+ * enough reason to SHOW a fact and a terrible reason to disclose a person.
+ *
+ * Namespace-scoped on purpose. A `customers` row that is NOT about one named
+ * person (`top_segments`, `repeat_rate_by_city`) has no dot prefix and still
+ * surfaces — shop-level customer knowledge is exactly what the founder's
+ * context is for. And a `preferences` note a founder wrote themselves stays
+ * untouched even if they happened to name it `customer.something`.
+ *
+ * This filters the AUTOMATIC injection only. `recall` (`listNamespace`) is
+ * unaffected and must stay that way: a founder who explicitly asks what Nova
+ * knows about a customer is entitled to the answer — the objection is to
+ * volunteering it on unrelated turns, not to the data existing.
+ */
+function isPerCustomerNote(entry: MemoryEntry): boolean {
+  return entry.namespace === "customers" && entry.key.startsWith("customer.");
+}
+
 /** L1 — tenant profile. Who this store is; stable for the session. */
 export async function buildTenantProfile(storeId: string): Promise<string> {
   const client = storeFor(storeId);
@@ -124,6 +154,11 @@ export async function buildLiveOps(storeId: string): Promise<string> {
  * adds the top-K semantic matches for this turn's hint (cosine + recency +
  * weight, K≤8, threshold 0.35). Both tiers are tenant-scoped through the same
  * `storeId`; expired (TTL'd) entries never render. Clamped to the budget.
+ *
+ * One exclusion, applied after both tiers: per-customer distilled notes
+ * (`isPerCustomerNote`). This is a FOUNDER-plane layer, and a named person's
+ * memory row has no business surfacing here because a hint happened to look
+ * like it.
  */
 export async function buildRelevantMemory(storeId: string, hint?: string): Promise<string> {
   const client = storeFor(storeId);
@@ -148,7 +183,10 @@ export async function buildRelevantMemory(storeId: string, hint?: string): Promi
   const tier2 = scored
     .map((s) => s.entry)
     .filter((e) => !alwaysKeys.has(`${e.namespace}:${e.key}`));
-  const relevant: MemoryEntry[] = [...tier1, ...tier2];
+  // Module 03 D-26: one person's distilled notes never ride a semantic match
+  // into the founder's prompt. Applied to the merged list rather than to tier 2
+  // alone so the guarantee does not depend on which tier a row arrived through.
+  const relevant: MemoryEntry[] = [...tier1, ...tier2].filter((e) => !isPerCustomerNote(e));
 
   const body =
     relevant.length > 0

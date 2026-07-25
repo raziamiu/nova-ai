@@ -18,6 +18,8 @@ import {
   createPurchaseOrderPayload,
   escalateConversationPayload,
   importProductPayload,
+  linkCustomerPayload,
+  mergeCustomerRecordsPayload,
   publishSocialPostPayload,
   resolveTicketPayload,
   sendCustomerMessagePayload,
@@ -297,6 +299,12 @@ export const executors: Record<ActionType, Executor> = {
       // reaches this field (see `sendInboxReplyPayload`).
       ...(approved ? { timing: { mode: "instant" as const } } : {}),
       ...(payload.disclosure ? { disclosure: payload.disclosure } : {}),
+      // D7: the declared commitment rides the SAME request as the bubbles, so
+      // dakio-api writes the NovaPromise row inside the outbound's transaction
+      // and deletes it if the send is later canceled. This body is assembled
+      // field by field — a field added to the zod schema and not to this list
+      // is a field the model fills and the server never sees.
+      ...(payload.promise ? { promise: payload.promise } : {}),
     });
     const bubbles = result.chunks.length;
     return {
@@ -499,6 +507,84 @@ export const executors: Record<ActionType, Executor> = {
       targetRef: `product:${product.id}`,
     };
   },
+
+  /**
+   * Module 03 D4. The MODEL never resolves identity — this hands the server a
+   * self-stated phone or a digit check and the server answers.
+   *
+   * `matched:false` is a legitimate OUTCOME, not an error: zero matches stores
+   * `claimedPhone` so the join materializes later when an order creates the
+   * Customer, and a multi-match deliberately leaves the conversation UNLINKED
+   * and proposes a merge Decision instead. Ambiguity resolves to "unknown
+   * customer", always — which is why none of the three branches below throws.
+   */
+  async link_customer_identity(client, raw) {
+    const payload = linkCustomerPayload.parse(raw);
+    const novaActionId = randomUUID();
+    const result = await client.linkCustomer(payload.conversationId, {
+      novaActionId,
+      ...(payload.phone ? { phone: payload.phone } : {}),
+      ...(payload.verify ? { verify: payload.verify } : {}),
+    });
+    return {
+      outcome: result.matched
+        ? `Linked this conversation to customer ${result.customerId}${result.channelWritten ? " and recorded the channel as a verified address" : ""}.`
+        : result.mergeProposed
+          ? "That number matches more than one customer record, so nothing was linked — a merge decision is with the founder."
+          : "No customer matched that number; the thread stays unlinked and the number is held for when an order creates the record.",
+      // D4: the undo clears customerId/customerLinkedAt/customerLinkSource and
+      // LEAVES the CustomerChannel row alone — the address is factually
+      // verified, and removing it would forget something true.
+      undoable: true,
+      undoData: { conversationId: payload.conversationId },
+      // A link claims no revenue. Orders do (module 05).
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: {
+        matched: result.matched,
+        customerId: result.customerId ?? null,
+        channelWritten: result.channelWritten,
+      },
+      targetRef: `inbox_conversation:${payload.conversationId}`,
+    };
+  },
+
+  /**
+   * Module 03 D5. Always reached through an approved Decision (`ALWAYS_DRAFT`
+   * in authority.ts), never mid-conversation. The SURVIVOR is chosen
+   * server-side — more orders, tie → older — so this verb names the pair and
+   * dakio-api does the transactional repoint. Not undoable, which is exactly
+   * why it always drafts: the signature is the only safety there is.
+   */
+  async merge_customer_records(client, raw) {
+    const payload = mergeCustomerRecordsPayload.parse(raw);
+    const result = await client.mergeCustomers({
+      customerIdA: payload.customerIdA,
+      customerIdB: payload.customerIdB,
+      basis: payload.basis,
+    });
+    return {
+      outcome: `Merged two customer records into ${result.survivorCustomerId} — ${result.ordersMoved} orders, ${result.channelsMoved} channels, ${result.conversationsMoved} conversations and ${result.promisesMoved} promises now point at one person.`,
+      undoable: false,
+      undoData: null,
+      revenueInfluence: 0,
+      relatedId: result.survivorCustomerId,
+      before: null,
+      after: {
+        survivorCustomerId: result.survivorCustomerId,
+        mergedCustomerId: result.mergedCustomerId,
+        ordersMoved: result.ordersMoved,
+        channelsMoved: result.channelsMoved,
+        conversationsMoved: result.conversationsMoved,
+        promisesMoved: result.promisesMoved,
+      },
+      // `customer:<id>` is NOT in dakio-api's ATTRIBUTABLE map
+      // (src/lib/novaLedger.js), so `attributeDoorRecord` no-ops with
+      // {attributed:false} — correct: there is no door record to stamp.
+      targetRef: `customer:${result.survivorCustomerId}`,
+    };
+  },
 };
 
 export const undoers: Partial<Record<ActionType, Undoer>> = {
@@ -556,5 +642,21 @@ export const undoers: Partial<Record<ActionType, Undoer>> = {
   async import_product(client, undoData) {
     await client.updateProduct(String(undoData.productId), { status: "archived" });
     return "Archived the imported product.";
+  },
+  /**
+   * Module 03 D4. Keyed by the VERB name, like every entry here — not by
+   * `undoData.kind`. dakio-api's own `UNDO` map (`src/lib/novaExecutors.js`)
+   * keys the same inverse as `unlink_customer` because it dispatches on the
+   * stored `undoData.kind`; two maps, two keying schemes, both correct. Do not
+   * "fix" either to match the other — `scripts/check-undo-coverage.ts` matches
+   * this map's keys against the executor block names in both directions.
+   *
+   * `merge_customer_records` registers NO undoer, deliberately: it returns
+   * `undoable: false`, and a dead inverse fails the same check.
+   */
+  async link_customer_identity(client, undoData) {
+    const conversationId = String(undoData.conversationId);
+    await client.unlinkCustomer(conversationId);
+    return `Unlinked conversation ${conversationId} — the verified channel address was kept, only the identity join was removed.`;
   },
 };

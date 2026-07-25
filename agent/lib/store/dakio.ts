@@ -55,10 +55,13 @@ import type {
   InboxEvent,
   InboxHandoverRequest,
   InboxHandoverResult,
+  InboxPromise,
   InboxReplyRequest,
   InboxReplyResult,
   InboxThread,
   JobKind,
+  LinkCustomerRequest,
+  LinkCustomerResult,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
@@ -72,6 +75,7 @@ import type {
   OrderStatus,
   PlanItem,
   Product,
+  PromiseSettleRequest,
   PurchaseOrder,
   SocialPost,
   Supplier,
@@ -811,6 +815,75 @@ export class DakioStoreClient implements StoreClient {
       `/api/v1/inbox/conversations/${encodeURIComponent(conversationId)}/handover`,
       { method: "POST", body: input, idempotencyKey: input.novaActionId },
     );
+  }
+
+  // ==========================================================================
+  // Front Office — identity and promises (Stage 10 module 03, `/api/v1/inbox/*`)
+  //
+  // Same router, same per-tenant service token. `linkCustomer` passes its
+  // `novaActionId` as the Idempotency-Key for the same reason the reply does:
+  // a retry after a network timeout must not write the join twice and mint two
+  // receipts for one assertion.
+  // ==========================================================================
+
+  async linkCustomer(conversationId: string, input: LinkCustomerRequest): Promise<LinkCustomerResult> {
+    return this.request<LinkCustomerResult>(
+      `/api/v1/inbox/conversations/${encodeURIComponent(conversationId)}/link-customer`,
+      { method: "POST", body: input, idempotencyKey: input.novaActionId },
+    );
+  }
+
+  async unlinkCustomer(conversationId: string): Promise<{ unlinked: boolean }> {
+    // The undo rides the PATCH route rather than a dedicated endpoint, so that
+    // route must accept an EXPLICIT `customerId: null` and distinguish it from
+    // an absent key — a PATCH that treats "not sent" and "sent as null" alike
+    // turns this call into a silent no-op and leaves the join in place.
+    return this.request<{ unlinked: boolean }>(
+      `/api/v1/inbox/conversations/${encodeURIComponent(conversationId)}`,
+      { method: "PATCH", body: { customerId: null } },
+    );
+  }
+
+  async listPromises(filter?: { status?: string; customerId?: string; limit?: number }): Promise<InboxPromise[]> {
+    const { promises } = await this.get<{ promises: InboxPromise[] }>("/api/v1/inbox/promises", {
+      status: filter?.status,
+      customerId: filter?.customerId,
+      limit: filter?.limit,
+    });
+    return promises;
+  }
+
+  async settlePromise(
+    promiseId: string,
+    input: PromiseSettleRequest,
+  ): Promise<{ ok: boolean; promise: InboxPromise }> {
+    return this.request<{ ok: boolean; promise: InboxPromise }>(
+      `/api/v1/inbox/promises/${encodeURIComponent(promiseId)}`,
+      {
+        method: "PATCH",
+        body: input,
+        // `keptActionId` exists only on the `kept` path; a `released` settle
+        // falls back to a minted uuid, so the ROUTE must make repeat releases
+        // idempotent by state (open → released only), not by key.
+        idempotencyKey: input.keptActionId,
+        // The route rejects `broken` and any transition out of an already
+        // settled row with a 409. That is an ANSWER — usually "the sweep got
+        // there first" — not a fault to retry, so it is declared rather than
+        // thrown as an opaque string the model can only respond to by retrying.
+        refusalOn: [409],
+      },
+    );
+  }
+
+  async mergeCustomers(input: { customerIdA: string; customerIdB: string; basis: string }): Promise<{
+    survivorCustomerId: string;
+    mergedCustomerId: string;
+    ordersMoved: number;
+    channelsMoved: number;
+    conversationsMoved: number;
+    promisesMoved: number;
+  }> {
+    return this.request("/api/v1/inbox/customers/merge", { method: "POST", body: input });
   }
 
   // ==========================================================================

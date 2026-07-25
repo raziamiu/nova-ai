@@ -47,10 +47,13 @@ import type {
   InboxEvent,
   InboxHandoverRequest,
   InboxHandoverResult,
+  InboxPromise,
   InboxReplyRequest,
   InboxReplyResult,
   InboxThread,
   JobKind,
+  LinkCustomerRequest,
+  LinkCustomerResult,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
@@ -64,6 +67,7 @@ import type {
   OrderStatus,
   PlanItem,
   Product,
+  PromiseSettleRequest,
   PurchaseOrder,
   SocialPost,
   Supplier,
@@ -340,6 +344,53 @@ export interface StoreClient {
    * escalation must always be possible.
    */
   handoverConversation(conversationId: string, input: InboxHandoverRequest): Promise<InboxHandoverResult>;
+
+  // ---- Front Office — identity and promises (Stage 10, module 03) ----
+  //
+  // Same rule, one layer down: the SERVER owns identity. Nova asserts what the
+  // customer said; dakio-api normalizes, variant-matches and decides. A
+  // `matched:false` is an answer, not a fault — the honest default for a thread
+  // is unlinked, and nothing here may invent a Customer to make a turn tidier.
+
+  /**
+   * Assert a self-stated phone, or submit a digit check. Success means the
+   * SERVER decided — read `matched`: false with `mergeProposed` means two
+   * records collide and the thread deliberately stays unlinked. Never creates a
+   * Customer. Idempotent server-side on `novaActionId`.
+   */
+  linkCustomer(conversationId: string, input: LinkCustomerRequest): Promise<LinkCustomerResult>;
+  /**
+   * Reverse a link: clears the join and KEEPS the verified channel address
+   * (D4). The address is a fact that was established; forgetting it to undo a
+   * join would forget something true.
+   */
+  unlinkCustomer(conversationId: string): Promise<{ unlinked: boolean }>;
+  /**
+   * Read the commitments ledger. `status` defaults to open server-side; the
+   * nightly sweep and the founder brief are the two readers.
+   */
+  listPromises(filter?: { status?: string; customerId?: string; limit?: number }): Promise<InboxPromise[]>;
+  /**
+   * Settle a promise. `kept` is only honest after a message actually SENT — a
+   * draft sitting unapproved keeps nothing. `broken` is sweep-only and the
+   * route rejects it here. Transitions are validated server-side (open → kept |
+   * released only), so a replayed settle is a no-op, not a second transition,
+   * and losing the race to the sweep is a refusal rather than an overwrite.
+   */
+  settlePromise(promiseId: string, input: PromiseSettleRequest): Promise<{ ok: boolean; promise: InboxPromise }>;
+  /**
+   * Merge two Customer rows in one transaction. The SURVIVOR is chosen
+   * server-side (more orders; tie → older) — the caller names the pair, not the
+   * winner. Not reversible; only ever reached through an approved Decision.
+   */
+  mergeCustomers(input: { customerIdA: string; customerIdB: string; basis: string }): Promise<{
+    survivorCustomerId: string;
+    mergedCustomerId: string;
+    ordersMoved: number;
+    channelsMoved: number;
+    conversationsMoved: number;
+    promisesMoved: number;
+  }>;
 
   // ---- Proactive job queue (Phase 05) ----
 

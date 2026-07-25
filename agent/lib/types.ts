@@ -555,6 +555,15 @@ export type ActionType =
    */
   | "send_inbox_reply"
   | "escalate_conversation"
+  /**
+   * Stage 10 Front Office (module 03). Identity is written by the SERVER, never
+   * resolved by the model: `link_customer_identity` asserts a self-stated phone
+   * or a server-verified digit check and dakio-api decides whether it matches.
+   * `merge_customer_records` rewires financial records across two Customer rows
+   * and is therefore always a founder Decision, never a mid-conversation move.
+   */
+  | "link_customer_identity"
+  | "merge_customer_records"
   /** Founder-only (PRD 5.4): Nova may propose, never execute. */
   | "bulk_refund";
 
@@ -827,6 +836,24 @@ export type InboxActor = "customer" | "nova" | "founder" | "founder_external" | 
 export type InboxLanguage = "bn" | "banglish" | "en";
 
 /**
+ * The closed `NovaPromise.kind` set (module 03 D7). Mirrors the DB column
+ * byte-for-byte and `PROMISE_KINDS` in `nova/schemas.ts` — three copies of one
+ * taxonomy, because the model names the kind, zod rejects anything else, and
+ * Postgres stores the string. A value that exists in only two of the three is a
+ * promise that either cannot be declared or cannot be written.
+ */
+export type PromiseKind =
+  | "follow_up_info"
+  | "delivery_eta"
+  | "courier_check"
+  | "restock_notify"
+  | "refund"
+  | "replacement"
+  | "callback_founder"
+  | "price_hold"
+  | "other";
+
+/**
  * `conversationOut` (module 02 D10) — frozen base shape. `senderId` is
  * deliberately NOT exposed: the PSID is Meta-derived identity that Nova never
  * needs and that the data-deletion path must be able to erase cleanly.
@@ -881,6 +908,17 @@ export interface InboxThread {
    * which is the honest default — the identity join is earned, never guessed.
    */
   customer: Record<string, unknown> | null;
+  /**
+   * Basis-only proposal (module 03 D2, the MEDIUM tier). `{basis}` and nothing
+   * else: the candidate's id and data deliberately never cross this boundary,
+   * because a proposal licenses exactly one verification question and grants
+   * zero access. `null` on a linked or unproposed thread.
+   *
+   * It is declared here for the same reason `customer` is — the wire body
+   * assembles field by field on both sides, so a key nova-ai does not name is a
+   * key the server sends and the client silently drops.
+   */
+  proposal: { basis: string } | null;
 }
 
 /** One human-sized bubble. 1–3 of these are a reply (canonical C-12). */
@@ -902,6 +940,13 @@ export interface InboxReplyRequest {
   timing?: { mode: "human" | "instant" };
   /** D6 identity-disclosure counters for this turn. */
   disclosure?: { asked: boolean; given: boolean };
+  /**
+   * Module 03 D7: the commitment this reply makes, declared at send time —
+   * never mined from the text afterwards. dakio-api creates the NovaPromise row
+   * in the SAME transaction as the InboxOutbound and deletes it if the send is
+   * ever canceled, because an unsent promise was never made.
+   */
+  promise?: { text: string; kind: PromiseKind; dueAtISO: string };
 }
 
 /** What the reply route returns once the send is QUEUED (never "sent"). */
@@ -936,6 +981,62 @@ export interface InboxHandoverResult {
   alreadyEscalated?: boolean;
 }
 
+/** Body of `POST /api/v1/inbox/conversations/:id/link-customer` (module 03 D4). */
+export interface LinkCustomerRequest {
+  /** Idempotency + receipt correlation id — this route's `w()` key (D4). */
+  novaActionId: string;
+  /** Self-stated, first person. Normalized and variant-matched server-side. */
+  phone?: string;
+  /** The server compares; the model never holds the digits it is checking. */
+  verify?: { customerId: string; lastDigits: string };
+}
+
+/**
+ * `matched:false` is an ANSWER, not a failure: zero matches stores
+ * `claimedPhone` for a later join, and >1 match returns `mergeProposed:true`
+ * with the conversation deliberately still unlinked (D2's NEVER tier —
+ * ambiguity resolves to "unknown customer", always).
+ */
+export interface LinkCustomerResult {
+  matched: boolean;
+  customerId?: string;
+  channelWritten: boolean;
+  mergeProposed?: boolean;
+}
+
+/**
+ * `promiseOut` (module 03 D-APIs) — one row of the commitments ledger.
+ *
+ * Memory stores what Nova BELIEVES; this is what Nova OWES. It carries no
+ * customer text beyond the commitment itself, which Nova authored.
+ */
+export interface InboxPromise {
+  id: string;
+  customerId: string | null;
+  conversationId: string | null;
+  /** 'messenger' | 'instagram' | 'sms' — 'sms' has no v1 sender (D8 rung 2). */
+  channelKind: string;
+  madeBy: "nova" | "founder";
+  text: string;
+  kind: PromiseKind;
+  dueAt: string;
+  status: "open" | "kept" | "broken" | "released";
+  keptAt: string | null;
+  brokenAt: string | null;
+}
+
+/**
+ * Body of `PATCH /api/v1/inbox/promises/:id`. `broken` is SWEEP-ONLY and is
+ * deliberately absent from this union — a turn may keep or release a promise,
+ * it may never declare its own failure away.
+ */
+export interface PromiseSettleRequest {
+  status: "kept" | "released";
+  /** The action that fulfilled it. Also the `w()` idempotency key when present. */
+  keptActionId?: string;
+  releasedReason?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Proactive job queue (Phase 05). Per-tenant daily rhythm: a JobDef is the
 // tenant's cadence config for a job kind (edited by the founder eventually —
@@ -956,7 +1057,23 @@ export type JobKind =
   // live delivery POST to the customer channel failed). Never cron-defined —
   // event-enqueued by dakio-api's drain, priority 1, and routed by the
   // dispatcher to the customer conversation session, not a `job:<id>` one.
-  | "inbox_reply";
+  | "inbox_reply"
+  // Stage 10 module 03: promise fulfillment. THE unified follow-up kind
+  // (canonical C-15 — `promise_follow_up` does not exist). Module 04 later adds
+  // the NBA producer on this same kind, and its supersede-on-inbound rule must
+  // skip rows carrying `payload.promiseId`: a customer writing back cancels a
+  // nudge, but it does not settle a debt. Enqueued inside the reply transaction
+  // at `dueAt = promise.dueAt − 30min`, priority 3, and routed by the dispatcher
+  // BACK INTO `customer:inbox:<conversationId>` when the payload carries both
+  // promiseId and conversationId (see `dispatchJobToChannel`).
+  | "followup"
+  // Stage 10 module 03: the nightly sweeps and the quiet-thread distiller. All
+  // three run as ordinary `job:<id>` founder-plane sessions (priority 6) and
+  // touch no customer thread directly — the sweeps author Decisions, the
+  // distiller writes memory.
+  | "promise_sweep"
+  | "identity_merge_sweep"
+  | "conversation_distill";
 export type JobStatus = "due" | "leased" | "done" | "failed" | "skipped";
 
 export interface NovaJobDef {

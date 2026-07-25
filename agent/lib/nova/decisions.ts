@@ -84,6 +84,23 @@ export function paramsLineFor(type: string, payload: Record<string, unknown>): s
     case "bulk_refund":
       if (Array.isArray(payload.orderIds)) parts.push(`${(payload.orderIds as string[]).length} orders`);
       break;
+    // Module 03. The merge card's headline — two names, two order counts —
+    // comes from the tool-authored `title`, NOT from here: this function only
+    // ever sees the payload, and that payload deliberately carries no names and
+    // no digits. All it can honestly render is why the two rows were paired.
+    // Without this case the card's params line renders BLANK.
+    case "merge_customer_records":
+      if (p.basis) {
+        parts.push(p.basis === "phone_variant" ? "same number, two records" : "matched at link time");
+      }
+      break;
+    // Rarely drafted (link_customer_identity is never-gated, so it normally
+    // executes) — but a paused duty or a no-touch lock can still route it to a
+    // card, and a card with no params line is a card the founder cannot judge.
+    case "link_customer_identity":
+      if (p.conversationId) parts.push(`thread ${p.conversationId}`);
+      parts.push(p.verify ? "digit check" : "self-stated number");
+      break;
     default:
       // Unknown verb: say nothing rather than guess at its parameters.
       break;

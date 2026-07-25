@@ -22,6 +22,11 @@
  * because this file owns the job→session mapping; the dispatcher only
  * supplies the `receive` capability (eve exposes cross-channel receive to
  * schedules and route handlers, never to a channel's own `receive` hook).
+ *
+ * Stage 10 module 03 adds the second such branch, on the same grounds: a
+ * `followup` job carrying a `promiseId` is paying back a debt made in one
+ * conversation, so it rejoins that conversation instead of becoming a
+ * founder-plane session that would answer the customer to the wrong person.
  */
 
 import { defineChannel, type Session } from "eve/channels";
@@ -46,9 +51,10 @@ const channel = defineChannel<undefined, void, { storeId: string; jobId: string 
 export default channel;
 
 /**
- * Route one claimed job to its session. Every kind except `inbox_reply`
- * keeps the Phase 05 behavior byte-for-byte: a fresh `job:<id>` session on
- * this channel under the scheduler principal.
+ * Route one claimed job to its session. Every kind except `inbox_reply` and a
+ * promise-backed `followup` keeps the Phase 05 behavior byte-for-byte: a fresh
+ * `job:<id>` session on this channel under the scheduler principal. That
+ * includes module 03's three sweeps, which are founder-plane work by design.
  *
  * `inbox_reply` (priority 1, drained from unprocessed `message.received`
  * events when nova-ai was unreachable) instead rejoins the customer
@@ -87,6 +93,46 @@ export async function dispatchJobToChannel(
       messageIds.length > 0
         ? inboxTurnPrompt(messageIds)
         : `New customer message(s) on conversation ${conversationId} (fallback delivery). Read the thread with get_conversation before replying.`;
+    return receive(customer, {
+      message,
+      target: { storeId, conversationId, platform },
+      auth: customerPrincipal(storeId, conversationId, platform),
+    });
+  }
+
+  // Stage 10 module 03 D8: a PROMISE-BACKED follow-up rejoins the conversation
+  // it was made in. Without this branch it becomes a `job:<id>` session on the
+  // founder plane, under the founder register, with no thread memory — and the
+  // turn that pays back "kal janabo" would open by addressing the founder.
+  //
+  // The condition is deliberately BOTH ids, not the kind alone: `followup` is
+  // the one unified kind (canonical C-15) and module 04 will enqueue its NBA
+  // nudges on it too. Those are founder-plane work and must keep falling
+  // through to the generic branch below, so the discriminator is the payload,
+  // not the label. `!= null` and not `!== undefined`: a producer that spells
+  // "no promise" as an explicit `promiseId: null` is describing an NBA nudge,
+  // not a malformed promise job, and must not be thrown at for punctuation.
+  const promiseId = job.payload.promiseId;
+  if (job.kind === "followup" && promiseId != null) {
+    const conversationId = job.payload.conversationId;
+    if (typeof promiseId !== "string" || promiseId.length === 0) {
+      throw new Error(`followup job ${job.id} has a non-string or empty payload.promiseId`);
+    }
+    // A promise-backed follow-up with no thread to return to is malformed, not
+    // a founder-plane job: silently falling through would answer the customer's
+    // promise into the founder's chat. Throw so the dispatcher's `.then(ok,
+    // fail)` chain releases the lease and the failure is a visible `lastError`.
+    if (typeof conversationId !== "string" || conversationId.length === 0) {
+      throw new Error(`followup job ${job.id} carries promiseId ${promiseId} but no payload.conversationId`);
+    }
+    const platform = typeof job.payload.platform === "string" ? job.payload.platform : "messenger";
+    // Ids only, like the live lane — the promise TEXT never rides the job bus.
+    // The turn reads it back from the ledger, which is the copy that can have
+    // been released or already kept since this job was scheduled.
+    const message =
+      `A promise you made on this conversation is coming due (promise ${promiseId}). ` +
+      "Re-read the thread and the open promises before you answer, and check the messaging " +
+      "window is still open — if it is not, do not send: record it and hand it to the founder.";
     return receive(customer, {
       message,
       target: { storeId, conversationId, platform },

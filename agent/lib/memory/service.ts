@@ -19,7 +19,7 @@
  * with no model key.
  */
 
-import type { StoreClient } from "../store/client";
+import { InboxSendRefused, type StoreClient } from "../store/client";
 import type { ActionRecord, MemoryEntry, MemoryNamespace, MemoryUpsert } from "../types";
 import { storeFor } from "../store/resolve";
 import { bustCustomerPersona } from "../customer/persona";
@@ -90,6 +90,87 @@ function propagateBrandEdit(storeId: string, namespace: MemoryNamespace): void {
 }
 
 /**
+ * A memory write the SERVER refused (Stage 10 module 03, D10).
+ *
+ * dakio-api runs a redaction guard on both memory write routes: a value
+ * carrying an NID, a card PAN or an OTP is rejected with a 422, because a
+ * durable "customer notes" row is the one place a leaked credential outlives
+ * the conversation it appeared in. Prompt-level rules alone cannot enforce
+ * that; the server has to say no.
+ *
+ * This class exists so the model is TOLD no, and told why. Without it the
+ * refusal arrives as `Dakio POST /api/v1/agent-data/memory → 422: …` — an
+ * opaque transport string with no code on it, and the only sensible thing a
+ * model can do with an opaque failure is try again, which is exactly the loop a
+ * guarded write must not provoke. A sibling of `InboxSendRefused` rather than a
+ * reuse of it: the codes are a different taxonomy and a `catch` that wants one
+ * should not silently swallow the other.
+ */
+export class MemoryWriteRefused extends Error {
+  readonly code: string;
+  readonly status: number;
+  constructor(code: string, message: string, status = 422) {
+    super(message);
+    this.name = "MemoryWriteRefused";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/** The one status the memory guard answers with (`res.status(422).json({error})`). */
+const MEMORY_REFUSAL_STATUS = 422;
+
+/**
+ * Turn a refused write into a `MemoryWriteRefused`; leave anything else alone.
+ *
+ * Two shapes have to be recognised, and both are load-bearing. If the HTTP
+ * client declares `refusalOn: [422]` on this route, the 422 arrives already
+ * parsed as an `InboxSendRefused` carrying the server's code. If it does not,
+ * the same 422 arrives as the generic transport `Error` whose message is the
+ * status line plus the raw body. Matching only the first would make the
+ * behaviour depend on a flag in another file — and the failure mode of getting
+ * it wrong is silent: a retry loop against a guard that will never say yes.
+ *
+ * A genuine outage (500, network) is NOT a refusal and is rethrown untouched:
+ * that one SHOULD be retried, and calling it a refusal would teach the model to
+ * give up on a write that was only ever late.
+ */
+function asMemoryRefusal(err: unknown): unknown {
+  if (err instanceof InboxSendRefused) {
+    if (err.status !== MEMORY_REFUSAL_STATUS) return err;
+    return new MemoryWriteRefused(String(err.code), refusalMessage(err.message), err.status);
+  }
+  const raw = err instanceof Error ? err.message : String(err);
+  if (!/agent-data\/memory\b[^]*→ 422\b/.test(raw)) return err;
+  return new MemoryWriteRefused("MEMORY_REFUSED", refusalMessage(raw));
+}
+
+/**
+ * The sentence the model reads. It states the outcome, the reason as the server
+ * gave it, and the one instruction that matters — do not retry — because a
+ * refusal the model treats as a transient is worse than no refusal at all.
+ */
+function refusalMessage(detail: string): string {
+  const reason = serverReason(detail);
+  return `Memory write refused by the server${reason ? `: ${reason}` : ""}. This value is not storable as written — the redaction guard rejects account numbers, ID numbers and one-time codes. Do not retry it; write the durable fact without the digits, or write nothing.`;
+}
+
+/** Pull `{"error":"…"}` out of a transport message, else use the tail as-is. */
+function serverReason(detail: string): string {
+  const json = detail.match(/\{[^]*\}/)?.[0];
+  if (json) {
+    try {
+      const parsed = JSON.parse(json) as { error?: unknown; message?: unknown };
+      const reason = parsed.error ?? parsed.message;
+      if (typeof reason === "string" && reason.length > 0) return reason;
+    } catch {
+      /* Non-JSON body: fall through to the raw tail. */
+    }
+  }
+  return detail.split("→ 422:").pop()?.trim().slice(0, 200) ?? "";
+}
+
+/**
  * Client-scoped write, used by call sites that already hold a tenant-bound
  * client (e.g. the rejection fast-path in the action pipeline).
  *
@@ -98,11 +179,19 @@ function propagateBrandEdit(storeId: string, namespace: MemoryNamespace): void {
  * embed worker — writes never block on a model round trip (blueprint: "embed
  * worker async (never blocks a turn)"). The M2 guard in `rankByRelevance`
  * ensures an entry still in the outbox can't leak into recall meanwhile.
+ *
+ * The translation sits HERE rather than in either tool, so every writer — the
+ * `remember` tool, the rejection fast-path, and whatever the distill lane calls
+ * — gets the same named refusal. One write path, one place that explains a no.
  */
 export async function upsertVia(client: StoreClient, entry: MemoryUpsert): Promise<MemoryEntry> {
   const embedding =
     entry.embedding ?? (usingGatewayEmbeddings() ? null : await embedText(embeddingInput(entry)));
-  return client.upsertMemory({ ...entry, embedding });
+  try {
+    return await client.upsertMemory({ ...entry, embedding });
+  } catch (err) {
+    throw asMemoryRefusal(err);
+  }
 }
 
 /**

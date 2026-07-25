@@ -9,11 +9,27 @@
 # fast and cannot flake on an external service.
 name: gates
 
+# `feat/front-office` is on both lists because Stage 10 is built there and
+# merges to `develop` only at the end of the stage. Until module 03 added it,
+# neither trigger matched the branch every Front Office commit lands on, so
+# every "CI hard gate" those module specs promised was vacuous — the workflow
+# had never executed for any of this work. A gate that does not run is a
+# comment.
+#
+# Read the first run on this branch honestly: `npm test` is a single `&&`
+# chain, and it is RED at its 4th step — the isolation suite's founder-context
+# ceiling (3085 > 2500 tok, a known pre-existing failure, F-20 in
+# docs/HUMAN-VERIFICATION-REQUIRED.md). So adding the branch here makes the
+# workflow RUN and REPORT that, which is the point; it does not make Stage 10's
+# own suites gate anything yet, because the chain stops before reaching them.
+# Until F-20 is resolved, the Front Office suites are proved by running them
+# individually against their recorded baselines. Do not "fix" this by reordering
+# the chain to put a green suite in front of the red one.
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, feat/front-office]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, feat/front-office]
 
 jobs:
   gates:

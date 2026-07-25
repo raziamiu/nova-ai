@@ -57,9 +57,46 @@ export const FOUNDER_ONLY: ReadonlySet<string> = new Set([
  *
  * Everything before this check still applies: a founder-only verb, a no-touch
  * lock, an unknown duty, and a duty the founder explicitly paused all win.
- * Module 08 extends this set with its bookkeeping verbs.
+ *
+ * Module 03 added `link_customer_identity` — bookkeeping in the same sense:
+ * it writes a JOIN, sends the customer nothing, exposes nothing (the 360 is a
+ * separate server-side read), and its undo removes the join cleanly. It must
+ * work at T0 Shadow because a thread Nova cannot identify is a thread Nova
+ * answers blind. Module 08 extends this set further with the rest of its
+ * bookkeeping verbs.
+ *
+ * **Know what membership costs.** The check at "3b" below returns BEFORE
+ * `effectiveLevel`/`verdictForLevel` and BEFORE `checkGuardrailsForAuthority`,
+ * so a never-gated verb bypasses the tier dial and every numeric guardrail. It
+ * is safe for these two only because neither can spend, send, or choose: the
+ * SERVER decides the link (exact single match, or a server-side digit compare)
+ * and the model supplies a phone, never a customerId to link to. What it does
+ * NOT bypass is the duty ladder above — a founder who pauses
+ * `support.inbox_replies` still stops the link, and an off-roster `dutyRef`
+ * still fails closed.
  */
-export const NEVER_GATED: ReadonlySet<string> = new Set(["escalate_conversation"]);
+export const NEVER_GATED: ReadonlySet<string> = new Set([
+  "escalate_conversation",
+  "link_customer_identity",
+]);
+
+/**
+ * Verbs that are always a DRAFT — never an auto-execute, never a refusal.
+ *
+ * This exists because neither shipped mechanism says what module 03 D5 means.
+ * A `riskClass: "high"` still EXECUTES at level 4 (`verdictForLevel`'s last
+ * line), so risk alone cannot express "always ask". `FOUNDER_ONLY` yields
+ * verdict `refuse` → a **blocked** ledger row and an *escalation* Decision,
+ * which says "Nova may not do this" — the opposite of the truth here. Merging
+ * two customer records is legitimate work Nova should prepare in full, down to
+ * the survivor and the counts; it is only the signature that must be human,
+ * because the repoint has no inverse.
+ *
+ * Checked immediately after NEVER_GATED, so it sits below the founder's own
+ * rules (founder-only, no-touch, duty) and above the dial: a paused duty still
+ * wins, and raising autonomy to Acting CEO still does not auto-merge.
+ */
+export const ALWAYS_DRAFT: ReadonlySet<string> = new Set(["merge_customer_records"]);
 
 /**
  * Per-verb extractor for the text a no-touch lock is matched against.
@@ -97,12 +134,49 @@ export const TARGET_TEXT: Partial<Record<ActionType | string, Extractor>> = {
    * makes `targetTextFor` return null, and the seam then refuses every action
    * while any lock exists — the lock does not silently fail open, but the verb
    * silently stops working.
+   *
+   * Module 03 D-10 adds the declared promise to the reply's haystack. A promise
+   * is precisely the sentence a no-touch lock exists to stop: a founder who
+   * locked "REFUND" means Nova must not commit to one in chat either, and the
+   * commitment can live entirely in `promise.text` while the bubbles say
+   * something softer.
    */
   send_inbox_reply: (p) =>
-    [chunkText(p.chunks), str(p.intent), str(p.purpose), "reply", "message", "inbox"].join(" "),
+    [
+      chunkText(p.chunks),
+      promiseText(p.promise),
+      str(p.intent),
+      str(p.purpose),
+      "reply",
+      "message",
+      "inbox",
+    ].join(" "),
   escalate_conversation: (p) =>
     [str(p.reason), str(p.summary), str(p.suggestedReply), "escalation", "handover"].join(" "),
+  /**
+   * Module 03. Ids and literal keywords only — deliberately NOT the phone. The
+   * haystack is matched locally and logged nowhere, but a full number in an
+   * extractor is a full number in a code path that has no business holding one,
+   * and the lock a founder would set here is "customer records", not a digit
+   * string. Same reasoning on the merge: the pair's ids and the basis label,
+   * never a name.
+   */
+  link_customer_identity: (p) =>
+    [str(p.conversationId), "customer", "identity", "link", "phone"].join(" "),
+  merge_customer_records: (p) =>
+    [str(p.customerIdA), str(p.customerIdB), str(p.basis), "customer", "merge", "records"].join(" "),
 };
+
+/**
+ * Flatten a declared `promise: {text, kind, dueAtISO}` into matchable text
+ * (module 03 D-10). `dueAtISO` is left out on purpose: a timestamp matches no
+ * lock a founder would write, and including it only adds noise to the haystack.
+ */
+function promiseText(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const p = value as Record<string, unknown>;
+  return [str(p.text), str(p.kind), "promise"].join(" ");
+}
 
 /** Flatten a `chunks: [{text}]` reply into one matchable string. */
 function chunkText(value: unknown): string {
@@ -418,6 +492,23 @@ export async function evaluateAuthority(
       bn(
         `"${request.type}" is always allowed — Nova must be able to hand something to you no matter how low the dial is set.`,
         `"${request.type}" সবসময় অনুমোদিত — অটোনমি যত কমই থাকুক, নোভা আপনাকে বিষয়টি হস্তান্তর করতে পারবে।`,
+      ),
+      riskClass,
+      gv,
+    );
+  }
+
+  // 3c. Always-draft verbs — Nova prepares the whole thing, a human signs it.
+  // Below the founder's own rules and the duty ladder, above the dial: raising
+  // autonomy to Acting CEO must not turn a merge into something Nova does alone
+  // (module 03 D5).
+  if (ALWAYS_DRAFT.has(request.type)) {
+    return decide(
+      "draft",
+      `always_draft:${request.type}`,
+      bn(
+        `"${request.type}" is always prepared for you to approve — it rewires records that cannot be un-rewired.`,
+        `"${request.type}" সবসময় আপনার অনুমোদনের জন্য তৈরি করা হয় — এটি এমন রেকর্ড বদলায় যা ফেরানো যায় না।`,
       ),
       riskClass,
       gv,

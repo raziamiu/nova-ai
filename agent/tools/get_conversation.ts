@@ -20,6 +20,15 @@ import type { InboxMessageView } from "../lib/types";
  * The customer-360 block sits OUTSIDE the fence on purpose: it is Dakio's own
  * server-assembled data (module 03 owns its content and its redaction
  * boundary), not something a stranger typed.
+ *
+ * There is no `trusted()` helper to pair with `untrusted()`, and its absence is
+ * the design, not an omission: an unfenced sibling key IS the trusted frame.
+ * Only one thing in this return value is customer-controlled, so only that one
+ * thing is wrapped, and a reader diffing this file should read a bare
+ * `customer:` / `proposal:` as "server-authored" rather than as a `trusted()`
+ * call somebody forgot. Adding a symmetric wrapper would also invite the real
+ * failure — a future key rendered "trusted" because the author reached for the
+ * matching helper rather than because the bytes came from Dakio.
  */
 
 /** One transcript line, in the order the conversation actually happened. */
@@ -100,9 +109,24 @@ export default defineTool({
         messages.length === 0
           ? "(no messages yet)"
           : untrusted(messages.map(renderLine).join("\n"), "customer_message"),
-      // Server-authored, trusted. `null` = this thread isn't linked to a known
-      // customer, which is the honest default — the join is earned, not guessed.
+      // Server-authored, trusted (unfenced sibling — see the header). `null` =
+      // this thread isn't linked to a known customer, which is the honest
+      // default: the join is earned, not guessed.
       customer: thread.customer,
+      /**
+       * Module 03 D2, the MEDIUM tier: a basis label and nothing else. The
+       * candidate's id, name and history deliberately never cross this
+       * boundary, because a proposal grants ZERO data access — it licenses one
+       * verification question and that is all. Rendering the candidate here
+       * would hand the model exactly the history a failed verification is
+       * supposed to protect. `null` on a linked or unproposed thread.
+       *
+       * `?? null` rather than a bare read: a backend that predates this key
+       * would otherwise render `undefined`, which drops out of the JSON and
+       * makes "no proposal" and "this server doesn't do proposals" the same
+       * observation.
+       */
+      proposal: thread.proposal ?? null,
     };
   },
 });

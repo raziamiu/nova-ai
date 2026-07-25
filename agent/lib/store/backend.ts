@@ -42,10 +42,13 @@ import type {
   InboxHandoverRequest,
   InboxHandoverResult,
   InboxMessageView,
+  InboxPromise,
   InboxReplyRequest,
   InboxReplyResult,
   InboxThread,
   JobKind,
+  LinkCustomerRequest,
+  LinkCustomerResult,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
@@ -59,6 +62,8 @@ import type {
   OrderStatus,
   PlanItem,
   Product,
+  PromiseKind,
+  PromiseSettleRequest,
   PurchaseOrder,
   SocialPost,
   StoreSeed,
@@ -82,8 +87,18 @@ const PRIORITY_BY_KIND: Record<JobKind, number> = {
   inbox_reply: 1, // reserved fast-lane band — a waiting customer outranks everything
   morning_report: 3,
   night_ops: 3,
+  // Stage 10 module 03: a promise coming due is work the customer is already
+  // expecting, so it rides the same band as the morning report rather than the
+  // sweeps' band. Canonical C-15 — one unified kind, priority 3.
+  followup: 3,
   weekly_strategy: 4,
   reflection: 6,
+  // Stage 10 module 03: nightly/quiet-lane housekeeping. Nobody is waiting on
+  // any of these, and all three author work for the founder rather than the
+  // customer, so they sit with reflection at the bottom of the useful band.
+  promise_sweep: 6,
+  identity_merge_sweep: 6,
+  conversation_distill: 6,
   cart_sweep: 5,
   pulse: 9,
 };
@@ -93,6 +108,19 @@ const CART_SWEEP_DEBOUNCE_MINUTES = 30;
 
 function backoffMinutes(attempts: number): number {
   return Math.min(30, 2 ** attempts);
+}
+
+/**
+ * The demo's phone fold (Stage 10 module 03). Deliberately a SIMPLIFIED stand-in
+ * for dakio-api's `normalizePhone`/`phoneVariants` (`src/lib/customerRisk.js`),
+ * which is the only real matcher and the only one module 03 pins with tests:
+ * digits only, then the `88` country code dropped so `+8801…`, `8801…` and
+ * `01…` fold to one string. It is named `demo…` so nobody mistakes it for the
+ * shipped ladder and re-implements identity matching on this side of the wire.
+ */
+function demoNormalizePhone(raw: string): string {
+  const digits = String(raw).replace(/\D+/g, "");
+  return digits.startsWith("88") ? digits.slice(2) : digits;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -107,6 +135,16 @@ interface DemoInboxThread {
   conversation: InboxConversationView;
   messages: InboxMessageView[];
   customer: Record<string, unknown> | null;
+  /** Module 03 D2: basis-only, and never the candidate's id or data. */
+  proposal: { basis: string } | null;
+  /**
+   * Module 03 provenance. Internal demo state, NOT part of the wire view —
+   * `conversationOut` does not expose which rung of the ladder wrote the join,
+   * and inventing that field here would invent a contract dakio-api never made.
+   */
+  customerLinkSource: string | null;
+  /** A normalized in-thread phone that matched ZERO customers (D4). */
+  claimedPhone: string | null;
   outbounds: {
     id: string;
     novaActionId: string;
@@ -128,6 +166,12 @@ export interface DemoInboxSeed {
   lastIntent?: string | null;
   windowExpiresAt?: string | null;
   customer?: Record<string, unknown> | null;
+  /**
+   * Module 03 D2. Seedable because nothing in {@link StoreClient} can write a
+   * proposal — the PATCH that sets it is a merchant/service route Nova does not
+   * call — so an unlinked-but-proposed thread is only reachable by seeding one.
+   */
+  proposal?: { basis: string } | null;
   messages?: {
     direction: "in" | "out";
     actor: string;
@@ -139,11 +183,39 @@ export interface DemoInboxSeed {
   }[];
 }
 
+/**
+ * What a test/demo caller may set when materializing a promise. Same
+ * discipline as {@link DemoInboxSeed}: a promise exists only because a reply
+ * was actually queued, so the demo never conjures one on read.
+ */
+export interface DemoPromiseSeed {
+  id?: string;
+  conversationId?: string | null;
+  customerId?: string | null;
+  channelKind?: string;
+  madeBy?: "nova" | "founder";
+  text: string;
+  kind: PromiseKind;
+  /** ISO 8601. Defaults to 24h out — a plausible "kal janabo". */
+  dueAt?: string;
+  status?: InboxPromise["status"];
+}
+
 export class DemoStore implements StoreClient {
   private readonly data: StoreSeed;
   private idCounter = 9000;
   /** Front Office threads. Empty until a caller seeds one — never invented. */
   private readonly inbox = new Map<string, DemoInboxThread>();
+  /** The commitments ledger (module 03 D7). Empty until a reply makes a promise. */
+  private readonly promises: InboxPromise[] = [];
+  /**
+   * The demo's phone book (module 03 D4). Empty until a caller seeds it, for
+   * exactly the reason threads are: `Customer` in this backend has no phone
+   * column, so a `linkCustomer` that matched anyway would be inventing the one
+   * fact the whole identity ladder rests on. Unseeded, every link honestly
+   * answers `matched:false`.
+   */
+  private readonly customerPhones: { phone: string; customerId: string }[] = [];
 
   constructor(seed?: StoreSeed) {
     this.data = seed ?? createSeed(Date.now());
@@ -994,10 +1066,21 @@ export class DemoStore implements StoreClient {
       },
       messages,
       customer: seed.customer ?? null,
+      proposal: seed.proposal ?? null,
+      // A seeded link is a human writing the join by hand, which is exactly
+      // what `founder_manual` means — the one rung of the ladder a demo can
+      // honestly claim. `linkCustomer` overwrites it with the rung it used.
+      customerLinkSource: seed.customerId ? "founder_manual" : null,
+      claimedPhone: null,
       outbounds: [],
     };
     this.inbox.set(seed.id, thread);
-    return { conversation: thread.conversation, messages: thread.messages, customer: thread.customer };
+    return {
+      conversation: thread.conversation,
+      messages: thread.messages,
+      customer: thread.customer,
+      proposal: thread.proposal,
+    };
   }
 
   async getInboxConversation(
@@ -1012,6 +1095,9 @@ export class DemoStore implements StoreClient {
       // Newest last, oldest trimmed first — the tail is what a reply needs.
       messages: thread.messages.slice(-limit).map((m) => ({ ...m })),
       customer: thread.customer,
+      // A linked thread has nothing to propose — the proposal is cleared on
+      // link or on mismatch, and it is never a substitute for one.
+      proposal: thread.conversation.customerId === null ? thread.proposal : null,
     };
   }
 
@@ -1099,6 +1185,25 @@ export class DemoStore implements StoreClient {
     c.lastMessageAt = scheduledAt;
     c.lastIntent = input.intent;
     c.handledBy = "nova";
+    // D7: the promise is co-created with the outbound, not after it. dakio-api
+    // does this inside the same `$transaction`; the demo does it in the same
+    // statement, past every guard above — a promise made on a refused send
+    // would be a debt for a message the customer never got.
+    if (input.promise) {
+      this.promises.push({
+        id: this.nextId("prm"),
+        customerId: c.customerId,
+        conversationId: conversationId,
+        channelKind: c.platform,
+        madeBy: "nova",
+        text: input.promise.text,
+        kind: input.promise.kind,
+        dueAt: input.promise.dueAtISO,
+        status: "open",
+        keptAt: null,
+        brokenAt: null,
+      });
+    }
     return {
       outboundId,
       scheduledAt,
@@ -1124,6 +1229,215 @@ export class DemoStore implements StoreClient {
     // `novaLockedAt` stays null — no human has acted yet; escalation is Nova
     // stepping back, not the founder stepping in.
     return { escalated: true, decisionId: null, holdingSent: false, alreadyEscalated: false };
+  }
+
+  // ---- Front Office — identity and promises (Stage 10, module 03) ----
+  //
+  // The demo plays dakio-api's decision-making half: it normalizes the phone,
+  // counts matches, and answers. What it deliberately does NOT play is the
+  // CustomerChannel spoke table (there is no channel model here, so
+  // `channelWritten` is always false and `channelsMoved` is always 0) or the
+  // psid→customerId memory migration. Both are named rather than faked.
+
+  /**
+   * Teach the demo which phone belongs to which customer. Not part of
+   * {@link StoreClient}: the live backend reads a real `Customer.phone` column,
+   * and a demo store that guessed the mapping would be inventing the single
+   * fact the whole identity ladder is built on. Seed the same phone twice to
+   * exercise the collision → `mergeProposed` path.
+   */
+  seedCustomerPhone(phone: string, customerId: string): void {
+    this.customerPhones.push({ phone: demoNormalizePhone(phone), customerId });
+  }
+
+  /**
+   * Materialize a promise for a demo or eval run. Not part of
+   * {@link StoreClient}: promises are co-created with a real queued reply
+   * (see `replyInThread`), and a store that conjured one would be inventing a
+   * debt nobody took on.
+   */
+  seedPromise(seed: DemoPromiseSeed): InboxPromise {
+    const promise: InboxPromise = {
+      id: seed.id ?? this.nextId("prm"),
+      customerId: seed.customerId ?? null,
+      conversationId: seed.conversationId ?? null,
+      channelKind: seed.channelKind ?? "messenger",
+      madeBy: seed.madeBy ?? "nova",
+      text: seed.text,
+      kind: seed.kind,
+      dueAt: seed.dueAt ?? new Date(Date.parse(this.now()) + DAY_MS).toISOString(),
+      status: seed.status ?? "open",
+      keptAt: null,
+      brokenAt: null,
+    };
+    this.promises.push(promise);
+    return { ...promise };
+  }
+
+  async linkCustomer(conversationId: string, input: LinkCustomerRequest): Promise<LinkCustomerResult> {
+    const thread = this.inbox.get(conversationId);
+    if (!thread) throw new Error(`Conversation not found: ${conversationId}`);
+    const c = thread.conversation;
+
+    // The digit check (D3): the caller supplies the digits the customer just
+    // said and the CANDIDATE's id — never the number being checked against. A
+    // failed check is an answer, and it clears the proposal rather than leaving
+    // a candidate the next turn would re-ask about.
+    if (input.verify) {
+      const known = this.customerPhones.find((row) => row.customerId === input.verify!.customerId);
+      const digits = input.verify.lastDigits.replace(/\D+/g, "");
+      const passed = known !== undefined && digits.length > 0 && known.phone.endsWith(digits);
+      thread.proposal = null;
+      if (!passed) return { matched: false, channelWritten: false };
+      c.customerId = input.verify.customerId;
+      thread.customerLinkSource = "digits_verified";
+      return { matched: true, customerId: input.verify.customerId, channelWritten: false };
+    }
+
+    // The self-stated phone (D4). Zero matches is not a failure: the number is
+    // held on the thread so the join materializes later, when an order finally
+    // creates the Customer.
+    const normalized = demoNormalizePhone(input.phone ?? "");
+    const hits = normalized.length === 0 ? [] : this.customerPhones.filter((row) => row.phone === normalized);
+    const distinct = [...new Set(hits.map((row) => row.customerId))];
+    thread.proposal = null;
+    if (distinct.length === 0) {
+      thread.claimedPhone = normalized.length > 0 ? normalized : null;
+      return { matched: false, channelWritten: false };
+    }
+    if (distinct.length > 1) {
+      // D2's NEVER tier: two records, one number. The thread stays UNLINKED and
+      // the merge goes to the founder — guessing a survivor here is exactly the
+      // move that shows one customer another customer's orders.
+      return { matched: false, channelWritten: false, mergeProposed: true };
+    }
+    c.customerId = distinct[0]!;
+    thread.customerLinkSource = "phone_stated";
+    thread.claimedPhone = null;
+    return { matched: true, customerId: distinct[0]!, channelWritten: false };
+  }
+
+  async unlinkCustomer(conversationId: string): Promise<{ unlinked: boolean }> {
+    const thread = this.inbox.get(conversationId);
+    if (!thread) throw new Error(`Conversation not found: ${conversationId}`);
+    const had = thread.conversation.customerId !== null;
+    thread.conversation.customerId = null;
+    thread.customerLinkSource = null;
+    // The channel address is NOT removed (D4): it is a fact that was
+    // established, and undoing a join must not forget something true.
+    return { unlinked: had };
+  }
+
+  async listPromises(filter?: { status?: string; customerId?: string; limit?: number }): Promise<InboxPromise[]> {
+    // `status` defaults to open server-side — the sweep and the brief both want
+    // the debts, not the history.
+    const status = filter?.status ?? "open";
+    const limit = Math.min(Math.max(filter?.limit ?? 50, 1), 50);
+    return this.promises
+      .filter(
+        (p) =>
+          p.status === status &&
+          (filter?.customerId === undefined || p.customerId === filter.customerId),
+      )
+      .slice(0, limit)
+      .map((p) => ({ ...p }));
+  }
+
+  async settlePromise(
+    promiseId: string,
+    input: PromiseSettleRequest,
+  ): Promise<{ ok: boolean; promise: InboxPromise }> {
+    const promise = this.promises.find((p) => p.id === promiseId);
+    if (!promise) throw new Error(`Promise not found: ${promiseId}`);
+    // The wire is JSON; the type is a promise, not a guard. `broken` is the
+    // sweep's word alone — a turn may keep or release a debt, it may never
+    // declare its own failure away.
+    const requested = String(input.status);
+    if (requested !== "kept" && requested !== "released") {
+      throw new InboxSendRefused(
+        "PROMISE_TRANSITION",
+        `"${requested}" is not settleable here; only kept | released are, and 'broken' belongs to the nightly sweep.`,
+      );
+    }
+    if (promise.status !== "open") {
+      // Losing this race is an ANSWER, usually "the sweep got there first" —
+      // never an overwrite, and never a second transition on one debt.
+      throw new InboxSendRefused(
+        "PROMISE_SETTLED",
+        `Promise ${promiseId} is already ${promise.status}; it does not transition twice.`,
+      );
+    }
+    promise.status = requested === "kept" ? "kept" : "released";
+    if (promise.status === "kept") promise.keptAt = this.now();
+    return { ok: true, promise: { ...promise } };
+  }
+
+  async mergeCustomers(input: { customerIdA: string; customerIdB: string; basis: string }): Promise<{
+    survivorCustomerId: string;
+    mergedCustomerId: string;
+    ordersMoved: number;
+    channelsMoved: number;
+    conversationsMoved: number;
+    promisesMoved: number;
+  }> {
+    const a = this.mustFind(this.data.customers.find((c) => c.id === input.customerIdA), "Customer", input.customerIdA);
+    const b = this.mustFind(this.data.customers.find((c) => c.id === input.customerIdB), "Customer", input.customerIdB);
+    if (a.id === b.id) throw new Error(`Cannot merge customer ${a.id} into itself.`);
+    // D5's survivor rule, server-side and not the caller's to choose: more
+    // orders wins; a tie goes to the older record, because the older row is the
+    // one other systems have had longer to reference.
+    const ordersOf = (id: string): number => this.data.orders.filter((o) => o.customerId === id).length;
+    const aWins =
+      ordersOf(a.id) !== ordersOf(b.id)
+        ? ordersOf(a.id) > ordersOf(b.id)
+        : Date.parse(a.createdAt) <= Date.parse(b.createdAt);
+    const survivor = aWins ? a : b;
+    const merged = aWins ? b : a;
+
+    let ordersMoved = 0;
+    for (const order of this.data.orders) {
+      if (order.customerId === merged.id) {
+        order.customerId = survivor.id;
+        ordersMoved += 1;
+      }
+    }
+    let conversationsMoved = 0;
+    for (const thread of this.inbox.values()) {
+      if (thread.conversation.customerId === merged.id) {
+        thread.conversation.customerId = survivor.id;
+        conversationsMoved += 1;
+      }
+    }
+    let promisesMoved = 0;
+    for (const promise of this.promises) {
+      if (promise.customerId === merged.id) {
+        promise.customerId = survivor.id;
+        promisesMoved += 1;
+      }
+    }
+    for (const row of this.customerPhones) {
+      if (row.customerId === merged.id) row.customerId = survivor.id;
+    }
+    // Recomputed from the repointed rows, never summed from the two stale
+    // aggregates: two half-truths added together is a third wrong number.
+    const survivorOrders = this.data.orders.filter((o) => o.customerId === survivor.id);
+    survivor.ordersCount = survivorOrders.length;
+    survivor.lifetimeValue = survivorOrders.reduce((sum, o) => sum + o.total, 0);
+    // The demo drops the merged row because it has no `mergedIntoId` tombstone
+    // column to record the redirect in. What actually happens to the loser row
+    // is dakio-api's transaction to decide.
+    this.data.customers.splice(this.data.customers.indexOf(merged), 1);
+
+    return {
+      survivorCustomerId: survivor.id,
+      mergedCustomerId: merged.id,
+      ordersMoved,
+      // There is no CustomerChannel model in this backend, so this is honestly
+      // zero rather than a plausible-looking count.
+      channelsMoved: 0,
+      conversationsMoved,
+      promisesMoved,
+    };
   }
 
   // ---- Proactive job queue (Phase 05) ----

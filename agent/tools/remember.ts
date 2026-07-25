@@ -18,7 +18,14 @@ export default defineTool({
     value: z.string().min(3).describe("The fact itself, one or two clear sentences."),
   }),
   async execute({ namespace, key, value }, ctx) {
-    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
+    // D11: founder-plane tool, never a customer session. Module 03 shipped
+    // customer memory and left this guard exactly where it was (D-24): the
+    // `customers` namespace is now written by the server-side
+    // `conversation_distill` job, off the turn and through the redaction guard,
+    // rather than by a tool a customer can steer one sentence at a time. The
+    // module doc's D9 line ("writes go through the existing remember tool") is
+    // the thing that changed, not this.
+    requireFounderSession(ctx);
     // The model chose namespace/key/value; the executor derives the tenant and
     // marks the source. Routing through the service embeds the entry for recall.
     const entry = await upsert(requireStore(ctx).storeId, {

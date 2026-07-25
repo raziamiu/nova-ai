@@ -18,10 +18,20 @@ import { storeFor } from "../lib/store/resolve";
  * The department is NOT a parameter. It is looked up from the intent through
  * `DEPARTMENT_BY_INTENT`, so which room a reply is attributed to is a fact
  * about the conversation, not something the model can choose per message.
+ *
+ * Module 03 D7 adds `promise` to the payload, and the description below has to
+ * carry rule 16's contract or the field is decorative. Extraction is
+ * SELF-DECLARED at send time, never mined afterwards: the model that just wrote
+ * "kal janabo" is the only thing that knows whether it meant a commitment, and
+ * a regex over outbound copy would both miss real debts and invent fake ones.
+ * dakio-api writes the NovaPromise row in the same transaction as the outbound
+ * and deletes it if that send is ever canceled — an unsent promise was never
+ * made — so a declared promise costs nothing when the send doesn't happen, and
+ * an undeclared one is a debt with no ledger row and no sweep to catch it.
  */
 export default defineTool({
   description:
-    "Send your reply to the customer, as 1–3 short chat bubbles. This is the only way anything reaches them — text you merely write in your turn is never delivered. Autonomy-gated: returns executed (queued to send), prepared (waiting for the owner's approval), or blocked. A sent message cannot be unsent, and a refusal (the owner took the thread, the customer wrote again, the 24h window closed) is a real answer — read it and act on it, never retry blindly.",
+    "Send your reply to the customer, as 1–3 short chat bubbles. This is the only way anything reaches them — text you merely write in your turn is never delivered. Autonomy-gated: returns executed (queued to send), prepared (waiting for the owner's approval), or blocked. A sent message cannot be unsent, and a refusal (the owner took the thread, the customer wrote again, the 24h window closed) is a real answer — read it and act on it, never retry blindly. If this reply commits to a future action or answer — 'check kore janachchi', 'kal janabo', 'stock asle inform korbo', 'I'll confirm by tomorrow' — you MUST fill `promise` with a dueAt you can actually meet; that is what puts the debt on the shop's books and brings the follow-up back to you. If you have no tool path to the answer, do not name a time at all: promise the action ('khoj nichchi'), or hand the thread over.",
   inputSchema: sendInboxReplyPayload.extend({
     receipt: receiptSchema,
   }),

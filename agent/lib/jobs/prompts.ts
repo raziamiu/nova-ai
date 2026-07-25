@@ -28,6 +28,46 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
     "A customer conversation has undelivered inbound messages. Re-read the " +
     "unprocessed inbox events for this conversation before doing anything.",
 
+  // Defensive dead path, same as `inbox_reply` above and for the same reason:
+  // a promise-backed `followup` is routed by `dispatchJobToChannel` back into
+  // `customer:inbox:<conversationId>`, so the fulfilment turn carries the whole
+  // thread rather than starting cold on the founder plane. Kept here only so
+  // the record stays total over JobKind; if this text ever reaches a session,
+  // the routing broke (or module 04 landed a non-promise follow-up on this kind
+  // without giving it a prompt).
+  followup:
+    "A promise you made to a customer is coming due. Read the thread with " +
+    "get_conversation, gather the answer with tools, and only then reply.",
+
+  // The three module-03 lanes below are NOT dead paths — they really do run as
+  // `job:<id>` founder-plane sessions, and none of them touches a customer
+  // thread directly. None joins FILES_REPORT either: sweeps author Decisions
+  // and the distiller writes memory, so a filed report would be a third copy of
+  // work that already has a home.
+  promise_sweep:
+    "Nightly promise sweep. Read the open commitments ledger, find every " +
+    "promise now past its due time plus its grace hours, and mark each one " +
+    "broken. For each broken promise raise ONE recovery decision for the " +
+    "founder naming the customer, the exact words that were promised, and how " +
+    "late it is — a broken promise is never closed silently, and never " +
+    "re-promised on its own. Say nothing to any customer from this session.",
+
+  identity_merge_sweep:
+    "Nightly identity merge sweep. Look for customer records that phone " +
+    "matching says are one person, and propose a merge decision for each pair " +
+    "with the evidence that paired them. You never pick the survivor and you " +
+    "never merge here — merging is always the founder's signature. If a pair " +
+    "is already awaiting a decision, leave it alone rather than asking twice.",
+
+  conversation_distill:
+    "Distill a quiet conversation into durable memory. Read the thread, then " +
+    "write AT MOST three memory updates, and only facts that will still be " +
+    "true next month: sizes, preferences, the register that worked, how a " +
+    "complaint ended. Never store this order's address, a phone, an ID " +
+    "number, a payment detail, or a single bad day's mood. Anything the " +
+    "customer-360 already computes live (lifetime value, RTO count) is not " +
+    "yours to copy — a duplicate goes stale and then contradicts the truth.",
+
   morning_report:
     "It is morning report time. Load the morning-report skill and follow it " +
     "exactly: gather the overnight numbers, completed work, anomalies, and " +

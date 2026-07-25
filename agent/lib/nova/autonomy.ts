@@ -59,6 +59,11 @@ export const RISK_CLASS: Record<ActionType, RiskClass> = {
   // dangerous move.
   send_inbox_reply: "low",
   escalate_conversation: "low",
+  // Module 03. Linking is `low` because it is deterministic, self-asserted and
+  // reversible: the SERVER matched the number, not the model, and the undo
+  // clears the join. It is also in NEVER_GATED, so this class is advisory for
+  // it — the risk statement still belongs here for the ledger and the card.
+  link_customer_identity: "low",
   publish_social_post: "low",
   update_campaign: "medium",
   create_campaign: "medium",
@@ -68,6 +73,12 @@ export const RISK_CLASS: Record<ActionType, RiskClass> = {
   assign_courier: "medium",
   create_purchase_order: "high",
   switch_supplier: "high",
+  // Module 03. `high` because merging rewires orders, channels, conversations
+  // and promises across two Customer rows and there is no inverse. Note that
+  // `high` alone does NOT deliver D5's "always drafts": `verdictForLevel`
+  // returns `execute` for every risk class at level 4. `ALWAYS_DRAFT` in
+  // authority.ts is what makes the promise true; this row states the risk.
+  merge_customer_records: "high",
   bulk_refund: "high",
 };
 
