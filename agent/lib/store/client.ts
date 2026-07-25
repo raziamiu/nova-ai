@@ -411,9 +411,19 @@ export interface StoreClient {
    * Read the D6 NBA block for a thread: stage, goal, window, quiet hours, touch
    * budget, the eligible candidates and why the rest are not.
    *
+   * ⚠️ RESERVED SURFACE — NO CALLER TODAY, and saying so is the alternative to a
+   * method that looks wired. The live path is INLINE: every turn, including a
+   * fired follow-up's, reads `get_conversation` → `thread.nba`, which dakio-api
+   * re-assembles fresh on that read, so nothing in this repo needs a second
+   * fetch. The route (`GET /api/v1/inbox/nba/:conversationId`) is mounted,
+   * tested and named as a consumed contract by module 07 — it is kept for the
+   * caller that wants "what is legal on this thread right now?" without opening
+   * the whole conversation. Wire it or leave it; do not read its existence as
+   * evidence that some turn depends on it.
+   *
    * `null` is a real answer, not a fault, and it means one of two honest
    * things — this thread has no journey row yet (nothing real has happened to
-   * it), or this server predates module 04. Callers must treat a missing block
+   * it), or this server predates module 04. A caller must treat a missing block
    * as "no scaffold, answer the person anyway", never as a reason to refuse: a
    * customer waiting for a price does not care that the lifecycle engine is
    * down.
@@ -438,13 +448,14 @@ export interface StoreClient {
    * cancelled by the customer writing back). That is an outcome, not an error:
    * the commitment is gone either way, which is what the founder asked for.
    *
-   * ⚠️ SERVER COUNTERPART NOT YET BUILT. This needs the service-plane
-   * `POST /api/v1/inbox/followups/:jobId/cancel` beside module 04's
-   * merchant-plane `POST /api/nova/followups/:jobId/cancel` — same `updateMany`,
-   * `lastError:'cancelled:undo'`. Declared here because the undo cannot exist
-   * without it: `schedule_follow_up` returns `undoable:true`, and
+   * The service-plane `POST /api/v1/inbox/followups/:jobId/cancel` IS built and
+   * mounted (dakio-api `routes/novaInbox.js`), beside module 04's merchant-plane
+   * `POST /api/nova/followups/:jobId/cancel` — same `updateMany`,
+   * `lastError:'cancelled:undo'`. This carried a "SERVER COUNTERPART NOT YET
+   * BUILT" warning until that landed and kept it afterwards; the undo has been
+   * end-to-end since. `schedule_follow_up` returns `undoable:true` and
    * `scripts/check-undo-coverage.ts` requires an engineered inverse, not a
-   * comment promising one.
+   * comment promising one — and now it has one.
    */
   cancelFollowup(jobId: string): Promise<{ cancelled: boolean }>;
   /**

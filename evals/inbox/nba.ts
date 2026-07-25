@@ -19,7 +19,11 @@
  *   RESTRAINT     [nba-8] `do_nothing` is NOT reported, on purpose, and this
  *                 suite goes red the day somebody infers it.
  *   FOLLOW-UP     [nba-9] a fired follow-up's turn is framed with the server's
- *                 re-check; a reactive delivery is untouched.
+ *                 re-check; a reactive delivery is untouched, and the nudge
+ *                 instruction points only at fields the server really sends.
+ *   WIRE TYPES    [nba-10] the declared shapes name what dakio-api serializes —
+ *                 every value below is one dakio-api's own suite pins, so the
+ *                 COMPILE of this section is the assertion.
  *
  * ## What this suite can and cannot prove
  *
@@ -57,6 +61,7 @@ import customer, {
   reportTurnToReducer,
   resetTurnObservations,
 } from "../../agent/channels/customer";
+import { dispatchJobToChannel } from "../../agent/channels/internal";
 import { customerPrincipal } from "../../agent/lib/customer/principal";
 import { isFramed } from "../../agent/lib/launch/hardening";
 import { DEFAULT_GUARDRAILS } from "../../agent/lib/nova/autonomy";
@@ -64,7 +69,7 @@ import { DemoStore } from "../../agent/lib/store/backend";
 import { resetStores, storeFor } from "../../agent/lib/store/resolve";
 import getConversation from "../../agent/tools/get_conversation";
 import replyInThread from "../../agent/tools/reply_in_thread";
-import type { NbaBlock, NbaCandidate } from "../../agent/lib/types";
+import type { IntentObservedResult, NbaBlock, NbaCandidate, NovaJob } from "../../agent/lib/types";
 
 const AURORA = "store-aurora";
 
@@ -129,7 +134,14 @@ const CLEAN_NBA: NbaBlock = {
   window: { open: true, expiresAt: "2026-07-26T07:58:00.000Z" },
   quietHours: { quietNow: false, tz: "Asia/Dhaka", nextAllowedAt: null },
   touchBudget: { proactiveUsedThisWeek: 1, max: 4, unansweredStreak: 0 },
-  commitments: [{ jobId: "job-9001", dueAt: "2026-07-25T15:00:00.000Z", note: "size chart pathabo" }],
+  // The serializer's real row shape. D6's example carries a `note` — the model's
+  // own reason line — and dakio-api deliberately does not re-render it (free
+  // text it defangs but does not mask), so this fixture must not either: a
+  // boundary suite whose fixture is richer than the wire proves nothing about
+  // the wire.
+  commitments: [
+    { jobId: "job-9001", dueAt: "2026-07-25T15:00:00.000Z", plannedIntent: "checkout_help", promiseBacked: false },
+  ],
   candidates: [
     { action: "answer", eligible: true },
     { action: "offer_discount", eligible: true, gate: "draft", bounds: { maxPct: 10, oncePerCustomerDays: 30 } },
@@ -842,6 +854,97 @@ export async function runNbaSuite(): Promise<{ passed: number; failures: string[
     check(
       "…with the original instruction still on the end of it",
       (delivered[1] ?? "").endsWith("A follow-up you scheduled is due."),
+    );
+
+    // …and the instruction that frame wraps. `dispatchJobToChannel` writes the
+    // NBA-nudge turn message, and it may only point the model at things the
+    // server actually sends: the commitments list carries `plannedIntent`, never
+    // the model's own note (dakio-api refuses to re-render that free text), and
+    // this message once told the model to go and read exactly that note. A model
+    // sent looking for a field that does not exist either invents it or stalls,
+    // on the one turn that decides whether a customer gets an unasked-for knock.
+    const dispatched: { message: string; target: Record<string, unknown> }[] = [];
+    const fakeReceive = (async (_channel: unknown, options: { message: string; target: Record<string, unknown> }) => {
+      dispatched.push(options);
+      return { id: "sess-dispatch" };
+    }) as unknown as Parameters<typeof dispatchJobToChannel>[0];
+    const nudgeJob: NovaJob = {
+      id: "job-9101",
+      kind: "followup",
+      // The row `POST /api/v1/inbox/followups` writes: a thread, no debt.
+      payload: { triggeredBy: "nba", conversationId: "conv-fire", platform: "messenger", plannedIntent: "checkout_help", reason: "size chart pathabo, XL stock check kore" },
+      dueAt: "2026-07-25T15:00:00.000Z",
+      priority: 3,
+      status: "leased",
+      attempts: 1,
+      lastError: null,
+      dedupeKey: "followup:nba:conv-fire:2026-07-25T15:00:00.000Z",
+      leaseUntil: "2026-07-25T15:05:00.000Z",
+      leaseToken: "lease-9101",
+    };
+    await dispatchJobToChannel(fakeReceive, AURORA, nudgeJob);
+    const nudge = dispatched[0]?.message ?? "";
+    check("an NBA nudge names its job id, so the turn can find itself on the list", nudge.includes("job-9101"));
+    check(
+      "…and points at the field the server really sends (`commitments`, by intent)",
+      /commitments/.test(nudge) && /intent you booked it for/.test(nudge),
+    );
+    check(
+      "…and never claims the model's own note is on that list — it is not sent",
+      /note is on this thread's commitments/.test(nudge) === false &&
+        /Your own note for it/.test(nudge) === false,
+      nudge,
+    );
+    check(
+      "…and the reason string itself never rides the job bus into the turn",
+      nudge.includes("XL stock check kore") === false,
+    );
+    check("…while silence stays the model's own call", /silence is a real answer/.test(nudge));
+  }
+
+  console.log("\n[nba-10] The wire types name what dakio-api actually sends");
+  {
+    // These fixtures are the assertion: nova-ai casts the server's JSON straight
+    // onto these interfaces (`this.get<NbaBlock | null>`, no zod), so a field the
+    // type gets wrong is never caught at runtime — it is caught here, at compile
+    // time, or not at all. Every value below is one `novaNba.test.js` pins on the
+    // server side, so if this section stops compiling the two repos have drifted.
+    const nullJourney: NbaBlock = {
+      ...CLEAN_NBA,
+      journey: { ...CLEAN_NBA.journey, id: null, stageGoal: null },
+    };
+    check(
+      "a thread whose reducer has not run yet serializes `journey.id: null` — the honest 'nothing to call back about'",
+      nullJourney.journey.id === null,
+    );
+    const suggest: NbaCandidate = { action: "answer", eligible: true, gate: "suggest" };
+    const none: NbaCandidate = { action: "do_nothing", eligible: true, gate: "none" };
+    check(
+      "all of `gateFor`'s verdicts are nameable, including the two a founder's own duty settings reach",
+      suggest.gate === "suggest" && none.gate === "none",
+    );
+    check(
+      "a commitment row is {jobId, dueAt, plannedIntent, promiseBacked} — and carries no `note`",
+      CLEAN_NBA.commitments[0]?.plannedIntent === "checkout_help" &&
+        CLEAN_NBA.commitments[0]?.promiseBacked === false &&
+        !("note" in (CLEAN_NBA.commitments[0] ?? {})),
+    );
+    const observed: IntentObservedResult = {
+      stage: "negotiating",
+      transitions: [
+        {
+          id: "trn-1",
+          fromStage: "inquirer",
+          toStage: "negotiating",
+          reason: "journey.intent_observed",
+          occurredAt: "2026-07-25T10:00:00.000Z",
+        },
+      ],
+    };
+    check(
+      "a transition row names the column the server sends (`reason`), not a `cause` neither backend can fill",
+      observed.transitions[0]?.reason === "journey.intent_observed" &&
+        !("cause" in (observed.transitions[0] ?? {})),
     );
   }
 

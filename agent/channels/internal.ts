@@ -193,10 +193,23 @@ export async function dispatchJobToChannel(
     if (threaded) {
       const platform = typeof job.payload.platform === "string" ? job.payload.platform : "messenger";
       // Ids only, like the live lane — no promise text and no follow-up note
-      // rides the job bus. The turn reads both back from the server, which is
-      // the copy that can have changed since this job was scheduled: a promise
-      // may have been released or already kept, and a commitment's own note
-      // sits on the fresh NBA block's `commitments` list under this job id.
+      // rides the job bus. The turn reads what it needs back from the server,
+      // which is the copy that can have changed since this job was scheduled: a
+      // promise may have been released or already kept, and this job id is on
+      // the fresh NBA block's `commitments` list with the intent it was booked
+      // for (`plannedIntent`) and whether a debt backs it.
+      //
+      // WHAT IS NOT ON THAT LIST, and the instruction below must not send the
+      // model looking for it: the note it wrote when it booked the nudge.
+      // dakio-api's `assembleNba` deliberately does not re-render that string —
+      // it is founder-facing free text the model authored, defanged but NOT
+      // masked at the route, so re-emitting it would carry whatever phone or
+      // address the model typed into unfenced model context through a second
+      // redaction point. D6's example block shows a `note` field; the server
+      // ships `plannedIntent`/`promiseBacked` instead and records the divergence
+      // at the serializer. This instruction used to promise the note anyway,
+      // which is the same failure as the promise-copy tripwire above: a model
+      // told to look for a thing that is not there either invents it or stalls.
       let message: string;
       if (promiseId != null) {
         // The debt may be gone. `deletePromisesForOutbound` cannot disarm a job
@@ -221,7 +234,9 @@ export async function dispatchJobToChannel(
           `A follow-up you scheduled on this conversation is due (job ${job.id}). ` +
           "Re-read the thread first: the world moved since you booked this — the customer may " +
           "have written back, the owner may have taken the thread, and the 24h window may have " +
-          "closed. Your own note for it is on this thread's commitments list under this job id. " +
+          `closed. The NBA block on that read lists job ${job.id} under \`commitments\` with the ` +
+          "intent you booked it for; the reason you wrote down is the owner's to read, not yours " +
+          "to get back, so the thread itself is what has to tell you whether it still matters. " +
           "If there is nothing worth saying now, say nothing: silence is a real answer here, and " +
           "a nudge nobody asked for is worse than a late one.";
       }

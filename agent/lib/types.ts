@@ -1110,8 +1110,17 @@ export interface NbaCandidate {
   eligible: boolean;
   /** Closed reason code. Present whenever `eligible` is false. */
   reason?: string;
-  /** What `evaluateAuthority` WILL do — advisory mirror, never the gate itself. */
-  gate?: "auto" | "draft" | "refuse";
+  /**
+   * What `evaluateAuthority` WILL do — advisory mirror, never the gate itself.
+   *
+   * All FOUR verdicts plus `none`, because dakio-api's mirror (`gateFor`) can
+   * return every one of them and its own suite pins two this union used to
+   * exclude: `"suggest"` when a founder has lowered the duty's `minLevel` to 1,
+   * and `"none"` for `do_nothing`, which has no verb to judge. A value the
+   * server sends and this type does not name reads as impossible to anyone
+   * writing the next consumer.
+   */
+  gate?: "auto" | "suggest" | "draft" | "refuse" | "none";
   /** For `schedule_follow_up`: which delays are legal in this stage. */
   allowedDelays?: FollowupDelay[];
   /** Verb-specific limits the server already applied (e.g. discount bounds). */
@@ -1138,11 +1147,17 @@ export interface NbaBlock {
   /** Bumped when the candidate vocabulary or reason codes change. */
   nbaVersion: number;
   journey: {
-    /** The id the `intent-observed` callback is posted against. */
-    id: string;
+    /**
+     * The id the `intent-observed` callback is posted against, or `null` when
+     * the reducer has not created a row for this thread yet — the server's own
+     * honest "there is nothing to call back about", not a fault. A caller that
+     * treats it as always-present posts to `/journeys/undefined/intent-observed`.
+     */
+    id: string | null;
     stage: string;
-    /** Fixed per-stage string (D11) — what "forward" means here. */
-    stageGoal: string;
+    /** Fixed per-stage string (D11) — what "forward" means here. `null` for a
+     *  stage this build has no goal text for. */
+    stageGoal: string | null;
     enteredAt: string;
     hoursInStage: number;
     /** Where an `at_risk` journey returns to once it resolves. */
@@ -1165,8 +1180,25 @@ export interface NbaBlock {
   window: { open: boolean; expiresAt: string | null };
   quietHours: { quietNow: boolean; tz: string; nextAllowedAt: string | null };
   touchBudget: { proactiveUsedThisWeek: number; max: number; unansweredStreak: number };
-  /** Follow-ups already booked on this thread — the founder sees the same list. */
-  commitments: { jobId: string; dueAt: string; note: string }[];
+  /**
+   * Follow-ups outstanding on this thread — `due`, plus the `leased` row when
+   * one is firing right now, which is how a fired follow-up's own turn finds
+   * itself here by job id.
+   *
+   * NO `note`. D6's example row carries one and the server does not send it:
+   * the note is the model-authored `reason` string, founder-facing free text
+   * that dakio-api defangs but does not mask, and re-rendering it into unfenced
+   * model context would need a second redaction point the block deliberately
+   * does not have. `plannedIntent` (a closed slug, `null` when the stored value
+   * is not slug-shaped) is what crosses instead, with `promiseBacked` marking
+   * the rows that are paying off a module 03 debt rather than nudging.
+   */
+  commitments: {
+    jobId: string;
+    dueAt: string;
+    plannedIntent: string | null;
+    promiseBacked: boolean;
+  }[];
   candidates: NbaCandidate[];
   /** Ledger-derived counts, `sample`-marked so thin data reads as thin. */
   priors: Record<string, unknown>;
@@ -1230,10 +1262,25 @@ export interface IntentObservedRequest {
   nbaReason?: string;
 }
 
-/** What the reducer's second pass did with it — stage AFTER, plus what moved. */
+/**
+ * What the reducer's second pass did with it — stage AFTER, plus what moved.
+ *
+ * The row shape is dakio-api's `transitionOut` verbatim. It was declared with a
+ * `cause` field neither backend can populate: the server names that column
+ * `reason` (it carries the transition rule, e.g. `journey.intent_observed`), and
+ * `DemoStore` returns `transitions: []`. A declared field nothing can fill is a
+ * contract lie in the direction that costs most — it reads as always-absent.
+ */
 export interface IntentObservedResult {
   stage: string;
-  transitions: { fromStage: string | null; toStage: string; cause: string }[];
+  transitions: {
+    id: string;
+    fromStage: string | null;
+    toStage: string;
+    /** The transition rule that fired, or `null` — NOT a free-text cause. */
+    reason: string | null;
+    occurredAt: string;
+  }[];
 }
 
 // ---------------------------------------------------------------------------
