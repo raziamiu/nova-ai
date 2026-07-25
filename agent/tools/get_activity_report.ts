@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 import { summarizeWork } from "../lib/nova/activity";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -16,6 +17,7 @@ export default defineTool({
       .describe("Lookback window in days (default 7)"),
   }),
   async execute(input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const [entriesRaw, summary] = await Promise.all([
       client.listActivity({ sinceDays: input.sinceDays }),

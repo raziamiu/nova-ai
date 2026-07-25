@@ -22,6 +22,7 @@
 import type { StoreClient } from "../store/client";
 import type { ActionRecord, MemoryEntry, MemoryNamespace, MemoryUpsert } from "../types";
 import { storeFor } from "../store/resolve";
+import { bustCustomerPersona } from "../customer/persona";
 import { embedBatch, embedText, usingGatewayEmbeddings } from "./embed";
 import { rankByRelevance, RETRIEVAL, type ScoredEntry } from "./vector";
 
@@ -65,7 +66,27 @@ function embeddingInput(entry: { key: string; value: string }): string {
  * gateway deployment set the embedding aside for the async worker instead.
  */
 export async function upsert(storeId: string, entry: MemoryUpsert): Promise<MemoryEntry> {
-  return upsertVia(storeFor(storeId), entry);
+  const written = await upsertVia(storeFor(storeId), entry);
+  propagateBrandEdit(storeId, entry.namespace);
+  return written;
+}
+
+/**
+ * A `brand`-memory write is the L-BRAND half of the customer persona (Stage 10
+ * D3), and the rendered persona is cached for 24h under a key that carries the
+ * GUARDRAILS version — which a memory write does not bump. So a founder fixing
+ * a wrong shop fact ("delivery outside Dhaka is 3 days, not 5") would keep
+ * having customers told the old number for up to a day, with nothing in the
+ * product to explain why the correction did nothing. Busting here is what makes
+ * D3's "propagates to all live customer sessions within one turn" true: durable
+ * sessions re-resolve their instructions on the next `turn.started`.
+ *
+ * Deliberately narrow — only `brand` renders into a customer session, and
+ * clearing the whole tenant prefix would drop the 24h profile cache on every
+ * `preferences` write for no gain.
+ */
+function propagateBrandEdit(storeId: string, namespace: MemoryNamespace): void {
+  if (namespace === "brand") bustCustomerPersona(storeId);
 }
 
 /**
@@ -124,7 +145,11 @@ export async function remove(
   namespace: MemoryNamespace,
   key: string,
 ): Promise<boolean> {
-  return storeFor(storeId).deleteMemory(namespace, key);
+  const deleted = await storeFor(storeId).deleteMemory(namespace, key);
+  // Retracting a wrong shop fact has to reach customers as fast as correcting
+  // one does — a stale cache would keep quoting a note the founder just erased.
+  if (deleted) propagateBrandEdit(storeId, namespace);
+  return deleted;
 }
 
 // ---------------------------------------------------------------------------

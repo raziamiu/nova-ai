@@ -3,6 +3,7 @@ import { generateContentPayload } from "../lib/nova/schemas";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 import { draftAndFileContent } from "../lib/nova/content";
+import { requireFounderSession } from "../lib/customer/session";
 
 /**
  * generate_content (Stage 4 "Craft", E-11). You write the copy in the store's
@@ -19,6 +20,7 @@ export default defineTool({
     "File a piece of store content you've written (post/reel/story/captions/email/sms/push/product_desc) into the founder's review queue, scored against the store's brand voice. You write the copy; this scores it (0–100, every deduction cited) and files it for the founder to approve/request-changes/reject — it does NOT publish. Pass contentId to file a revision of an existing draft (the request-changes loop). If the result is flagged off-voice, rewrite per the returned guidance and call again with the same contentId before the founder sees it.",
   inputSchema: generateContentPayload,
   async execute(input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const store = storeFor(requireStore(ctx).storeId);
     const { item, score, guidance } = await draftAndFileContent(store, {
       type: input.type,

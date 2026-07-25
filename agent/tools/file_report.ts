@@ -4,6 +4,7 @@ import { NOVA_DEPARTMENTS } from "../lib/types";
 import { recordActivity } from "../lib/nova/activity";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -27,6 +28,7 @@ export default defineTool({
       ),
   }),
   async execute({ kind, title, body, department, dedupeKey }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const report = await client.addReport({ kind, title, body, dedupeKey });
     await recordActivity(client, {

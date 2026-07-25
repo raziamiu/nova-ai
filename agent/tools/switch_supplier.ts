@@ -5,6 +5,7 @@ import { performAction } from "../lib/nova/actions";
 import { receiptSchema, switchSupplierPayload } from "../lib/nova/schemas";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -17,6 +18,7 @@ export default defineTool({
       .describe("Attribution for the activity log; defaults to operations."),
   }),
   async execute({ receipt, department, ...payload }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const [product, supplier] = await Promise.all([
       client.getProduct(payload.productId),

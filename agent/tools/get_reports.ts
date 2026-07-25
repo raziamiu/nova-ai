@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -20,6 +21,7 @@ export default defineTool({
       .describe("Maximum reports to return (default 5)"),
   }),
   async execute(input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const reports = await client.listReports({ kind: input.kind, limit: input.limit });
     return { count: reports.length, reports };

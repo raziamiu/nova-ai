@@ -1,11 +1,11 @@
 /**
- * Customer channel STUB (Stage 10 module 01 — Inbound Pipe). This file owns
- * the dakio-api → nova-ai delivery contract and nothing else: HMAC + timestamp
- * verification, body parse, and the 202/401/409 semantics. Module 02 fills in
- * the session behavior (instructions, tools, timing) behind the SAME route
- * without changing this contract. The pipe never calls the model from here —
- * `send()` only dispatches a turn into the durable session; what that turn is
- * allowed to do is decided entirely by hooks/instructions/tools elsewhere.
+ * Customer channel (Stage 10 modules 01 + 02). Module 01 owns the dakio-api →
+ * nova-ai delivery contract — HMAC + timestamp verification, body parse, the
+ * 202/401/409 semantics — and module 02 added the session behavior behind the
+ * SAME route without changing that contract: the real turn prompt and the
+ * log-only completion handler. The pipe never calls the model from here;
+ * `send()` only dispatches a turn into the durable session, and what that turn
+ * is allowed to do is decided entirely by hooks/instructions/tools elsewhere.
  *
  * Contract (module doc D5/D9, both sides must not drift):
  *
@@ -64,6 +64,21 @@ export function inboxContinuationToken(conversationId: string): string {
   return `inbox:${conversationId}`;
 }
 
+/**
+ * The turn prompt (module 02 D1.5) — a POINTER, never content.
+ *
+ * Message text reaches the model in exactly one place: the `get_conversation`
+ * tool result, wrapped `untrusted()`. Keeping ids on this lane means the
+ * prompt-injection boundary has a single location to audit, and it holds for
+ * the fallback job lane too (`internal.ts` builds the same shape). The
+ * instruction to read before replying is here rather than only in the
+ * register because a cold session — evicted, redeployed, re-keyed — must
+ * rebuild from the transcript rather than from whatever it remembers.
+ */
+export function inboxTurnPrompt(messageIds: readonly string[]): string {
+  return `New customer message(s): ${messageIds.join(", ")}. Read them with get_conversation before replying.`;
+}
+
 /** Cross-channel receive target (used by the `inbox_reply` fallback lane). */
 export interface CustomerReceiveTarget {
   storeId: string;
@@ -113,16 +128,20 @@ function isNonEmptyString(value: unknown): value is string {
 const inFlightDispatch = new Set<string>();
 
 /**
- * Interim safety gate — OFF unless `NOVA_CUSTOMER_TURNS_ENABLED === "true"`.
+ * Safety gate — OFF unless `NOVA_CUSTOMER_TURNS_ENABLED === "true"`.
  *
- * Module 01 ships the pipe, not the customer agent: there is no
- * `dakio-inbox`-keyed instruction layer yet, so a dispatched turn would run
- * Nova's FOUNDER instructions with the full business toolset against
- * customer-controlled input — no persona, no disclosure rules, no reply
- * guards, at whatever frequency a stranger cares to type. Until module 02
- * lands that layer, deliveries authenticate and are acknowledged (202, so
- * dakio-api stamps `processedAt` and the contract holds end to end) but no
- * model turn starts. Flip the flag only alongside module 02.
+ * Module 01 introduced it because there was no `dakio-inbox`-keyed
+ * instruction layer: a dispatched turn would have run Nova's FOUNDER
+ * instructions against customer-controlled input. Module 02 ships that layer
+ * (`instructions/50-customer-inbox.ts`, with layers 10–40 gated off for
+ * customer sessions), so enabling this is now a deliberate product decision
+ * rather than a hole — but the DEFAULT stays off. The founder flips it per
+ * deployment once the door mode, guardrails and the shadow week say so; tests
+ * opt in explicitly.
+ *
+ * With the flag off, deliveries still authenticate and are acknowledged (202,
+ * so dakio-api stamps `processedAt` and the contract holds end to end) — no
+ * model turn starts.
  */
 const CUSTOMER_TURNS_ENABLED = () => process.env.NOVA_CUSTOMER_TURNS_ENABLED === "true";
 let turnsDisabledLogged = false;
@@ -188,7 +207,7 @@ const channel = defineChannel<undefined, void, CustomerReceiveTarget>({
         if (!turnsDisabledLogged) {
           turnsDisabledLogged = true;
           console.warn(
-            "[customer] NOVA_CUSTOMER_TURNS_ENABLED is not 'true' — deliveries are acknowledged but no customer turn runs (pending module 02).",
+            "[customer] NOVA_CUSTOMER_TURNS_ENABLED is not 'true' — deliveries are acknowledged but no customer turn runs.",
           );
         }
         return Response.json({ status: "accepted", sessionId: null }, { status: 202 });
@@ -196,11 +215,11 @@ const channel = defineChannel<undefined, void, CustomerReceiveTarget>({
 
       // 6. Dispatch the turn into the durable per-conversation session.
       //    Minimal instruction only — the ids are pointers; message CONTENT
-      //    never rides this lane (Nova reads it via get_conversation, module
-      //    02, keeping the untrusted() boundary in one place).
+      //    never rides this lane (Nova reads it via get_conversation, keeping
+      //    the untrusted() boundary in one place).
       inFlightDispatch.add(conversationId);
       try {
-        const session = await send(`Customer message(s) received: ${messageIds.join(", ")}`, {
+        const session = await send(inboxTurnPrompt(messageIds), {
           auth: customerPrincipal(storeId, conversationId, platform),
           continuationToken: inboxContinuationToken(conversationId),
         });
@@ -210,6 +229,31 @@ const channel = defineChannel<undefined, void, CustomerReceiveTarget>({
       }
     }),
   ],
+
+  /**
+   * THE CHANNEL NEVER DELIVERS MODEL TEXT (module 02 D2).
+   *
+   * In a normal eve channel this handler pushes the assistant's completed text
+   * to the surface. Doing that here would bypass `evaluateAuthority` entirely:
+   * an assisted tenant's *draft* would reach the customer, and every bubble
+   * would lose its `novaActionId` receipt. So the assistant's final text is
+   * internal narration and this handler is LOG-ONLY, deliberately. The only
+   * customer-visible output in the whole system is the executor side effect of
+   * a `send_inbox_reply` action that passed the authority seam — which is what
+   * makes shadow mode free, gives every bubble a receipt, and turns a refused
+   * reply into a visible blocked row instead of silence.
+   *
+   * Anyone tempted to "just send it from here": that is the bug this comment
+   * exists to prevent.
+   */
+  events: {
+    "message.completed": (data, channel) => {
+      const length = typeof data.message === "string" ? data.message.length : 0;
+      console.info(
+        `[customer] message.completed (log-only, nothing delivered) session=${channel.continuationToken} turn=${data.turnId} chars=${length}`,
+      );
+    },
+  },
 
   /**
    * Cross-channel hand-off entry (custom.mdx "Cross-channel hand-off"): the

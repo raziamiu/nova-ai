@@ -2,12 +2,14 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
     "Read Nova's current autonomy configuration: level (0-4), the six guardrails, when it was last changed, and a legend explaining each level. Check this before explaining why an action executed, was prepared, or was blocked.",
   inputSchema: z.object({}),
   async execute(_input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const config = await storeFor(requireStore(ctx).storeId).getAutonomy();
     return {
       ...config,

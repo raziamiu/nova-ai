@@ -52,6 +52,13 @@ export const DEFAULT_GUARDRAILS: Guardrails = {
 export const RISK_CLASS: Record<ActionType, RiskClass> = {
   send_customer_message: "low",
   resolve_ticket: "low",
+  // Front Office. Both are `low` deliberately: the risk control on a customer
+  // reply is the fail-closed guardrail branch below (safe-intent allowlist +
+  // thread state), not a risk class that would force every "1250 tk" answer
+  // through the founder. Escalation is low because stepping back is never the
+  // dangerous move.
+  send_inbox_reply: "low",
+  escalate_conversation: "low",
   publish_social_post: "low",
   update_campaign: "medium",
   create_campaign: "medium",
@@ -140,6 +147,78 @@ async function checkGuardrails(
           result: "needs_approval",
           rule: "max_budget_change_pct",
           why: `Budget change of ${changePct.toFixed(0)}% exceeds the ${guardrails.maxBudgetChangePct}% autonomous limit.`,
+        };
+      }
+      return { result: "allow" };
+    }
+    /**
+     * Front Office reply gate (module 02 D9). Four checks, EVERY read fail
+     * closed — a missing platform key reads as absent and downgrades to
+     * approval, never up to autosend. This is the branch that makes "the model
+     * never sends" true at the tier dial rather than only at the route.
+     *
+     * Thread state is read from the SERVER, never from the payload: the model
+     * writes the payload, and a payload that could assert "the founder isn't
+     * here" would be a lock the model can talk its way past.
+     */
+    case "send_inbox_reply": {
+      // 1. An escalation draft is a message for the founder to look at, not to
+      //    send. It can never auto-execute — at any tier, in any mode.
+      if (String(payload.purpose ?? "") === "escalation_draft") {
+        return {
+          result: "needs_approval",
+          rule: "guardrail:inbox_escalated",
+          why: "This reply is attached to an escalation, so the founder sends it — Nova never auto-sends an escalation draft.",
+          whyBn: "এই উত্তরটি একটি এস্কেলেশনের অংশ, তাই এটি আপনি পাঠাবেন — নোভা নিজে থেকে পাঠায় না।",
+        };
+      }
+      // 2. Safe-intent allowlist. Missing/!Array key ⇒ nothing is auto.
+      const intent = String(payload.intent ?? "");
+      const autoIntents = guardrails["inbox.autoIntents"];
+      const isAuto = Array.isArray(autoIntents) && autoIntents.some((i) => String(i) === intent);
+      if (!isAuto) {
+        return {
+          result: "needs_approval",
+          rule: "guardrail:inbox_intent_not_auto",
+          why: `"${intent || "unclassified"}" isn't on your auto-reply list, so Nova wrote the reply and left the send to you.`,
+          whyBn: `"${intent || "unclassified"}" আপনার স্বয়ংক্রিয় উত্তরের তালিকায় নেই, তাই নোভা উত্তরটি লিখে আপনার জন্য রেখেছে।`,
+        };
+      }
+      // 3. Thread state, read fresh. Unreadable ⇒ draft (fail closed): we
+      //    cannot prove the founder isn't mid-conversation.
+      const conversationId = String(payload.conversationId ?? "");
+      let thread: Awaited<ReturnType<StoreClient["getInboxConversation"]>>;
+      try {
+        thread = await client.getInboxConversation(conversationId, { messages: 1 });
+      } catch {
+        thread = null;
+      }
+      if (!thread) {
+        return {
+          result: "needs_approval",
+          rule: "guardrail:inbox_thread_unreadable",
+          why: `Nova couldn't read the state of conversation ${conversationId}, so it prepared the reply instead of sending it.`,
+          whyBn: `নোভা এই কথোপকথনের অবস্থা পড়তে পারেনি, তাই উত্তরটি না পাঠিয়ে প্রস্তুত করে রেখেছে।`,
+        };
+      }
+      // 4. Per-thread switch is a refusal, not a downgrade: the founder said
+      //    "not this thread", and a draft would still ask them about it.
+      if (thread.conversation.novaEnabled !== true) {
+        return {
+          result: "block",
+          rule: "duty:thread_off",
+          why: "You switched Nova off for this conversation, so it wrote nothing.",
+          whyBn: "আপনি এই কথোপকথনে নোভা বন্ধ রেখেছেন, তাই এটি কিছু লেখেনি।",
+        };
+      }
+      // 5. Founder-held thread: draft silently, never send. The server's lock
+      //    check is the guarantee; this just avoids the doomed attempt.
+      if (thread.conversation.novaLockedAt !== null || thread.conversation.handledBy === "founder") {
+        return {
+          result: "needs_approval",
+          rule: "guardrail:inbox_founder_active",
+          why: "You have this conversation, so Nova drafted the reply instead of sending it.",
+          whyBn: "এই কথোপকথনটি এখন আপনার হাতে, তাই নোভা উত্তরটি খসড়া হিসেবে রেখেছে।",
         };
       }
       return { result: "allow" };

@@ -354,7 +354,13 @@ sendInboxReplyPayload {
   intent,                                    // canonical closed slug set (canonical §2.6)
   purpose?,                                  // e.g. 'cart_recovery' | 'holding' | 'escalation_draft' | 'review_ask'
   language: 'bn'|'banglish'|'en',
-  timing?: { mode: 'human'|'instant' },
+  // NO `timing` — rule 13 tells the model pacing is not its business, and a
+  // model-settable `{mode:'instant'}` would skip the 2.5s floor, the hour bands
+  // and the night batch on any reply that asked for it. Every hurry-up case it
+  // could name is already computed server-side by `bypassReason`. The one
+  // legitimate producer is the approve path, which sets `timing` on the WIRE
+  // request (the `/reply` body below still carries it) without going through
+  // this payload.
   disclosure?: { asked: boolean, given: boolean },   // D6 counters
   // assessment: <slot — schema defined in module 11; reserved on sendInboxReplyPayload,
   //              escalateConversationPayload, AND createOrderFromChatPayload>
@@ -538,10 +544,13 @@ RTO-prevention behavior).* Never ask for an order ID Nova can look up itself.
 here).** Customer: `আচ্ছা নিবো। ঠিকানা: বাসা ১২, রোড ৫, মিরপুর ২, ঢাকা। 017XXXXXXXX` (*Achha nibo.
 Thikana: basha 12, road 5, Mirpur 2, Dhaka…*)
 GOOD *(~3s)*: `তাহলে কনফার্ম করছি — নেভি শার্ট, M সাইজ, 1টা, দাম ৳1,250 + ডেলিভারি ৳60 = ৳1,310,
-ক্যাশ অন ডেলিভারি। ঠিকানা: বাসা ১২, রোড ৫, মিরপুর ২। ঠিক আছে?` (*Tahole confirm korchi — navy
+ক্যাশ অন ডেলিভারি। ঠিকানা: বাসা 12, রোড 5, মিরপুর 2। ঠিক আছে?` (*Tahole confirm korchi — navy
 shirt, size M, 1 ta, ৳1,250 + delivery ৳60 = ৳1,310, COD. Thikana… thik ache?*) — restate before
 create; reply only after the receipt: `অর্ডার হয়ে গেছে ✅ 2-3 দিনের মধ্যে পৌঁছে যাবে।` (*Order hoye
-geche — 2-3 diner moddhe pouchhe jabe.*)
+geche — 2-3 diner moddhe pouchhe jabe.*) Note the restated address carries **Latin** digits
+(`বাসা 12, রোড 5`) even though the customer typed Bengali ones — D4's "digits always Latin" applies
+to echoed text too. (Earlier drafts of this example printed `বাসা ১২, রোড ৫`, which the D5
+bot-smell eval flags; the corrected form is what `evals/inbox/persona.ts` encodes.)
 
 **Ex 6 — "are you a bot?" (honesty floor).** Customer: `apni ki robot? reply eto fast keno 😅`
 FORBIDDEN: "na bhai ami manush!" (humanity claim) and the "As an AI language model…" lecture.

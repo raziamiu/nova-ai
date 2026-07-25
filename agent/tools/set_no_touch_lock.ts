@@ -4,6 +4,7 @@ import type { ApprovalContext } from "eve/tools";
 import { requireStore, isOwnerRole } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 import { lockMatches } from "../lib/nova/authority";
+import { requireFounderSession } from "../lib/customer/session";
 
 /**
  * Add or remove a no-touch lock — "never change saree pricing" (PRD §5.3).
@@ -44,6 +45,7 @@ export default defineTool({
   }),
   approval: (ctx: ApprovalContext) => ownerOnly(ctx, "change"),
   async execute({ action, lock }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     // Approval is a UI gate, never authorization — re-check at execution time.
     const a = ctx.session.auth.current ?? ctx.session.auth.initiator;
     const { storeId, role } = requireStore(ctx);

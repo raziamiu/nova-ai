@@ -10,11 +10,17 @@
  * resolver's `ctx.messages`) so the top-K vector matches track what the owner
  * is actually asking about. Tenant-scoped — one store's memory never renders
  * into another's context.
+ *
+ * Founder-only (Stage 10 module 02, D11): this layer renders owner
+ * preferences, standing rules and internal insights — founder-plane memory
+ * that must never reach a customer conversation. The customer register reads
+ * the `brand` namespace only, through its own persona layer.
  */
 
 import { defineDynamic, defineInstructions } from "eve/instructions";
 import type { ModelMessage } from "ai";
 import { resolveStoreId } from "../lib/tenant";
+import { isCustomerSession } from "../lib/customer/principal";
 import { buildRelevantMemory } from "../lib/context/layers";
 
 /** Flatten a ModelMessage's content (string or parts) into plain text. */
@@ -41,6 +47,7 @@ function recallHint(messages: readonly ModelMessage[]): string {
 export default defineDynamic({
   events: {
     "turn.started": async (_event, ctx) => {
+      if (isCustomerSession(ctx)) return null;
       const storeId = resolveStoreId(ctx);
       if (!storeId) return null;
       const hint = recallHint(ctx.messages);

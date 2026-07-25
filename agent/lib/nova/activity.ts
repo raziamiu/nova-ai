@@ -11,10 +11,17 @@ import type { ActionType, ActivityEntry, NovaDepartment } from "../types";
 import type { StoreClient } from "../store/client";
 
 /** Human-equivalent minutes a founder would spend doing this by hand. */
-const MINUTES_BY_ACTION: Record<ActionType, number> = {
+export const MINUTES_BY_ACTION: Record<ActionType, number> = {
   // Reviewing and refunding a batch by hand, per the founder.
   bulk_refund: 25,
   send_customer_message: 8,
+  // Front Office (canonical, module 09): reading the thread, checking the
+  // fact, writing two human bubbles and sending them is ~3 minutes of a
+  // founder's evening — deliberately modest, because this one fires hundreds
+  // of times a week and an inflated number would make the hours-saved figure
+  // a lie at scale.
+  send_inbox_reply: 3,
+  escalate_conversation: 2,
   resolve_ticket: 12,
   publish_social_post: 35,
   update_campaign: 20,

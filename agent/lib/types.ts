@@ -407,6 +407,15 @@ export interface Guardrails {
   maxAutoPurchaseOrderTotal: number;
   /** Refunds above this amount always need approval. */
   maxAutoRefundTotal: number;
+  /**
+   * Stage 10 Front Office platform keys (canonical C-16), a FLAT `inbox.*`
+   * namespace stored as JSON on the guardrail row — e.g. `inbox.autoIntents`,
+   * `inbox.maxAutoOrderMinor`, `inbox.persona`. Typed as `unknown` on purpose:
+   * every reader must narrow it, and a MISSING key reads as absent ⇒ the
+   * guardrail branch fails closed (`needs_approval`), never open. Module 08
+   * owns the key registry and seeds the defaults.
+   */
+  [inboxKey: `inbox.${string}`]: unknown;
 }
 
 export interface AutonomyConfig {
@@ -538,6 +547,14 @@ export type ActionType =
   | "switch_supplier"
   | "assign_courier"
   | "import_product"
+  /**
+   * Stage 10 Front Office (module 02). `send_inbox_reply` is the ONLY verb
+   * that can put a byte in front of a customer in Messenger/Instagram: the
+   * model never sends, an approved/executed action does. `escalate_conversation`
+   * hands the thread to the founder and is never gated at any tier.
+   */
+  | "send_inbox_reply"
+  | "escalate_conversation"
   /** Founder-only (PRD 5.4): Nova may propose, never execute. */
   | "bulk_refund";
 
@@ -789,6 +806,134 @@ export interface InboxEvent {
   payload: Record<string, unknown>;
   receivedAt: string;
   processedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Front Office — the Messenger/Instagram inbox (Stage 10). These are VIEWS of
+// dakio-api rows, not Nova-owned state: the conversation, its transcript, and
+// the outbound ledger all live in dakio-api, which is the sole authority on
+// the thread lock, the 24h Meta window, and whether a send actually happened.
+// Nova reads them per turn and never caches a fact only in a session
+// (cold-start invariant, module 02 D1).
+// ---------------------------------------------------------------------------
+
+/** Adapters that can carry a customer conversation today (module 01 D11). */
+export type InboxPlatform = "messenger" | "instagram";
+
+/** Who wrote a message. `founder_external` = typed from Meta Business Suite. */
+export type InboxActor = "customer" | "nova" | "founder" | "founder_external" | "system";
+
+/** The reply's script/register, mirrored from the customer (module 02 D4). */
+export type InboxLanguage = "bn" | "banglish" | "en";
+
+/**
+ * `conversationOut` (module 02 D10) — frozen base shape. `senderId` is
+ * deliberately NOT exposed: the PSID is Meta-derived identity that Nova never
+ * needs and that the data-deletion path must be able to erase cleanly.
+ */
+export interface InboxConversationView {
+  id: string;
+  platform: string;
+  senderName: string | null;
+  /** Set only by an EARNED identity link (module 03) — never guessed. */
+  customerId: string | null;
+  /** 'nova' | 'founder' | null. `founder` means the thread is handed over. */
+  handledBy: string | null;
+  /** Set ONLY by a human takeover. Nova can never clear it. */
+  novaLockedAt: string | null;
+  /** Per-thread founder switch, server-enforced. */
+  novaEnabled: boolean;
+  lastIntent: string | null;
+  escalatedAt: string | null;
+  lastInboundAt: string | null;
+  /** lastInboundAt + 24h — the Meta messaging window. Past = no sends, ever. */
+  windowExpiresAt: string | null;
+  lastMessageAt: string | null;
+}
+
+/** `messageOut` (module 02 D10) — one line of the transcript. */
+export interface InboxMessageView {
+  id: string;
+  direction: "in" | "out";
+  actor: string | null;
+  text: string | null;
+  attachmentUrl: string | null;
+  attachmentType: string | null;
+  /** Outbound rows: the reply's purpose slug. */
+  purpose: string | null;
+  /** The ledger receipt behind this message. Every Nova bubble has one. */
+  novaActionId: string | null;
+  sentAt: string;
+  /** Meta's own event timestamp — the ordering truth, unlike `sentAt`. */
+  metaTimestamp: string | null;
+}
+
+/** What `get_conversation` reads: the thread as dakio-api sees it. */
+export interface InboxThread {
+  conversation: InboxConversationView;
+  /** Oldest → newest, capped by the caller (≤50). */
+  messages: InboxMessageView[];
+  /**
+   * The server-assembled customer block, rendered TRUSTED (it is Dakio's own
+   * data, not customer text). Shape is deliberately open here: module 03 owns
+   * the `customer360Out` serializer and its redaction boundary, and nova-ai
+   * renders that block without ever authoring it. `null` = an unlinked thread,
+   * which is the honest default — the identity join is earned, never guessed.
+   */
+  customer: Record<string, unknown> | null;
+}
+
+/** One human-sized bubble. 1–3 of these are a reply (canonical C-12). */
+export interface InboxChunk {
+  text: string;
+}
+
+/** Body of `POST /api/v1/inbox/conversations/:id/reply` (module 02 D10). */
+export interface InboxReplyRequest {
+  chunks: InboxChunk[];
+  /** Idempotency + receipt correlation id for this send. */
+  novaActionId: string;
+  /** Newest inbound seen when composing — the staleness anchor. */
+  inReplyToMessageId: string;
+  intent: string;
+  language: InboxLanguage;
+  purpose?: string | null;
+  /** `instant` skips the human-pacing engine (founder already waited). */
+  timing?: { mode: "human" | "instant" };
+  /** D6 identity-disclosure counters for this turn. */
+  disclosure?: { asked: boolean; given: boolean };
+}
+
+/** What the reply route returns once the send is QUEUED (never "sent"). */
+export interface InboxReplyResult {
+  outboundId: string;
+  /** When chunk 1 is due to leave, per the human-timing engine (D7). */
+  scheduledAt: string;
+  chunks: InboxChunk[];
+  /** The first bubble's message id — the action's `targetRef`. */
+  firstMessageId: string;
+}
+
+/** Body of `POST /api/v1/inbox/conversations/:id/handover` (module 08). */
+export interface InboxHandoverRequest {
+  novaActionId: string;
+  reason: string;
+  department: string;
+  summary: string;
+  summaryBn: string;
+  suggestedReply?: string;
+  suggestedAction?: string;
+  factsChecked: { source: string; note: string }[];
+}
+
+export interface InboxHandoverResult {
+  escalated: boolean;
+  /** The escalation Decision the founder answers, when one was authored. */
+  decisionId: string | null;
+  /** Whether the deterministic holding line went to the customer. */
+  holdingSent: boolean;
+  /** True when an open escalation already existed and the brief was updated. */
+  alreadyEscalated?: boolean;
 }
 
 // ---------------------------------------------------------------------------

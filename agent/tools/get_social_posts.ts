@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -13,6 +14,7 @@ export default defineTool({
       .describe("Only posts with this status"),
   }),
   async execute(input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const posts = await client.listSocialPosts(input.status);
     return { count: posts.length, posts: posts.slice(0, 50) };

@@ -34,6 +34,7 @@ import remember from "../../agent/tools/remember";
 import recall from "../../agent/tools/recall";
 import approveAction from "../../agent/tools/approve_action";
 
+import founderCoreLayer from "../../agent/instructions/05-founder-core";
 import tenantGuard from "../../agent/hooks/tenant-guard";
 import { requireStore, resolveStoreId } from "../../agent/lib/tenant";
 import { storeFor, resetStores } from "../../agent/lib/store/resolve";
@@ -86,6 +87,26 @@ function ctxFor(
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+/**
+ * Ceiling for the always-on root layer. It is the one instruction file with no
+ * gate on it — a customer conversation carries it too — so it may hold only
+ * register-neutral text (identity, the never-fabricate floor, the trust
+ * boundary). Founder-plane prose belongs behind `isCustomerSession`.
+ */
+const ROOT_L0_BUDGET = 400;
+
+interface DynamicLayer {
+  events: Record<string, ((event: unknown, ctx: never) => unknown) | undefined>;
+}
+
+/** Run one dynamic layer's resolver for `event` and return its markdown (`""` when gated off). */
+async function resolveMarkdown(layer: unknown, event: string, ctx: unknown): Promise<string> {
+  const handler = (layer as DynamicLayer).events?.[event];
+  if (!handler) throw new Error(`layer has no ${event} resolver`);
+  const resolved = (await handler({}, ctx as never)) as { markdown?: string } | null;
+  return resolved?.markdown ?? "";
 }
 
 // --- the suite --------------------------------------------------------------
@@ -335,10 +356,27 @@ async function main(): Promise<void> {
   check(`L1 tenant profile ≤ ${LAYER_BUDGET.tenantProfile} tok (got ${t1})`, t1 <= LAYER_BUDGET.tenantProfile);
   check(`L2 live ops ≤ ${LAYER_BUDGET.liveOps} tok (got ${t2})`, t2 <= LAYER_BUDGET.liveOps);
   check(`L3 memory ≤ ${LAYER_BUDGET.relevantMemory} tok (got ${t3})`, t3 <= LAYER_BUDGET.relevantMemory);
+  // L0 is two files since module 02 split the founder body out of the static
+  // root: `instructions.md` is register-neutral and EVERY session pays for it
+  // (a customer conversation included), `instructions/05-founder-core.ts` is
+  // founder-gated. A founder session pays both, so the total counts both —
+  // measuring the root alone would repeat the mistake the founder-bleed check
+  // made, one layer reported as the whole prompt.
   const here = dirname(fileURLToPath(import.meta.url));
-  const persona = readFileSync(join(here, "../../agent/instructions.md"), "utf8");
-  const total = estimateTokens(persona) + t1 + t2 + t3;
-  check(`total context (persona L0 + L1-L3) ≤ 2500 tok (got ${total})`, total <= 2500);
+  const root = readFileSync(join(here, "../../agent/instructions.md"), "utf8");
+  const founderCore = await resolveMarkdown(founderCoreLayer, "session.started", ctxFor(AURORA));
+  check("L0-FOUNDER core renders for a founder session", founderCore.length > 0);
+  const tRoot = estimateTokens(root);
+  const tFounder = estimateTokens(founderCore);
+  // The root's ceiling is the regression net for the split: before module 02
+  // the founder body lived here and this file alone was 2566 tokens, riding
+  // into every customer turn. Moving founder text back to the root fails here.
+  check(`L0 root (every session, both registers) ≤ ${ROOT_L0_BUDGET} tok (got ${tRoot})`, tRoot <= ROOT_L0_BUDGET);
+  const total = tRoot + tFounder + t1 + t2 + t3;
+  check(
+    `total founder context (L0 root ${tRoot} + L0-FOUNDER ${tFounder} + L1-L3) ≤ 2500 tok (got ${total})`,
+    total <= 2500,
+  );
 
   // 8. L1 profiles are genuinely distinct per tenant.
   console.log("\n[8] Tenants are distinct (voice / vertical)");

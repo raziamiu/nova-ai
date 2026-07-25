@@ -45,6 +45,11 @@ import type {
   GrowIdea,
   GrowPost,
   InboxEvent,
+  InboxHandoverRequest,
+  InboxHandoverResult,
+  InboxReplyRequest,
+  InboxReplyResult,
+  InboxThread,
   JobKind,
   MemoryEntry,
   MemoryNamespace,
@@ -66,6 +71,41 @@ import type {
   TicketStatus,
   TrendingProduct,
 } from "../types";
+
+/**
+ * The inbox reply route's refusal codes (module 02 D10 guard ladder). Every
+ * one of them is a 409 with a receipted **blocked** ledger row on the server —
+ * a refused send is never silence.
+ *
+ *  THREAD_OFF     the founder switched Nova off for this thread
+ *  LOCKED         the founder holds the thread (takeover, or answered first)
+ *  STALE          the customer wrote again — re-read before answering
+ *  WINDOW_CLOSED  outside Meta's 24h window; v1 refuses honestly, never tags
+ *  LOOP_GUARD     too many consecutive Nova messages since the last inbound
+ */
+export type InboxRefusalCode =
+  | "THREAD_OFF"
+  | "LOCKED"
+  | "STALE"
+  | "WINDOW_CLOSED"
+  | "LOOP_GUARD"
+  | "RATE_LIMITED";
+
+/**
+ * A send the server refused. Thrown (never swallowed into a fake success) so
+ * the turn cannot report a message the customer will never see. The model is
+ * instructed not to retry `LOCKED` — a founder-held thread stays the founder's.
+ */
+export class InboxSendRefused extends Error {
+  readonly code: InboxRefusalCode | string;
+  readonly status: number;
+  constructor(code: InboxRefusalCode | string, message: string, status = 409) {
+    super(message);
+    this.name = "InboxSendRefused";
+    this.code = code;
+    this.status = status;
+  }
+}
 
 export interface StoreClient {
   /** Local clock read, ISO 8601. Not a request — safe to call without awaiting. */
@@ -274,6 +314,32 @@ export interface StoreClient {
   // Inbox — inbound store events (Phase 2.3)
   listInboxEvents(filter?: { processed?: boolean }): Promise<InboxEvent[]>;
   markEventProcessed(id: string): Promise<InboxEvent>;
+
+  // ---- Front Office — customer conversations (Stage 10, module 02) ----
+  //
+  // Three calls, one rule: dakio-api decides. It owns the thread lock, the
+  // 24h window, the loop cap, the pacing engine and the Meta credentials, so
+  // Nova can propose a reply and can be told no — it can never send.
+
+  /**
+   * Read the thread: conversation state, the last `messages` (≤50, newest
+   * last), and the server-assembled customer block. The transcript is CUSTOMER
+   * TEXT and every caller must frame it `untrusted()` before it reaches the
+   * model. Returns null when the conversation does not exist for this tenant.
+   */
+  getInboxConversation(conversationId: string, opts?: { messages?: number }): Promise<InboxThread | null>;
+  /**
+   * Queue a reply. Success means QUEUED, not delivered — the human-timing
+   * engine schedules each bubble and the outbound ledger records what actually
+   * happened. Throws {@link InboxSendRefused} when a guard says no.
+   */
+  replyInThread(conversationId: string, input: InboxReplyRequest): Promise<InboxReplyResult>;
+  /**
+   * Hand the thread to the founder: locks Nova out, sends the deterministic
+   * holding line, and files the brief as a Decision. Never gated at any tier —
+   * escalation must always be possible.
+   */
+  handoverConversation(conversationId: string, input: InboxHandoverRequest): Promise<InboxHandoverResult>;
 
   // ---- Proactive job queue (Phase 05) ----
 

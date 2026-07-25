@@ -7,6 +7,8 @@
  * needed to undo, which powers the PRD trust system's undo button.
  */
 
+import { randomUUID } from "node:crypto";
+
 import type { ActionType } from "../types";
 import type { StoreClient } from "../store/client";
 import {
@@ -14,10 +16,12 @@ import {
   createCampaignPayload,
   createDiscountPayload,
   createPurchaseOrderPayload,
+  escalateConversationPayload,
   importProductPayload,
   publishSocialPostPayload,
   resolveTicketPayload,
   sendCustomerMessagePayload,
+  sendInboxReplyPayload,
   switchSupplierPayload,
   updateCampaignPayload,
   updatePricePayload,
@@ -47,7 +51,32 @@ export interface ExecutionResult {
   targetRef?: string | null;
 }
 
-type Executor = (client: StoreClient, payload: Record<string, unknown>) => Promise<ExecutionResult>;
+/**
+ * How this execution was authorized. Absent on the direct (autonomous) path;
+ * present when a prepared row is being executed because a human said yes.
+ *
+ * It exists because a few verbs genuinely behave differently once a founder has
+ * waited on them — `send_inbox_reply` sends NOW rather than re-entering the
+ * shopkeeper pacing engine — and because the approve path already has a stable
+ * ledger id, which is the idempotency key both approve surfaces must agree on.
+ * Executors that don't care ignore it, which is all of them but one.
+ */
+export interface ExecutionContext {
+  /**
+   * The prepared NovaAction's id. Set ONLY on the approve path (the direct path
+   * mints the ledger row after execution, so no id exists yet). dakio-api's own
+   * approve executor books the send under `action.id` too — same id on both
+   * surfaces means the same `Idempotency-Key`, so a Desk tap and a chat approve
+   * of one draft collapse into one queued reply instead of two.
+   */
+  approvedActionId?: string;
+}
+
+type Executor = (
+  client: StoreClient,
+  payload: Record<string, unknown>,
+  context?: ExecutionContext,
+) => Promise<ExecutionResult>;
 type Undoer = (client: StoreClient, undoData: Record<string, unknown>) => Promise<string>;
 
 export const executors: Record<ActionType, Executor> = {
@@ -226,6 +255,110 @@ export const executors: Record<ActionType, Executor> = {
       before: null,
       after: { channel: payload.channel, purpose: payload.purpose, customer: customer.name },
       targetRef: `customer:${payload.customerId}`,
+    };
+  },
+
+  /**
+   * The only path to a customer-visible byte on Messenger/Instagram.
+   *
+   * Note what this executor does NOT do: it does not send. It hands the
+   * bubbles to dakio-api, which owns the thread lock, the 24h window, the
+   * loop cap, the human-timing engine and the page token, and which can
+   * refuse — in which case {@link InboxSendRefused} propagates and NOTHING is
+   * recorded as executed. A message the customer will never see must never
+   * read as a message that was sent.
+   */
+  async send_inbox_reply(client, raw, context) {
+    const payload = sendInboxReplyPayload.parse(raw);
+    // The id this send is booked under, stable across the client's retries so
+    // a network timeout cannot queue the reply twice. On the approve path it is
+    // the prepared row's own id — the SAME id dakio-api's Decision-Desk
+    // executor uses — so approving one draft twice (desk tab + chat) hits one
+    // `Idempotency-Key` and queues one reply. On the direct path the ledger row
+    // does not exist yet, so a fresh id is minted and stamped onto the same
+    // target afterwards by `attributeDoorRecord`, which is how the /inbox
+    // bubble gets its BY NOVA receipt drawer.
+    const approved = typeof context?.approvedActionId === "string" && context.approvedActionId.length > 0;
+    const novaActionId = approved ? context!.approvedActionId! : randomUUID();
+    const result = await client.replyInThread(payload.conversationId, {
+      chunks: payload.chunks,
+      novaActionId,
+      inReplyToMessageId: payload.inReplyToMessageId,
+      intent: payload.intent,
+      language: payload.language,
+      purpose: payload.purpose ?? null,
+      // D7: an approved draft sends immediately — the founder already waited,
+      // and re-entering the pacing engine would hold a deliberately released
+      // reply behind the hour bands (at 02:00 with nightMode 'off', until the
+      // 07:00 batch, on a thread whose 24h window may close first). dakio-api's
+      // approve executor hard-sets the same thing; without this line the two
+      // approve surfaces send observably differently from one decision.
+      // Pacing on the LIVE path is the server's alone — nothing the model wrote
+      // reaches this field (see `sendInboxReplyPayload`).
+      ...(approved ? { timing: { mode: "instant" as const } } : {}),
+      ...(payload.disclosure ? { disclosure: payload.disclosure } : {}),
+    });
+    const bubbles = result.chunks.length;
+    return {
+      outcome: `Queued ${bubbles} ${bubbles === 1 ? "message" : "messages"} to the customer (${payload.language}, ${payload.intent}), first one due ${result.scheduledAt}.`,
+      // Sent is sent. There is no unsend on Messenger, and pretending
+      // otherwise would put an undo button on a promise we can't keep.
+      undoable: false,
+      undoData: null,
+      // A reply claims no revenue — orders do (module 05). Attribution stays
+      // honest by refusing to book credit for a conversation.
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: {
+        outboundId: result.outboundId,
+        bubbles,
+        scheduledAt: result.scheduledAt,
+        intent: payload.intent,
+        language: payload.language,
+        purpose: payload.purpose ?? null,
+      },
+      targetRef: `inbox_message:${result.firstMessageId}`,
+    };
+  },
+
+  /**
+   * Hand the thread to the founder. The route shipped in module 02 and really
+   * does lock Nova out: `escalatedAt` + `handledBy:'founder'`, after which
+   * every `/reply` on the thread is refused LOCKED with no release path in
+   * this module. What module 08 still owns is the priority-1 Decision
+   * (`decisionId:null` today) and the deterministic holding line
+   * (`holdingSent:false`) — the outcome string below only claims the customer
+   * was told something when the route says it was.
+   */
+  async escalate_conversation(client, raw) {
+    const payload = escalateConversationPayload.parse(raw);
+    const result = await client.handoverConversation(payload.conversationId, {
+      novaActionId: randomUUID(),
+      reason: payload.reason,
+      department: payload.department,
+      summary: payload.summary,
+      summaryBn: payload.summaryBn,
+      ...(payload.suggestedReply ? { suggestedReply: payload.suggestedReply } : {}),
+      ...(payload.suggestedAction ? { suggestedAction: payload.suggestedAction } : {}),
+      factsChecked: payload.factsChecked,
+    });
+    return {
+      outcome: result.alreadyEscalated
+        ? `Conversation ${payload.conversationId} was already with you (${payload.reason}); the brief was updated rather than asking twice.`
+        : `Handed conversation ${payload.conversationId} to you — ${payload.reason}, ${payload.department}.${result.holdingSent ? " The customer was told someone is looking at it." : ""}`,
+      undoable: false,
+      undoData: null,
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: {
+        reason: payload.reason,
+        department: payload.department,
+        decisionId: result.decisionId,
+        holdingSent: result.holdingSent,
+      },
+      targetRef: `inbox_conversation:${payload.conversationId}`,
     };
   },
 

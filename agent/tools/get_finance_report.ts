@@ -3,6 +3,7 @@ import { z } from "zod";
 import { buildFinanceReport } from "../lib/nova/analytics";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -17,6 +18,7 @@ export default defineTool({
       .describe("Report period in days, 1-90 (default 30)"),
   }),
   async execute(input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     return buildFinanceReport(storeFor(requireStore(ctx).storeId), input.sinceDays);
   },
 });

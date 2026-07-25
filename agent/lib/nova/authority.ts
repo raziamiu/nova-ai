@@ -47,6 +47,21 @@ export const FOUNDER_ONLY: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The inverse of FOUNDER_ONLY: verbs the tier dial may never hold back.
+ *
+ * `escalate_conversation` is the one that matters today — asking for a human
+ * must work at every tier, including Shadow, or the safest thing Nova can do
+ * becomes the slowest. Escalation sends nothing the model authored (the
+ * holding line is a deterministic server template) and it hands authority
+ * AWAY, so there is nothing for a level ceiling to protect against.
+ *
+ * Everything before this check still applies: a founder-only verb, a no-touch
+ * lock, an unknown duty, and a duty the founder explicitly paused all win.
+ * Module 08 extends this set with its bookkeeping verbs.
+ */
+export const NEVER_GATED: ReadonlySet<string> = new Set(["escalate_conversation"]);
+
+/**
  * Per-verb extractor for the text a no-touch lock is matched against.
  *
  * Registering a verb here is how it becomes lockable. A verb with NO extractor
@@ -71,7 +86,31 @@ export const TARGET_TEXT: Partial<Record<ActionType | string, Extractor>> = {
   assign_courier: (p) => [str(p.orderId), str(p.courierId), "courier", "delivery", "shipping"].join(" "),
   import_product: (p) => [str(p.trendingProductId), str(p.price), "product", "import"].join(" "),
   bulk_refund: (p) => [str(p.orderIds), str(p.reason), "refund"].join(" "),
+  /**
+   * Front Office. The reply's own words ARE the target text: if a founder
+   * locked "SAREE PRICING", a chat message quoting a saree price must hit the
+   * lock exactly as a dashboard reprice would. `normalizeForMatch` NFC-folds
+   * both sides, so a Bangla product name typed with matras in the lock still
+   * matches the same name as Nova wrote it.
+   *
+   * Registering these is not optional bookkeeping: a verb with no extractor
+   * makes `targetTextFor` return null, and the seam then refuses every action
+   * while any lock exists — the lock does not silently fail open, but the verb
+   * silently stops working.
+   */
+  send_inbox_reply: (p) =>
+    [chunkText(p.chunks), str(p.intent), str(p.purpose), "reply", "message", "inbox"].join(" "),
+  escalate_conversation: (p) =>
+    [str(p.reason), str(p.summary), str(p.suggestedReply), "escalation", "handover"].join(" "),
 };
+
+/** Flatten a `chunks: [{text}]` reply into one matchable string. */
+function chunkText(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((chunk) => (chunk && typeof chunk === "object" ? str((chunk as Record<string, unknown>).text) : str(chunk)))
+    .join(" ");
+}
 
 /**
  * Per-verb extractor for money this action would COMMIT today, in ৳ minor
@@ -143,9 +182,35 @@ export function targetTextFor(type: string, payload: Record<string, unknown>): s
 
 /* ── mode + level resolution ───────────────────────────────────────────── */
 
+/**
+ * Doors whose stored mode scope is also matched case-insensitively.
+ *
+ * Duty doors are DISPLAY names ("Inbox", "Content Studio"); stored mode scopes
+ * are whatever the founder's dial wrote ("door:inbox"). Exact-match lookup
+ * therefore never sees `door:inbox`, and `door:inbox = assisted` has silently
+ * done nothing for as long as the dial has existed.
+ *
+ * Fixing that for ALL doors at once is not a bug fix, it is a migration: a
+ * tenant carrying `door:orders = autonomous` — set months ago, while it
+ * demonstrably did nothing — would start auto-executing order verbs on the
+ * first deploy that made the lookup work. So the repair is opt-in per door.
+ * Inbox is here because module 02 needs it and because its stored scopes were
+ * audited; add a door to this set only after checking live `modes` keys for
+ * scopes that would come alive, and say so in that module's Risks table.
+ */
+export const CASE_INSENSITIVE_DOOR_SCOPES: ReadonlySet<string> = new Set(["Inbox"]);
+
 /** door:<module> beats store, store beats the assisted default. */
 export function resolveMode(modes: Record<string, NovaMode>, doorModule: string | null): NovaMode {
-  if (doorModule && modes[`door:${doorModule}`]) return modes[`door:${doorModule}`];
+  if (doorModule) {
+    if (modes[`door:${doorModule}`]) return modes[`door:${doorModule}`];
+    if (CASE_INSENSITIVE_DOOR_SCOPES.has(doorModule)) {
+      const wanted = `door:${doorModule}`.toLowerCase();
+      for (const [scope, mode] of Object.entries(modes)) {
+        if (scope.toLowerCase() === wanted) return mode;
+      }
+    }
+  }
   return modes.store ?? "assisted";
 }
 
@@ -187,6 +252,17 @@ export interface AuthorityRequest {
 }
 
 const bn = (en: string, bnText: string): [string, string] => [en, bnText];
+
+/**
+ * Namespace a guardrail-check rule. The numeric caps report bare names
+ * (`max_discount_pct`) and get the `guardrail:` prefix; branches that answer
+ * in a DIFFERENT namespace report it themselves (`duty:thread_off`) and are
+ * left alone, so the rule string a founder sees is the one the docs promise
+ * rather than `guardrail:duty:thread_off`.
+ */
+function qualifyRule(rule: string): string {
+  return rule.includes(":") ? rule : `guardrail:${rule}`;
+}
 
 function decide(
   verdict: AuthorityDecision["verdict"],
@@ -334,6 +410,20 @@ export async function evaluateAuthority(
     }
   }
 
+  // 3b. Never-gated verbs — past the founder's own rules, below the dial.
+  if (NEVER_GATED.has(request.type)) {
+    return decide(
+      "execute",
+      `never_gated:${request.type}`,
+      bn(
+        `"${request.type}" is always allowed — Nova must be able to hand something to you no matter how low the dial is set.`,
+        `"${request.type}" সবসময় অনুমোদিত — অটোনমি যত কমই থাকুক, নোভা আপনাকে বিষয়টি হস্তান্তর করতে পারবে।`,
+      ),
+      riskClass,
+      gv,
+    );
+  }
+
   // 4 + 5. Mode ceiling and level semantics, composed as min(mode, level).
   const level = effectiveLevel(state, doorModule);
   const mode = resolveMode(state.modes, doorModule);
@@ -408,12 +498,13 @@ export async function evaluateAuthority(
     }
   }
 
-  // Platform superset — the six shipped numeric caps, same seam, evaluated last.
+  // Platform superset — the shipped numeric caps plus the per-verb branches
+  // (Front Office reply gate), same seam, evaluated last.
   const platform = await checkGuardrailsForAuthority(client, state.guardrails.platform, request.type as ActionType, request.payload);
   if (platform.result === "block") {
     return decide(
       "refuse",
-      `guardrail:${platform.rule}`,
+      qualifyRule(platform.rule),
       bn(platform.why, platform.whyBn ?? platform.why),
       riskClass,
       gv,
@@ -421,7 +512,7 @@ export async function evaluateAuthority(
     );
   }
   if (platform.result === "needs_approval") {
-    return decide("draft", `guardrail:${platform.rule}`, bn(platform.why, platform.whyBn ?? platform.why), riskClass, gv);
+    return decide("draft", qualifyRule(platform.rule), bn(platform.why, platform.whyBn ?? platform.why), riskClass, gv);
   }
 
   // Nothing objected.

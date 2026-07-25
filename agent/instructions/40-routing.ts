@@ -8,11 +8,18 @@
  * honest deferral text straight from the table, so the model refuses cleanly
  * instead of improvising a capability that isn't built.
  *
- * Static: the table is compile-time data, so this renders once at build, no
- * per-session work.
+ * The table is compile-time data, so the text below is built once at module
+ * load and reused — the resolver does no per-session work beyond the gate.
+ *
+ * Founder-only (Stage 10 module 02, D11): the routing table is the single
+ * densest piece of founder vocabulary in the prompt (department names,
+ * deferral text, "CEO-Nova"), so it was the one static founder layer that had
+ * to become dynamic. It gates on `isCustomerSession` like layers 10–30; a
+ * founder session sees byte-identical text to before.
  */
 
-import { defineInstructions } from "eve/instructions";
+import { defineDynamic, defineInstructions } from "eve/instructions";
+import { isCustomerSession } from "../lib/customer/principal";
 import { routingPromptSection } from "../lib/chat/intents";
 
 const ROUTING = `## CEO-Nova — routing
@@ -27,4 +34,9 @@ the tool + params that produced it, or you don't say it.
 
 ${routingPromptSection()}`;
 
-export default defineInstructions({ markdown: ROUTING });
+export default defineDynamic({
+  events: {
+    "session.started": (_event, ctx) =>
+      isCustomerSession(ctx) ? null : defineInstructions({ markdown: ROUTING }),
+  },
+});

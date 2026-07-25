@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -10,6 +11,7 @@ export default defineTool({
     activeOnly: z.boolean().optional().describe("Only currently active discount codes"),
   }),
   async execute(input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const discounts = await client.listDiscounts(input.activeOnly);
     return { count: discounts.length, discounts: discounts.slice(0, 50) };

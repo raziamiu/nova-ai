@@ -37,7 +37,14 @@ import type {
   GrowGoal,
   GrowIdea,
   GrowPost,
+  InboxConversationView,
   InboxEvent,
+  InboxHandoverRequest,
+  InboxHandoverResult,
+  InboxMessageView,
+  InboxReplyRequest,
+  InboxReplyResult,
+  InboxThread,
   JobKind,
   MemoryEntry,
   MemoryNamespace,
@@ -61,8 +68,10 @@ import type {
   TrendingProduct,
 } from "../types";
 import type { StoreClient } from "./client";
+import { InboxSendRefused } from "./client";
 import { DUTIES, DOORS } from "../duties";
 import { SPEND_MINOR } from "../nova/authority";
+import { NOVA_MAX_CONSECUTIVE_OUTBOUND } from "../nova/inboxIntents";
 import { createSeed } from "./seed";
 import { lastOccurrenceAtOrBefore } from "../jobs/cron";
 import { randomUUID } from "node:crypto";
@@ -88,9 +97,53 @@ function backoffMinutes(attempts: number): number {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * One demo conversation: the thread row, its transcript, and the queued sends.
+ * Kept OUT of `StoreSeed` deliberately — a seeded dataset would imply real
+ * customers wrote in, and the demo backend has no Meta webhook. Threads exist
+ * here only when a caller explicitly seeds one (see `seedInboxConversation`).
+ */
+interface DemoInboxThread {
+  conversation: InboxConversationView;
+  messages: InboxMessageView[];
+  customer: Record<string, unknown> | null;
+  outbounds: {
+    id: string;
+    novaActionId: string;
+    chunks: { text: string }[];
+    status: string;
+    scheduledAt: string;
+  }[];
+}
+
+/** What a test/demo caller may set when materializing a thread. */
+export interface DemoInboxSeed {
+  id: string;
+  platform?: string;
+  senderName?: string | null;
+  customerId?: string | null;
+  handledBy?: string | null;
+  novaLockedAt?: string | null;
+  novaEnabled?: boolean;
+  lastIntent?: string | null;
+  windowExpiresAt?: string | null;
+  customer?: Record<string, unknown> | null;
+  messages?: {
+    direction: "in" | "out";
+    actor: string;
+    text: string;
+    sentAt?: string;
+    id?: string;
+    purpose?: string | null;
+    novaActionId?: string | null;
+  }[];
+}
+
 export class DemoStore implements StoreClient {
   private readonly data: StoreSeed;
   private idCounter = 9000;
+  /** Front Office threads. Empty until a caller seeds one — never invented. */
+  private readonly inbox = new Map<string, DemoInboxThread>();
 
   constructor(seed?: StoreSeed) {
     this.data = seed ?? createSeed(Date.now());
@@ -888,6 +941,189 @@ export class DemoStore implements StoreClient {
     );
     event.processedAt = this.now();
     return event;
+  }
+
+  // ---- Front Office — customer conversations (Stage 10, module 02) ----
+  //
+  // The demo backend plays dakio-api's `/api/v1/inbox/*` surface: it runs the
+  // SAME guard ladder (thread off → founder lock → someone already answered →
+  // customer double-texted → 24h window → loop cap) and refuses with the same
+  // codes, so a refusal path can be exercised without Meta, a webhook, or a
+  // database. Two things it deliberately does NOT do, because they are not
+  // ours to fake: the human-timing engine (dakio-api computes `scheduledAt`
+  // from read/typing delays and hour-of-day bands) and the Graph send. A
+  // queued row here is queued, never "delivered".
+
+  /**
+   * Materialize a conversation for a demo or eval run. Not part of
+   * {@link StoreClient}: the live backend's threads are created by real
+   * customers through the Meta webhook, and a demo store that conjured one on
+   * first read would be inventing a customer.
+   */
+  seedInboxConversation(seed: DemoInboxSeed): InboxThread {
+    const now = this.now();
+    const messages: InboxMessageView[] = (seed.messages ?? []).map((m, index) => ({
+      id: m.id ?? `inmsg-${seed.id}-${index + 1}`,
+      direction: m.direction,
+      actor: m.actor,
+      text: m.text,
+      attachmentUrl: null,
+      attachmentType: null,
+      purpose: m.purpose ?? null,
+      novaActionId: m.novaActionId ?? null,
+      sentAt: m.sentAt ?? now,
+      metaTimestamp: m.sentAt ?? now,
+    }));
+    const lastInbound = [...messages].reverse().find((m) => m.direction === "in");
+    const thread: DemoInboxThread = {
+      conversation: {
+        id: seed.id,
+        platform: seed.platform ?? "messenger",
+        senderName: seed.senderName ?? "Demo customer",
+        customerId: seed.customerId ?? null,
+        handledBy: seed.handledBy ?? null,
+        novaLockedAt: seed.novaLockedAt ?? null,
+        novaEnabled: seed.novaEnabled ?? true,
+        lastIntent: seed.lastIntent ?? null,
+        escalatedAt: null,
+        lastInboundAt: lastInbound?.sentAt ?? null,
+        windowExpiresAt:
+          seed.windowExpiresAt ??
+          new Date(Date.parse(lastInbound?.sentAt ?? now) + DAY_MS).toISOString(),
+        lastMessageAt: messages[messages.length - 1]?.sentAt ?? null,
+      },
+      messages,
+      customer: seed.customer ?? null,
+      outbounds: [],
+    };
+    this.inbox.set(seed.id, thread);
+    return { conversation: thread.conversation, messages: thread.messages, customer: thread.customer };
+  }
+
+  async getInboxConversation(
+    conversationId: string,
+    opts?: { messages?: number },
+  ): Promise<InboxThread | null> {
+    const thread = this.inbox.get(conversationId);
+    if (!thread) return null;
+    const limit = Math.min(Math.max(opts?.messages ?? 50, 1), 50);
+    return {
+      conversation: { ...thread.conversation },
+      // Newest last, oldest trimmed first — the tail is what a reply needs.
+      messages: thread.messages.slice(-limit).map((m) => ({ ...m })),
+      customer: thread.customer,
+    };
+  }
+
+  async replyInThread(conversationId: string, input: InboxReplyRequest): Promise<InboxReplyResult> {
+    const thread = this.inbox.get(conversationId);
+    if (!thread) throw new Error(`Conversation not found: ${conversationId}`);
+    const c = thread.conversation;
+    const nowMs = Date.parse(this.now());
+
+    // 1. Per-thread founder switch.
+    if (c.novaEnabled !== true) {
+      throw new InboxSendRefused("THREAD_OFF", `Nova is switched off for conversation ${conversationId}.`);
+    }
+    // 2. The founder holds the thread. No exceptions, ever — holding and SLA
+    //    lines are system sends that never pass through this path.
+    if (c.novaLockedAt !== null || c.handledBy === "founder") {
+      throw new InboxSendRefused("LOCKED", `The founder has conversation ${conversationId}; Nova does not write on it.`);
+    }
+    const anchor = thread.messages.find((m) => m.id === input.inReplyToMessageId);
+    if (!anchor) {
+      // Cannot prove freshness against a message that is not in the thread.
+      throw new InboxSendRefused("STALE", `Unknown inReplyToMessageId ${input.inReplyToMessageId}; re-read the thread.`);
+    }
+    const anchorAt = Date.parse(anchor.sentAt);
+    // 3. Someone already answered by hand since the anchor.
+    if (
+      thread.messages.some(
+        (m) =>
+          m.direction === "out" &&
+          (m.actor === "founder" || m.actor === "founder_external") &&
+          Date.parse(m.sentAt) > anchorAt,
+      )
+    ) {
+      throw new InboxSendRefused("LOCKED", "The founder already answered this message.");
+    }
+    // 4. The customer wrote again — answering the old message now is worse
+    //    than not answering at all.
+    if (thread.messages.some((m) => m.direction === "in" && Date.parse(m.sentAt) > anchorAt)) {
+      throw new InboxSendRefused("STALE", "The customer sent another message; re-read the thread before replying.");
+    }
+    // 5. Meta's 24h window. v1 refuses honestly — no MESSAGE_TAG, ever.
+    if (c.windowExpiresAt !== null && Date.parse(c.windowExpiresAt) <= nowMs) {
+      throw new InboxSendRefused("WINDOW_CLOSED", "The 24h messaging window closed; this reply cannot be sent.");
+    }
+    // 6. Loop breaker: consecutive Nova messages since the last inbound.
+    let consecutive = 0;
+    for (let i = thread.messages.length - 1; i >= 0; i -= 1) {
+      const m = thread.messages[i]!;
+      if (m.direction === "in") break;
+      if (m.actor === "nova") consecutive += 1;
+    }
+    if (consecutive >= NOVA_MAX_CONSECUTIVE_OUTBOUND) {
+      throw new InboxSendRefused(
+        "LOOP_GUARD",
+        `${consecutive} Nova messages since the customer last wrote — stopping rather than talking to itself.`,
+      );
+    }
+
+    // Pass. dakio-api would schedule each bubble through the pacing engine;
+    // the demo queues them at once and inserts the message rows the ledger
+    // links to. `scheduledAt` is honest about that: it is now, not a
+    // simulated human delay.
+    const scheduledAt = this.now();
+    const outboundId = this.nextId("outb");
+    const inserted: InboxMessageView[] = input.chunks.map((chunk, index) => ({
+      id: `inmsg-${outboundId}-${index + 1}`,
+      direction: "out",
+      actor: "nova",
+      text: chunk.text,
+      attachmentUrl: null,
+      attachmentType: null,
+      purpose: input.purpose ?? null,
+      novaActionId: input.novaActionId,
+      sentAt: scheduledAt,
+      metaTimestamp: scheduledAt,
+    }));
+    thread.messages.push(...inserted);
+    thread.outbounds.push({
+      id: outboundId,
+      novaActionId: input.novaActionId,
+      chunks: input.chunks,
+      status: "sent",
+      scheduledAt,
+    });
+    c.lastMessageAt = scheduledAt;
+    c.lastIntent = input.intent;
+    c.handledBy = "nova";
+    return {
+      outboundId,
+      scheduledAt,
+      chunks: input.chunks,
+      firstMessageId: inserted[0]!.id,
+    };
+  }
+
+  async handoverConversation(
+    conversationId: string,
+    input: InboxHandoverRequest,
+  ): Promise<InboxHandoverResult> {
+    const thread = this.inbox.get(conversationId);
+    if (!thread) throw new Error(`Conversation not found: ${conversationId}`);
+    const c = thread.conversation;
+    // Anti-spam: one open escalation per conversation. A second call updates
+    // the brief instead of stacking a second ask on the founder's desk.
+    if (c.escalatedAt !== null) {
+      return { escalated: true, alreadyEscalated: true, decisionId: null, holdingSent: false };
+    }
+    c.escalatedAt = this.now();
+    c.handledBy = "founder";
+    // `novaLockedAt` stays null — no human has acted yet; escalation is Nova
+    // stepping back, not the founder stepping in.
+    return { escalated: true, decisionId: null, holdingSent: false, alreadyEscalated: false };
   }
 
   // ---- Proactive job queue (Phase 05) ----

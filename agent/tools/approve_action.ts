@@ -3,6 +3,7 @@ import { z } from "zod";
 import { approveAction } from "../lib/nova/actions";
 import { requireStore, isOwnerRole } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 /**
  * Deny scheduled/background runs and any non-owner/admin caller.
@@ -34,6 +35,7 @@ export default defineTool({
   }),
   approval: (ctx: ApprovalContext) => ownerOnly(ctx, "approve"),
   async execute({ actionId }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     // Re-check authorization at execution time: approval ≠ authorization.
     const a = ctx.session.auth.current ?? ctx.session.auth.initiator;
     const { storeId, role } = requireStore(ctx);

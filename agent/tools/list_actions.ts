@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -13,6 +14,7 @@ export default defineTool({
       .describe("Only actions with this status; omit for the full history."),
   }),
   async execute({ status }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     try {
       const all = await storeFor(requireStore(ctx).storeId).listActions(status);
       const sorted = [...all].sort(

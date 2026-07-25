@@ -26,7 +26,7 @@
 
 import { defineChannel, type Session } from "eve/channels";
 import type { ScheduleHandlerArgs } from "eve/schedules";
-import customer from "./customer";
+import customer, { inboxTurnPrompt } from "./customer";
 import { customerPrincipal } from "../lib/customer/principal";
 import { tenantAppPrincipal } from "../lib/jobs/principal";
 import { renderJobPrompt } from "../lib/jobs/prompts";
@@ -77,13 +77,16 @@ export async function dispatchJobToChannel(
     const messageIds = Array.isArray(job.payload.messageIds)
       ? job.payload.messageIds.filter((id): id is string => typeof id === "string" && id.length > 0)
       : [];
-    // Mirror the live lane's minimal instruction (ids only — content never
-    // rides the job bus either). The handler re-reads unprocessed events, so
-    // an already-processed batch makes this turn a cheap no-op (D7).
+    // Mirror the live lane's minimal instruction — literally, via the same
+    // builder (ids only; content never rides the job bus either). The two
+    // lanes feed ONE durable session, so a divergent prompt would make a
+    // conversation behave differently depending on which lane delivered it.
+    // The handler re-reads unprocessed events, so an already-processed batch
+    // makes this turn a cheap no-op (D7).
     const message =
       messageIds.length > 0
-        ? `Customer message(s) received: ${messageIds.join(", ")}`
-        : `Customer message(s) received on conversation ${conversationId} (fallback delivery) — re-read the unprocessed inbox events for the latest messages.`;
+        ? inboxTurnPrompt(messageIds)
+        : `New customer message(s) on conversation ${conversationId} (fallback delivery). Read the thread with get_conversation before replying.`;
     return receive(customer, {
       message,
       target: { storeId, conversationId, platform },

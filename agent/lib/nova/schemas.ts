@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { INBOX_INTENTS } from "./inboxIntents";
 
 export const receiptEvidenceSchema = z.object({
   source: z
@@ -119,6 +120,132 @@ export const sendCustomerMessagePayload = z.object({
     .describe("Cart, ticket, or order id this message is about."),
 });
 
+/* ── Front Office (Stage 10 module 02) ──────────────────────────────────────
+ *
+ * The two customer-conversation verbs. `send_inbox_reply` is the only path to
+ * a customer-visible byte on Messenger/Instagram, and it is a SCHEMA before it
+ * is a message: 1–3 bubbles as an array (canonical C-12 — there is no `|||`
+ * divider), each hard-capped, so an overlong wall of text is a validation
+ * error the model must fix by shortening. Nothing is ever truncated silently.
+ */
+
+/** Hard per-bubble cap. ~220 chars is the instruction-level soft target. */
+export const INBOX_CHUNK_MAX_CHARS = 320;
+/** Hard bubble count. Three short messages read human; four read like a bot. */
+export const INBOX_MAX_CHUNKS = 3;
+
+export const inboxChunkSchema = z.object({
+  text: z
+    .string()
+    .min(1)
+    .max(INBOX_CHUNK_MAX_CHARS)
+    .describe(
+      "One chat bubble, exactly as the customer will see it. Aim for under ~220 characters; over 320 is rejected — split the thought or say less, never send a wall.",
+    ),
+});
+
+export const sendInboxReplyPayload = z.object({
+  conversationId: z.string().min(1).describe("The conversation you are replying in."),
+  inReplyToMessageId: z
+    .string()
+    .min(1)
+    .describe(
+      "The newest inbound message id you had read when you composed this. It is the staleness anchor: if the customer wrote again since, the send is refused and you re-read instead of answering a stale question.",
+    ),
+  chunks: z
+    .array(inboxChunkSchema)
+    .min(1)
+    .max(INBOX_MAX_CHUNKS)
+    .describe(
+      "1–3 bubbles. Split at natural points (greeting/ack ‖ the fact ‖ the nudge). A one-fact answer is ONE bubble.",
+    ),
+  intent: z
+    .enum(INBOX_INTENTS)
+    .describe(
+      "What this exchange is about. Decides the department the work is attributed to and whether it may auto-send. Use 'general' when you genuinely cannot tell — never a flattering guess.",
+    ),
+  purpose: z
+    .string()
+    .min(2)
+    .optional()
+    .describe(
+      "Why this specific message exists, when it is not a plain answer: 'cart_recovery' | 'holding' | 'escalation_draft' | 'review_ask'. An escalation draft never auto-sends.",
+    ),
+  language: z
+    .enum(["bn", "banglish", "en"])
+    .describe(
+      "The script/register you are replying in — mirror the customer's latest message. Digits stay Latin in every language.",
+    ),
+  // NO `timing` field, deliberately. Register rule 13 tells the model pacing is
+  // handled outside it, and this schema has to agree: a model-settable
+  // `{mode:'instant'}` skips `computeSchedule` entirely — the 2.5s floor, the
+  // hour bands, the night batch — and a model that reads "the customer is
+  // waiting" as reason to set it every turn would silently retire the one
+  // control the whole anti-bot-tell engine has. Every case a model could
+  // legitimately hurry for is ALREADY computed server-side by `bypassReason`
+  // (closing window, escalation purposes, urgency lexicon, COD intents, a phone
+  // number in the inbound). The one producer that genuinely knows better is the
+  // approve path — the founder already waited — and it sets `timing` on the
+  // wire request without going through this payload (see `send_inbox_reply`).
+  disclosure: z
+    .object({ asked: z.boolean(), given: z.boolean() })
+    .optional()
+    .describe("Set when the customer asked whether they are talking to a bot, and whether you told them."),
+  // assessment: <reserved slot — schema owned by module 11, and reserved on
+  // escalateConversationPayload and createOrderFromChatPayload too. Left out
+  // rather than stubbed: an unused field the model can fill is a field that
+  // will be filled with fiction.>
+});
+
+/**
+ * Escalation. `reason` is module 08's closed trigger taxonomy — the model
+ * names which trigger fired, it does not invent categories. (`guardrail:<rule>`
+ * is also a valid stored reason, but only the authority gate authors it.)
+ */
+export const ESCALATION_REASONS = [
+  "human_ask",
+  "anger",
+  "payment_dispute",
+  "legal",
+  "lost",
+  "negotiation",
+  "vip",
+  "tool_failure",
+  "fraud_risk",
+] as const;
+
+export const escalateConversationPayload = z.object({
+  conversationId: z.string().min(1),
+  reason: z
+    .enum(ESCALATION_REASONS)
+    .describe("Which escalation trigger fired. One of the defined set — never a free-form category."),
+  department: z
+    .enum(["support", "sales", "finance"])
+    .describe("Which room owns this hand-off, so it lands in front of the right person."),
+  summary: z
+    .string()
+    .min(10)
+    .describe("What happened and what the customer needs, in English, in a few lines the founder can act on."),
+  summaryBn: z.string().min(5).describe("The same brief in Bangla — the founder reads whichever they prefer."),
+  suggestedReply: z
+    .string()
+    .optional()
+    .describe("The reply you would have sent. It is a DRAFT for the founder — it never auto-sends."),
+  suggestedAction: z
+    .string()
+    .optional()
+    .describe("The concrete next step you recommend, e.g. 'refund 1 unit, courier lost it'."),
+  factsChecked: z
+    .array(
+      z.object({
+        source: z.string().min(2).describe("The tool or record you read, e.g. 'order 4172'."),
+        note: z.string().min(5).describe("What it actually said."),
+      }),
+    )
+    .default([])
+    .describe("Everything you verified before escalating, so the founder does not re-check it."),
+});
+
 export const resolveTicketPayload = z.object({
   ticketId: z.string(),
   reply: z.string().min(10).describe("Reply to the customer, in the brand voice."),
@@ -201,6 +328,8 @@ export type PublishSocialPostPayload = z.infer<typeof publishSocialPostPayload>;
 export type UpdatePricePayload = z.infer<typeof updatePricePayload>;
 export type CreateDiscountPayload = z.infer<typeof createDiscountPayload>;
 export type SendCustomerMessagePayload = z.infer<typeof sendCustomerMessagePayload>;
+export type SendInboxReplyPayload = z.infer<typeof sendInboxReplyPayload>;
+export type EscalateConversationPayload = z.infer<typeof escalateConversationPayload>;
 export type ResolveTicketPayload = z.infer<typeof resolveTicketPayload>;
 export type CreatePurchaseOrderPayload = z.infer<typeof createPurchaseOrderPayload>;
 export type SwitchSupplierPayload = z.infer<typeof switchSupplierPayload>;

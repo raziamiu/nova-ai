@@ -3,6 +3,7 @@ import { z } from "zod";
 import { rejectAction } from "../lib/nova/actions";
 import { requireStore, isOwnerRole } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 // principalType !== "user" (not a literal `eve:app` match) — see approve_action.ts.
 function ownerOnly(ctx: ApprovalContext, verb: string) {
@@ -26,6 +27,7 @@ export default defineTool({
   }),
   approval: (ctx: ApprovalContext) => ownerOnly(ctx, "reject"),
   async execute({ actionId, reason }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const a = ctx.session.auth.current ?? ctx.session.auth.initiator;
     const { storeId, role } = requireStore(ctx);
     if (a?.principalType !== "user" || !isOwnerRole(role)) {

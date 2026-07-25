@@ -80,7 +80,8 @@ export interface DutySpec {
 }
 
 /**
- * The 65 duties.
+ * The duty roster — 65 mined duties plus the two Front Office duties added in
+ * Stage 10 module 02 (`support.inbox_replies`, `support.inbox_escalations`).
  *
  * Mined from the merchant prototype's `DEPT_ROOMS` roster (which totals exactly
  * 65) and the PRD §6 charters, with four deliberate curation edits — recorded
@@ -141,6 +142,13 @@ export const DUTIES: DutySpec[] = [
   { key: "support.replacement_shipments", department: "support", name: "Replacement shipments", nameBn: "বদলি পণ্য পাঠানো", door: "Orders", minLevel: 4 },
   // Re-doored: the prototype pointed this at a Reviews screen that doesn't exist.
   { key: "support.review_responses", department: "support", name: "Review responses", nameBn: "রিভিউয়ের উত্তর", door: "Inbox", minLevel: 2 },
+  // ADDED (Stage 10 module 02): the two Front Office verbs answer to duties of
+  // their own, so a founder can pause Nova's inbox replies without touching
+  // anything else. Both `minLevel: 2` so Shadow — assisted mode, effective
+  // level 2 — can still DRAFT every reply; the drafting is the whole point of
+  // the shadow week.
+  { key: "support.inbox_replies", department: "support", name: "Inbox replies (Messenger/Instagram)", nameBn: "ইনবক্সে উত্তর (মেসেঞ্জার/ইনস্টাগ্রাম)", door: "Inbox", minLevel: 2 },
+  { key: "support.inbox_escalations", department: "support", name: "Inbox escalations to you", nameBn: "আপনার কাছে ইনবক্স হস্তান্তর", door: "Inbox", minLevel: 2 },
 
   // ── Product research (7) ─────────────────────────────────────────────────
   { key: "product_research.winning_product_imports", department: "product_research", name: "Winning-product imports", nameBn: "সেরা পণ্য ইম্পোর্ট", door: "Dropshipping", minLevel: 3 },

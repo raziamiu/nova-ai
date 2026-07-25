@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
 import { round2 } from "../lib/nova/format";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -29,6 +30,7 @@ export default defineTool({
       .describe("Only orders with this status"),
   }),
   async execute(input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const orders = await client.listOrders({ sinceDays: input.sinceDays, status: input.status });
     const totalValue = round2(orders.reduce((s, o) => s + o.total, 0));

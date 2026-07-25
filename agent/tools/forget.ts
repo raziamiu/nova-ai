@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { remove } from "../lib/memory/service";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -13,6 +14,7 @@ export default defineTool({
     key: z.string().describe("Exact key of the entry to delete."),
   }),
   async execute({ namespace, key }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     return { deleted: await remove(requireStore(ctx).storeId, namespace, key) };
   },
 });

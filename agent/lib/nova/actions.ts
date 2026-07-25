@@ -266,11 +266,44 @@ export interface DecisionResult {
   detail: string;
 }
 
+/**
+ * Actions whose approval is in flight in THIS process.
+ *
+ * `getAction` → `status !== "prepared"` is a read, not a claim: two approvals
+ * arriving together both read `prepared` and both execute. For a reversible
+ * verb that is an annoyance; for `send_inbox_reply` it is two bubbles on a
+ * customer's phone from one decision, which the module's own contract says can
+ * never happen. Claiming the id before the first `await` is atomic on a single
+ * JS thread, so the second approval is refused rather than raced.
+ *
+ * This closes the in-process half (two chat surfaces, two tabs, founder +
+ * staff). The cross-process half — a chat approve racing a Decision-Desk tap —
+ * is closed by both surfaces booking the send under the SAME action id, so
+ * dakio-api's `w()` idempotency collapses them into one queued reply (see
+ * `ExecutionContext.approvedActionId`). A conditional `prepared → executing`
+ * claim in dakio-api's own approve pipeline would make that belt-and-braces;
+ * that row lives in dakio-api and is not this file's to write.
+ */
+const approvalsInFlight = new Set<string>();
+
 /** Owner approves a prepared action → it executes now. */
 export async function approveAction(
   client: StoreClient,
   actionId: string,
 ): Promise<DecisionResult> {
+  // Claim first, before any await — see `approvalsInFlight`.
+  if (approvalsInFlight.has(actionId)) {
+    throw new Error(`Action ${actionId} is already being approved on another surface.`);
+  }
+  approvalsInFlight.add(actionId);
+  try {
+    return await runApproval(client, actionId);
+  } finally {
+    approvalsInFlight.delete(actionId);
+  }
+}
+
+async function runApproval(client: StoreClient, actionId: string): Promise<DecisionResult> {
   const record = await client.getAction(actionId);
   if (!record) throw new Error(`Action not found: ${actionId}`);
   if (record.status !== "prepared") {
@@ -285,7 +318,10 @@ export async function approveAction(
     const remote = await client.executePreparedAction(actionId);
     return { actionId, detail: remote.note };
   }
-  const execution = await execute(client, record.payload);
+  // Naming the ledger row is what makes this the APPROVE path for executors
+  // that behave differently once a human has waited (D7 `timing:'instant'`) and
+  // what pins the idempotency key both approve surfaces share.
+  const execution = await execute(client, record.payload, { approvedActionId: actionId });
   await client.updateAction(actionId, {
     status: "executed",
     outcome: execution.outcome,

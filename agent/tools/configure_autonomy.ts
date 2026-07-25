@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AutonomyLevel } from "../lib/types";
 import { requireStore, isOwnerRole } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -58,6 +59,7 @@ export default defineTool({
     return "user-approval";
   },
   async execute({ level, guardrails }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const a = ctx.session.auth.current ?? ctx.session.auth.initiator;
     const { storeId, role } = requireStore(ctx);
     if (a?.principalType !== "user" || !isOwnerRole(role)) {

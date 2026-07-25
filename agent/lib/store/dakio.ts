@@ -53,6 +53,11 @@ import type {
   GrowIdea,
   GrowPost,
   InboxEvent,
+  InboxHandoverRequest,
+  InboxHandoverResult,
+  InboxReplyRequest,
+  InboxReplyResult,
+  InboxThread,
   JobKind,
   MemoryEntry,
   MemoryNamespace,
@@ -75,6 +80,7 @@ import type {
   TrendingProduct,
 } from "../types";
 import type { StoreClient } from "./client";
+import { InboxSendRefused } from "./client";
 import { DEFAULT_GUARDRAILS } from "../nova/autonomy";
 
 export class NotImplementedError extends Error {
@@ -98,6 +104,20 @@ interface RequestOptions {
   body?: unknown;
   /** Return null instead of throwing on 404 (for get-by-id). */
   nullOn404?: boolean;
+  /**
+   * Use THIS as the Idempotency-Key instead of a fresh uuid, so a caller that
+   * already owns a stable id for the logical write (the inbox reply's
+   * `novaActionId`) gets replay protection across process restarts too, not
+   * just across this call's own retries.
+   */
+  idempotencyKey?: string;
+  /**
+   * Statuses whose JSON body carries a machine-readable refusal
+   * (`{error|code}`) rather than a server fault — surfaced as
+   * {@link InboxSendRefused} so callers can act on the CODE instead of
+   * regex-ing an error string. Never retried: a 409 is an answer.
+   */
+  refusalOn?: number[];
 }
 
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
@@ -142,7 +162,7 @@ export class DakioStoreClient implements StoreClient {
     if (opts.body !== undefined) headers["content-type"] = "application/json";
     // Stable idempotency key per logical call, reused across retries so a
     // replayed write is deduped server-side (blueprint §Idempotency).
-    if (isWrite) headers["idempotency-key"] = crypto.randomUUID();
+    if (isWrite) headers["idempotency-key"] = opts.idempotencyKey ?? crypto.randomUUID();
 
     const url = this.url(path, opts.query);
     let lastErr: unknown;
@@ -167,6 +187,21 @@ export class DakioStoreClient implements StoreClient {
 
       if (res.status === 404 && opts.nullOn404) {
         return null as T;
+      }
+      // A declared refusal is an ANSWER, not a fault: never retried, and
+      // carried to the caller with its code intact.
+      if (opts.refusalOn?.includes(res.status)) {
+        const detail = await res.text().catch(() => "");
+        let code = String(res.status);
+        let message = detail.slice(0, 300);
+        try {
+          const parsed = JSON.parse(detail) as { error?: unknown; code?: unknown; message?: unknown };
+          code = String(parsed.code ?? parsed.error ?? code);
+          message = String(parsed.message ?? parsed.error ?? message);
+        } catch {
+          /* Non-JSON body: keep the raw text as the message. */
+        }
+        throw new InboxSendRefused(code, `Dakio ${method} ${path} refused: ${code} — ${message}`, res.status);
       }
       if (res.ok) {
         if (res.status === 204) return undefined as T;
@@ -722,6 +757,60 @@ export class DakioStoreClient implements StoreClient {
 
   async markEventProcessed(id: string): Promise<InboxEvent> {
     return this.request<InboxEvent>(`/api/v1/agent-data/inbox/${encodeURIComponent(id)}`, { method: "PATCH" });
+  }
+
+  // ==========================================================================
+  // Front Office — customer conversations (Stage 10, `/api/v1/inbox/*`)
+  //
+  // A separate router from `/api/v1/store` and `/api/v1/agent-data`, same
+  // per-tenant service token. The reply and handover routes are `w()`
+  // idempotent server-side keyed on the Idempotency-Key header, which is why
+  // both writes pass their `novaActionId` as the key rather than letting
+  // `request()` mint a throwaway uuid: a retry after a network timeout must
+  // not queue the message twice.
+  // ==========================================================================
+
+  async getInboxConversation(
+    conversationId: string,
+    opts?: { messages?: number },
+  ): Promise<InboxThread | null> {
+    return this.get<InboxThread | null>(
+      `/api/v1/inbox/conversations/${encodeURIComponent(conversationId)}`,
+      { messages: opts?.messages },
+      true,
+    );
+  }
+
+  async replyInThread(conversationId: string, input: InboxReplyRequest): Promise<InboxReplyResult> {
+    return this.request<InboxReplyResult>(
+      `/api/v1/inbox/conversations/${encodeURIComponent(conversationId)}/reply`,
+      {
+        method: "POST",
+        body: input,
+        idempotencyKey: input.novaActionId,
+        // The guard ladder answers 409 with a code; the server has already
+        // written the receipted blocked row by then.
+        //
+        // 429 joins them even though it is in {@link RETRYABLE}, because on
+        // THIS route it is not a transient: the server already did the D10
+        // rung-7 in-process re-take and, having failed it, wrote a receipted
+        // `rate:nova_send_budget` blocked row. Retrying past that would land a
+        // reply the ledger has already recorded as held back — one conversation
+        // with both a blocked row and a sent message is a lie either way round.
+        // `RATE_LIMITED` is a declared refusal code for exactly this reason.
+        refusalOn: [409, 429],
+      },
+    );
+  }
+
+  async handoverConversation(
+    conversationId: string,
+    input: InboxHandoverRequest,
+  ): Promise<InboxHandoverResult> {
+    return this.request<InboxHandoverResult>(
+      `/api/v1/inbox/conversations/${encodeURIComponent(conversationId)}/handover`,
+      { method: "POST", body: input, idempotencyKey: input.novaActionId },
+    );
   }
 
   // ==========================================================================

@@ -6,6 +6,7 @@ import { receiptSchema, updateCampaignPayload } from "../lib/nova/schemas";
 import { money } from "../lib/nova/format";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -18,6 +19,7 @@ export default defineTool({
       .describe("Attribution for the activity log; defaults to marketing."),
   }),
   async execute({ receipt, department, ...payload }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const campaign = await client.getCampaign(payload.campaignId);
     const name = campaign?.name ?? payload.campaignId;

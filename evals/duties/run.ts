@@ -2,7 +2,8 @@
  * Duty registry parity suite (PRD E-5, §6).
  *
  * The roster is a promise to the founder, so it gets checked like one. This
- * asserts the seed against the merchant prototype it was mined from (65 rows),
+ * asserts the seed against the merchant prototype it was mined from (65 rows,
+ * plus each phase's deliberate additions — see EXPECTED_TOTAL),
  * pins each deliberate curation edit so a future reader can tell an intentional
  * change from a drift, and — the part that actually matters — proves the
  * honesty mechanism: exactly four duties admit their door isn't built.
@@ -25,12 +26,23 @@ function check(name: string, condition: boolean, detail = ""): void {
   }
 }
 
+/**
+ * The roster grows only when a phase adds a duty ON PURPOSE, and every
+ * addition is recorded here so the total is never a mystery.
+ *
+ *   65  the curated merchant-prototype roster (Stages 0–9)
+ *   +2  Stage 10 module 02: support.inbox_replies, support.inbox_escalations
+ */
+const MINED_TOTAL = 65;
+const FRONT_OFFICE_DUTIES = 2;
+const EXPECTED_TOTAL = MINED_TOTAL + FRONT_OFFICE_DUTIES;
+
 /** The prototype's per-department totals, after the documented curation edits. */
 const EXPECTED_COUNTS: Record<string, number> = {
   ceo: 6,
   marketing: 10,
   sales: 8,
-  support: 6,
+  support: 8, // 6 mined + the 2 Front Office inbox duties
   product_research: 7,
   inventory: 5,
   shipping: 5,
@@ -49,15 +61,15 @@ const EXPECTED_NEEDS_DOOR = [
 
 function main(): void {
   console.log("\n[1] Roster shape");
-  check("65 duties total", DUTIES.length === 65, `got ${DUTIES.length}`);
+  check(`${EXPECTED_TOTAL} duties total`, DUTIES.length === EXPECTED_TOTAL, `got ${DUTIES.length}`);
   check(
     "per-department counts match the curated prototype",
     Object.entries(EXPECTED_COUNTS).every(([d, n]) => DUTIES.filter((x) => x.department === d).length === n),
     JSON.stringify(Object.fromEntries(Object.keys(EXPECTED_COUNTS).map((d) => [d, DUTIES.filter((x) => x.department === d).length]))),
   );
   check(
-    "counts sum to 65",
-    Object.values(EXPECTED_COUNTS).reduce((a, b) => a + b, 0) === 65,
+    `counts sum to ${EXPECTED_TOTAL}`,
+    Object.values(EXPECTED_COUNTS).reduce((a, b) => a + b, 0) === EXPECTED_TOTAL,
   );
   check("every department is a real NOVA_DEPARTMENTS key", DUTIES.every((d) => (NOVA_DEPARTMENTS as readonly string[]).includes(d.department)));
   check("every department has at least one duty", NOVA_DEPARTMENTS.every((d) => DUTIES.some((x) => x.department === d)));
@@ -148,12 +160,12 @@ function main(): void {
   const rollupL4 = dutyRollup(DUTIES, 4);
   check("rollup covers all 10 departments", Object.keys(rollupL4).length === 10);
   check(
-    "rollup totals sum to 65",
-    Object.values(rollupL4).reduce((s, r) => s + r.total, 0) === 65,
+    `rollup totals sum to ${EXPECTED_TOTAL}`,
+    Object.values(rollupL4).reduce((s, r) => s + r.total, 0) === EXPECTED_TOTAL,
   );
   check(
-    "at L4, all 65 duties are active (zero NEEDS DOOR after Stage 6)",
-    Object.values(rollupL4).reduce((s, r) => s + r.active, 0) === 65,
+    `at L4, all ${EXPECTED_TOTAL} duties are active (zero NEEDS DOOR after Stage 6)`,
+    Object.values(rollupL4).reduce((s, r) => s + r.active, 0) === EXPECTED_TOTAL,
     String(Object.values(rollupL4).reduce((s, r) => s + r.active, 0)),
   );
   const rollupL0 = dutyRollup(DUTIES, 0);

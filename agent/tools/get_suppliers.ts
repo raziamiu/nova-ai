@@ -2,12 +2,14 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { storeFor } from "../lib/store/resolve";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
     "List suppliers with reliability score, quality score, current PO delay days, and their product offers (enriched with product names, unit cost, lead time). Use for reorder decisions, supplier comparisons, and switching evaluations. Returns { count, suppliers } (max 50).",
   inputSchema: z.object({}),
   async execute(_input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const client = storeFor(requireStore(ctx).storeId);
     const [suppliers, products] = await Promise.all([
       client.listSuppliers(),

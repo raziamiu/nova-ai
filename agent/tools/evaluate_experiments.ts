@@ -2,12 +2,14 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { evaluateExperiments } from "../lib/memory/experiments";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
     "Evaluate every open experiment for this store against its target, mark each won / lost / inconclusive, and record the outcome to memory with provenance. Reflection runs this nightly; call it on demand when the owner asks how a test is doing.",
   inputSchema: z.object({}),
   async execute(_input, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     const results = await evaluateExperiments(requireStore(ctx).storeId);
     return {
       evaluated: results.length,

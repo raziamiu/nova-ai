@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { upsert } from "../lib/memory/service";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -17,6 +18,7 @@ export default defineTool({
     value: z.string().min(3).describe("The fact itself, one or two clear sentences."),
   }),
   async execute({ namespace, key, value }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     // The model chose namespace/key/value; the executor derives the tenant and
     // marks the source. Routing through the service embeds the entry for recall.
     const entry = await upsert(requireStore(ctx).storeId, {

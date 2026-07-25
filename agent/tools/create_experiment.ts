@@ -2,6 +2,7 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { requireStore } from "../lib/tenant";
 import { createExperiment } from "../lib/memory/experiments";
+import { requireFounderSession } from "../lib/customer/session";
 
 export default defineTool({
   description:
@@ -22,6 +23,7 @@ export default defineTool({
       .describe("Ids of the actions that enact this experiment (e.g. the update_campaign action)."),
   }),
   async execute({ hypothesis, metric, baseline, target, actionIds }, ctx) {
+    requireFounderSession(ctx); // D11: founder-plane tool, never a customer session
     return createExperiment(requireStore(ctx).storeId, {
       hypothesis,
       metric,
