@@ -559,7 +559,17 @@ export class DakioStoreClient implements StoreClient {
   }
 
   async upsertMemory(entry: MemoryUpsert): Promise<MemoryEntry> {
-    return this.request<MemoryEntry>("/api/v1/agent-data/memory", { method: "POST", body: entry });
+    // 422 is the redaction guard saying no (Stage 10 module 03, D10): the
+    // server refuses values carrying an NID, a card PAN or a one-time code.
+    // Declaring it a REFUSAL is what stops it being retried three times on the
+    // way to becoming an opaque transport error — the guard will never say yes,
+    // and `asMemoryRefusal` (agent/lib/memory/service.ts) needs the server's own
+    // code to build the sentence that tells the model why and not to try again.
+    return this.request<MemoryEntry>("/api/v1/agent-data/memory", {
+      method: "POST",
+      body: entry,
+      refusalOn: [422],
+    });
   }
 
   async deleteMemory(namespace: MemoryNamespace, key: string): Promise<boolean> {
