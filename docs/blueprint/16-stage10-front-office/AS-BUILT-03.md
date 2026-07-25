@@ -2,8 +2,9 @@
 
 **Status:** built, tests green, human verification pending (F-18…F-24 in
 [`docs/HUMAN-VERIFICATION-REQUIRED.md`](../../HUMAN-VERIFICATION-REQUIRED.md)).
-**Commits:** dakio-api `536f69e` (prologue) → `2df95a5` (streams) → `34612ba` (cross-stream fixes);
-nova-ai `9e6c3f7` → `8878d8a` → `79d5d83`. Branch `feat/front-office` in both.
+**Commits:** dakio-api `536f69e` (prologue) → `2df95a5` (streams) → `34612ba` (cross-stream fixes) →
+`6bcec58` (review fix pass) → `+1` (verifier fix pass); nova-ai `9e6c3f7` → `8878d8a` → `79d5d83` →
+`fc383d1` (review fix pass) → `+1`. Branch `feat/front-office` in both.
 
 > **Why this file exists.** The module doc ([`03-customer-identity-memory.md`](./03-customer-identity-memory.md))
 > is the plan and stays LAW on intent. This is what actually got built — the deltas, the decisions, and the
@@ -39,8 +40,15 @@ The confidence ladder of D2, with the design bias that **ambiguity resolves to "
 | HIGH (b) | customer states their own phone, matching exactly ONE Customer | `phone_stated` |
 | HIGH (c) | a `CustomerChannel` spoke already carries a customerId | `channel_backref` — at ingest, zero model involvement |
 | HIGH (d) | founder links manually | `founder_manual` |
-| MEDIUM | name + one context signal | proposal only — `proposedCustomerId`/`proposedBasis`, **grants zero data access** |
+| MEDIUM | name + one context signal | proposal only — `proposedCustomerId`/`proposedBasis`, **grants zero data access**. ⚠️ **NO PRODUCER** — see below |
 | NEVER | name alone, avatar, style, third-party phone, >1 variant match | no link, no proposal |
+
+⚠️ **The MEDIUM rung is built but unreachable.** `proposedCustomerId` is written only by
+`patchConversationHandler`, and no StoreClient method or tool sends that field — so Nova cannot author a
+proposal, and `linkByDigitCheck` therefore never has a candidate to verify against. The whole digit-verification
+flow (the question scripts, the one-attempt burn, the zero-leak fallback) is implemented and tested but can only
+be exercised by a hand-crafted PATCH. **This is why gate step 2 cannot pass.** Whoever needs it must decide
+whether to ship a propose path or defer the rung; do not assume it works because the code exists.
 
 Three things a later module must not undo:
 
@@ -77,13 +85,18 @@ emits `'resolved_recent'` — it has no source.
 `NovaPromise` stores what Nova **owes** (as distinct from memory, which stores what it believes).
 
 - Co-created inside the reply `$transaction`, **deleted with the send if that send is ever cancelled** — an
-  unsent promise was never made. All nine cancel sites reach `deletePromisesForOutbound` (five in
-  `inboxSender.js`'s `settle`, four in `meta.js`), each reading outbound ids *before* its `updateMany`.
-- **`kept` only on a Graph-confirmed send.** Because nothing on the wire says "this reply fulfils promise X",
-  keeping is two-phase: `PATCH /promises/:id` records the CLAIM, `inboxSender`'s confirmed send is the PROOF.
-  A claim against a still-queued send **arms** (`awaitingSend:true`, status stays `open`) rather than lying.
-  Never flip `kept` in `novaExecutors.send_inbox_reply` — that route returning 200 means QUEUED, and that
-  executor's own comment records what claiming delivery there cost last time.
+  unsent promise was never made. Every cancel path reaches `deletePromisesForOutbound`: the seven callers of
+  `inboxSender.js`'s `settle`, the zero-delivery exit that bypasses `settle`, and four sites in `meta.js`, each
+  reading outbound ids *before* its `updateMany` (an `updateMany` returns no ids).
+- **`kept` only on a Graph-confirmed send**, via a two-phase claim/proof, because nothing on the wire says
+  "this reply fulfils promise X" until the model sets `promiseId`:
+  - the CLAIM is recorded by whichever lane approved the reply — nova-ai's executor on the live lane,
+    `claimKeptBy` in `novaExecutors.send_inbox_reply` on the **Decision Desk** lane. Both are needed: the Desk
+    is the only lane that exists in shadow mode, and for a while it was missing, so approving the very draft
+    that answered a debt left it open for the sweep to card as broken.
+  - the PROOF is `onOutboundSent`, when Graph confirms a bubble.
+  Never call `stampKept` from an approve path — a 200 from `enqueueInboxReply` means QUEUED, and that
+  function's comment records what claiming delivery there cost last time. Use `claimKeptBy`.
 - Nightly sweep: `runPromiseSweep` → break overdue → recovery card → `runPromiseWindowLadder` →
   `purgeSettledPromises` (24-month retention, purge runs **last** so tonight's break is carded first).
 
@@ -167,6 +180,10 @@ The full 40 are in the session record; these are the ones a later module will tr
 | Founder promise capture has no route | module 08 | function shipped; module 08 owns the handover state machine |
 | `inbox.promise.kept_rate` not on the Support room | module 09 | function shipped; needs 09's roll-up |
 | Cross-platform merge review UI | v2 | detection + Decision shipped |
+| The MEDIUM proposal rung has no producer | unassigned | code + tests exist; nothing can author a proposal, so digit verification is unreachable (gate step 2) |
+| Merchant Inbox does not render the link | module 10 | `GET /api/meta/conversations` returns no `customerId` and no customer name, so a linked thread looks identical to an unlinked one (gate step 1) |
+| `inbox.c360.assembly_ms` P95 not computable | module 09 | `recordMetric` keeps a running SUM in an in-process Map — no histogram, no percentile, no HTTP read surface |
+| `keptRate` unreachable from nova-ai | module 09 | the server returns it on `GET /promises`; no nova-ai code reads it |
 | No out-of-window delivery route | — | `src/lib/sms.js` is OTP-only; broadcasts are prepared and held. **Do not build an sms lane and do not pretend one exists.** |
 
 ---
@@ -174,9 +191,9 @@ The full 40 are in the session record; these are the ones a later module will tr
 ## 6. Baselines and how to check them
 
 ```bash
-cd dakio-api && npm test            # 1103 tests, 1102 pass, 1 skipped, 0 fail
+cd dakio-api && npm test            # 1125 tests, 1124 pass, 1 skipped, 0 fail
 cd nova-ai   && npx tsc --noEmit    # 0 errors
-cd nova-ai   && npm run test:inbox  # 487 checks (identity 53 · c360 23 · promises 79 · privacy 33 + 299 base)
+cd nova-ai   && npm run test:inbox  # 518 checks (identity 58 · c360 32 · promises 96 · privacy 33 + 299 base)
 cd nova-ai   && npx eve info        # 0 errors, 0 warnings
 cd nova-ai   && npm run check:undo  # 16 verbs
 ```

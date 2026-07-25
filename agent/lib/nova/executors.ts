@@ -279,9 +279,11 @@ export const executors: Record<ActionType, Executor> = {
     const payload = sendInboxReplyPayload.parse(raw);
     // ---- the fulfilment half (module 03 D7) ---------------------------------
     //
-    // Which open promise, if any, THIS reply pays back. Read off `raw` rather
-    // than `payload` for a reason that is a gap, not a style choice — see the
-    // OWNER note below.
+    // Which open promise, if any, THIS reply pays back. Read off the PARSED
+    // payload: `promiseId` is a declared field on `sendInboxReplyPayload`, and
+    // it has to be — zod strips unknown keys, so reading `raw` would be the
+    // only way to see a field the schema does not declare, and a field the
+    // schema does not declare is one the model is never shown.
     //
     // `open → kept` has exactly two entry points server-side and both need a
     // `keptActionId`: `PATCH /promises/:id` records the claim, and

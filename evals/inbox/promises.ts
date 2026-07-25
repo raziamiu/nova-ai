@@ -326,9 +326,10 @@ export async function runPromisesSuite(): Promise<{ passed: number; failures: st
     check("the debt starts open", debt.status === "open");
 
     // Called the way `performAction` calls it: with the STORED payload object,
-    // not a zod-parsed one. `promiseId` rides that object — see the OWNER note
-    // in `send_inbox_reply` for the hops that still have to land before a model
-    // can put it there, which is why this corpus is the thing exercising it.
+    // which the executor re-parses. `promiseId` survives that parse only
+    // because it is a declared field on `sendInboxReplyPayload` — delete it
+    // there and this check goes red, which is exactly why this asserts through
+    // the real executor rather than around it.
     const paid = await executors.send_inbox_reply(demo, {
       ...one("courier bollo kal delivery hobe"),
       conversationId: CONV,
