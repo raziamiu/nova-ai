@@ -22,6 +22,7 @@ import {
   mergeCustomerRecordsPayload,
   publishSocialPostPayload,
   resolveTicketPayload,
+  scheduleFollowUpPayload,
   sendCustomerMessagePayload,
   sendInboxReplyPayload,
   switchSupplierPayload,
@@ -710,6 +711,71 @@ export const executors: Record<ActionType, Executor> = {
       targetRef: `customer:${result.survivorCustomerId}`,
     };
   },
+
+  /**
+   * Module 04 D7. Books a `followup` NovaJob and nothing else — the reply it
+   * will eventually compose is a separate `send_inbox_reply`, gated on its own,
+   * with a fresh NBA block because the world moves between the promise and the
+   * knock.
+   *
+   * The server owns everything that makes the commitment safe: it validates the
+   * delay against the journey's stage, shifts `dueAt` out of quiet hours,
+   * supersedes this conversation's existing nudge, and refuses a chain past two
+   * unanswered follow-ups. Those refusals arrive as {@link InboxSendRefused}
+   * and propagate — a follow-up the server declined must never be recorded as
+   * one Nova made, or the founder's commitments list shows a knock that will
+   * never come.
+   */
+  async schedule_follow_up(client, raw, context) {
+    const payload = scheduleFollowUpPayload.parse(raw);
+    // Same rule as `send_inbox_reply`: on the approve path the prepared row's
+    // id is the stable key both approve surfaces already agree on, so a Desk
+    // tap and a chat approve of one draft book ONE commitment. On the direct
+    // path no ledger row exists yet, so a fresh id is minted and the route's
+    // `w()` cache keys on it for the duration of this call's retries.
+    const approved = typeof context?.approvedActionId === "string" && context.approvedActionId.length > 0;
+    const scheduledByActionId = approved ? context!.approvedActionId! : randomUUID();
+    const result = await client.scheduleFollowup({
+      conversationId: payload.conversationId,
+      ...(payload.journeyId ? { journeyId: payload.journeyId } : {}),
+      delay: payload.delay,
+      reason: payload.reason,
+      plannedIntent: payload.plannedIntent,
+      scheduledByActionId,
+      // No `promiseId`, ever, from this path. It is not on the model's schema
+      // (see schemas.ts) because a nudge that carried one would survive the
+      // customer writing back — module 03's cancel hook skips promise-backed
+      // rows deliberately, and that exemption belongs to debts alone.
+    });
+    return {
+      outcome:
+        `Scheduled a follow-up on this conversation for ${result.dueAt} (${payload.delay}): ${payload.reason}.` +
+        (result.superseded
+          ? ` It replaces the follow-up that was already pending — one outstanding commitment per conversation.`
+          : ""),
+      undoable: true,
+      // `kind` is what dakio-api's `runUndo` dispatches on — it looks the
+      // inverse up in `UNDO[undoData.kind]` (`src/lib/novaExecutors.js`), NOT
+      // by verb name. An undoData without it reaches a founder pressing Undo on
+      // the Decision Desk as "No inverse is defined for undefined", which is
+      // the exact bug commit 79d5d83 fixed on `link_customer_identity` last
+      // module. The receiving half is `UNDO.cancel_followup`; this key is the
+      // only thing that connects the two.
+      //
+      // nova-ai's own `undoers` map below stays keyed by VERB name, because
+      // `scripts/check-undo-coverage.ts` matches undoer keys against executor
+      // names in both directions. Two maps, two keying schemes, both correct.
+      undoData: { kind: "cancel_followup", jobId: result.jobId },
+      // A commitment claims no revenue. The order it may eventually help close
+      // is attributed to the reply that closes it, under D11's direct-cause
+      // rule — a follow-up does not get credit for existing.
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: { jobId: result.jobId, dueAt: result.dueAt, superseded: result.superseded },
+      targetRef: `inbox_conversation:${payload.conversationId}`,
+    };
+  },
 };
 
 export const undoers: Partial<Record<ActionType, Undoer>> = {
@@ -783,5 +849,23 @@ export const undoers: Partial<Record<ActionType, Undoer>> = {
     const conversationId = String(undoData.conversationId);
     await client.unlinkCustomer(conversationId);
     return `Unlinked conversation ${conversationId} — the verified channel address was kept, only the identity join was removed.`;
+  },
+  /**
+   * Module 04 D7. Keyed by the VERB name, like every entry here; the stored
+   * `undoData.kind` is `cancel_followup`, which is what dakio-api's own `UNDO`
+   * map dispatches on. Same two-maps arrangement as the link above.
+   *
+   * `cancelled:false` is not a failure — it means the row settled before the
+   * founder pressed Undo (it fired, or a newer commitment superseded it, or the
+   * customer wrote back and the ingest hook cancelled it). The commitment is
+   * gone either way, so the sentence says which happened rather than reporting
+   * a no-op as a rollback.
+   */
+  async schedule_follow_up(client, undoData) {
+    const jobId = String(undoData.jobId);
+    const { cancelled } = await client.cancelFollowup(jobId);
+    return cancelled
+      ? `Cancelled the scheduled follow-up (job ${jobId}) — nothing will be sent, and the ledger row recording that it was scheduled stays, because it was.`
+      : `The follow-up (job ${jobId}) was already settled — fired, superseded, or cancelled when the customer wrote back — so there was nothing left to cancel.`;
   },
 };

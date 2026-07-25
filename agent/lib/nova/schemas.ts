@@ -368,6 +368,69 @@ export const mergeCustomerRecordsPayload = z.object({
     .describe("Why these two look like one person."),
 });
 
+/* ── Front Office (Stage 10 module 04) ──────────────────────────────────────
+ *
+ * The commitment verb. A follow-up is a PROMISE with a clock on it, so the
+ * payload names when, why, and what it expects to be about — and nothing else.
+ * The customer's number, name and address are not in it and must never be: the
+ * server resolves the thread from `conversationId` and reaches the person
+ * through the channel that already exists.
+ */
+
+/**
+ * The delays a follow-up may be booked at (D7). Byte-equal to `FollowupDelay`
+ * in types.ts and to the route's own allow-list — three copies of one taxonomy,
+ * because the model names the delay, zod rejects anything else, and Postgres
+ * stores the string. A value present in only two of the three is a delay that
+ * either cannot be chosen or cannot be booked.
+ *
+ * Closed, and short. The absent option is the important one: there is no
+ * "15m" and no free-form minutes field, because a model that can book a
+ * follow-up ten minutes out can build a pressure loop out of a customer who
+ * simply has not answered yet. `3d` is legal only in the delivered/retained
+ * stages; the NBA block's `allowedDelays` is what narrows the list per stage,
+ * and the ROUTE re-checks it — this enum is the outer bound, not the gate.
+ */
+export const FOLLOWUP_DELAYS = ["2h", "4h", "24h", "3d"] as const;
+
+export const scheduleFollowUpPayload = z.object({
+  conversationId: z
+    .string()
+    .min(1)
+    .describe("The conversation you are committing to come back to."),
+  journeyId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The journey id from the NBA block's `journey.id`. Omit it only when the block gave you none — the server resolves the thread either way.",
+    ),
+  delay: z
+    .enum(FOLLOWUP_DELAYS)
+    .describe(
+      "How long to wait. PICK FROM the NBA block's `allowedDelays` for this stage — anything else is refused server-side. There is deliberately no shorter option: chasing someone within the hour is pressure, not a follow-up.",
+    ),
+  reason: z
+    .string()
+    .min(5)
+    .describe(
+      "Why you are coming back, in one line the shop owner can read on their commitments list — 'size chart pathabo, XL stock check kore'. Not the message itself: you compose that when the follow-up fires and the world has moved.",
+    ),
+  plannedIntent: z
+    .enum(INBOX_INTENTS)
+    .describe(
+      "What you expect the follow-up to be about. It decides which room the work is attributed to, and it is a plan, not a commitment — the reply you actually send declares its own intent.",
+    ),
+  // NOT a model-settable field, and this is why: `promiseId` marks a job as
+  // module 03 debt repayment, which exempts it from supersession AND from the
+  // inbound cancel hook. A model that could set it here could make an ordinary
+  // nudge survive the customer writing back to say "thanks, sorted" — the exact
+  // barge-in the cancel hook exists to prevent. Promise-backed follow-ups are
+  // enqueued server-side by `novaPromises.js` inside the reply transaction; a
+  // reply pays a debt by setting `promiseId` on `sendInboxReplyPayload`, never
+  // by scheduling one here.
+});
+
 export const resolveTicketPayload = z.object({
   ticketId: z.string(),
   reply: z.string().min(10).describe("Reply to the customer, in the brand voice."),
@@ -454,6 +517,7 @@ export type SendInboxReplyPayload = z.infer<typeof sendInboxReplyPayload>;
 export type EscalateConversationPayload = z.infer<typeof escalateConversationPayload>;
 export type LinkCustomerPayload = z.infer<typeof linkCustomerPayload>;
 export type MergeCustomerRecordsPayload = z.infer<typeof mergeCustomerRecordsPayload>;
+export type ScheduleFollowUpPayload = z.infer<typeof scheduleFollowUpPayload>;
 export type ResolveTicketPayload = z.infer<typeof resolveTicketPayload>;
 export type CreatePurchaseOrderPayload = z.infer<typeof createPurchaseOrderPayload>;
 export type SwitchSupplierPayload = z.infer<typeof switchSupplierPayload>;

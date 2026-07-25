@@ -64,6 +64,13 @@ export const RISK_CLASS: Record<ActionType, RiskClass> = {
   // clears the join. It is also in NEVER_GATED, so this class is advisory for
   // it — the risk statement still belongs here for the ledger and the card.
   link_customer_identity: "low",
+  // Module 04. `low` because scheduling books a job row and nothing else: the
+  // reply it eventually composes is a separate `send_inbox_reply` through the
+  // full gate, and the undo cancels the job cleanly. Unlike the link above,
+  // this class is NOT advisory — `schedule_follow_up` is deliberately absent
+  // from `NEVER_GATED` (OD-6), so the tier dial and the guardrail branch really
+  // do judge it, and this is the risk they judge it at.
+  schedule_follow_up: "low",
   publish_social_post: "low",
   update_campaign: "medium",
   create_campaign: "medium",

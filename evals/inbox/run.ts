@@ -161,6 +161,13 @@ import { runIdentityLeakSuite } from "./identity";
 import { runPromisesSuite } from "./promises";
 import { runPrivacySuite } from "./privacy";
 
+// --- module 04: the NBA boundary corpus, wired the same way ------------------
+// Registered here in the PROLOGUE, while the file is still a boundary-only
+// stub, for the reason the four above were folded in: a corpus outside the
+// runner is a file, not a gate. Stream D fills the eligibility and choice
+// halves into a suite that is already running.
+import { runNbaSuite } from "./nba";
+
 const AURORA = "store-aurora";
 const BEACON = "store-beacon";
 const SECRET = "inbox-suite-secret";
@@ -1233,7 +1240,7 @@ async function main(): Promise<void> {
   //     way each time (no minutes logged; no lock ever matches; an executor
   //     that throws at runtime), so the registry completeness IS the test.
   console.log(
-    "\n[10] Verb registration (send_inbox_reply, escalate_conversation, link_customer_identity, merge_customer_records)",
+    "\n[10] Verb registration (send_inbox_reply, escalate_conversation, link_customer_identity, merge_customer_records, schedule_follow_up)",
   );
   {
     for (const verb of ["send_inbox_reply", "escalate_conversation"] as const) {
@@ -1251,11 +1258,11 @@ async function main(): Promise<void> {
     check("escalate_conversation is on the never-gated list", NEVER_GATED.has("escalate_conversation"));
     check("send_inbox_reply is NOT never-gated (the guardrail branch is its control)", !NEVER_GATED.has("send_inbox_reply"));
 
-    // Module 03's two verbs, through the same checklist. Same reasoning as
-    // above: each omission fails quietly and differently — no minutes logged,
-    // a no-touch lock that silently never matches, an executor that throws at
-    // call time — so registry completeness IS the test.
-    for (const verb of ["link_customer_identity", "merge_customer_records"] as const) {
+    // Module 03's two verbs and module 04's one, through the same checklist.
+    // Same reasoning as above: each omission fails quietly and differently — no
+    // minutes logged, a no-touch lock that silently never matches, an executor
+    // that throws at call time — so registry completeness IS the test.
+    for (const verb of ["link_customer_identity", "merge_customer_records", "schedule_follow_up"] as const) {
       check(`${verb}: RISK_CLASS entry`, typeof RISK_CLASS[verb] === "string", String(RISK_CLASS[verb]));
       check(`${verb}: executor registered`, typeof executors[verb] === "function");
       check(
@@ -1316,6 +1323,108 @@ async function main(): Promise<void> {
       "link_customer_identity never always-drafts (it is the never-gated one)",
       !ALWAYS_DRAFT.has("link_customer_identity"),
     );
+    // ---- module 04's verb: the pins that are NOT the same as module 03's ----
+    check(
+      "scheduling is low risk — it books a job row; the reply it will compose is gated on its own",
+      RISK_CLASS.schedule_follow_up === "low",
+      String(RISK_CLASS.schedule_follow_up),
+    );
+    check(
+      "a follow-up costs 1 founder-minute — the lowest entry, because it fires on most unresolved threads",
+      MINUTES_BY_ACTION.schedule_follow_up === 1,
+      String(MINUTES_BY_ACTION.schedule_follow_up),
+    );
+    // THE DIVERGENCE, PINNED. The module-04 doc calls this a bookkeeping verb
+    // that executes at every tier including T0 Shadow because it "sends nothing
+    // customer-visible". OD-6 overrode that: the scheduling sends nothing, its
+    // consequence does. Membership in NEVER_GATED would let a Shadow store —
+    // whose whole promise is that Nova only watches — accumulate real
+    // commitments nobody approved. If a later module adds it, this check is
+    // where that decision has to be argued.
+    check(
+      "schedule_follow_up is NOT never-gated (OD-6) — it schedules a customer touch, so the dial judges it",
+      !NEVER_GATED.has("schedule_follow_up"),
+    );
+    check(
+      "and it does not always-draft either — the tier dial and guardrails decide, verb by verb",
+      !ALWAYS_DRAFT.has("schedule_follow_up"),
+    );
+    check(
+      "schedule_follow_up has an engineered inverse (the undo cancels the job)",
+      typeof undoers.schedule_follow_up === "function",
+    );
+
+    // THE `kind` KEY, PROVED ON A REAL RUN. dakio-api's `runUndo` dispatches on
+    // `undoData.kind`, NOT on the verb name, so an undoData without it reaches
+    // a founder pressing Undo on the Decision Desk as "No inverse is defined
+    // for undefined" — the exact bug commit 79d5d83 fixed on
+    // `link_customer_identity` last module. A static read of the registry
+    // cannot see this; the executor has to actually return it.
+    {
+      resetStores();
+      const demo = storeFor(AURORA) as DemoStore;
+      const CONV = "conv-followup-undo";
+      demo.seedInboxConversation({
+        id: CONV,
+        messages: [{ direction: "in", actor: "customer", text: "XL ta ache?", id: "m1" }],
+      });
+      const booked = await executors.schedule_follow_up(demo, {
+        conversationId: CONV,
+        delay: "4h",
+        reason: "XL restock check kore janabo",
+        plannedIntent: "availability_check",
+      });
+      const undoData = (booked.undoData ?? {}) as Record<string, unknown>;
+      check("schedule_follow_up executes and reports itself undoable", booked.undoable === true);
+      check(
+        "its undoData carries kind:'cancel_followup' — the key dakio-api's runUndo dispatches on",
+        undoData.kind === "cancel_followup",
+        JSON.stringify(undoData),
+      );
+      check(
+        "…and the jobId the inverse needs, so the pair is actually connected",
+        typeof undoData.jobId === "string" && (undoData.jobId as string).length > 0,
+      );
+      check(
+        "the ledger row points at the thread, not at a customer record",
+        booked.targetRef === `inbox_conversation:${CONV}`,
+        String(booked.targetRef),
+      );
+      // D7's one-outstanding-per-conversation rule, end to end: a second
+      // booking supersedes the first rather than stacking two knocks on one
+      // person. `scheduledByActionId` differs per call (a fresh uuid on the
+      // direct path), so this is a genuine second decision, not a replay.
+      const second = await executors.schedule_follow_up(demo, {
+        conversationId: CONV,
+        delay: "24h",
+        reason: "kalke abar dekhbo",
+        plannedIntent: "availability_check",
+      });
+      const supersededId = ((second.after ?? {}) as Record<string, unknown>).superseded;
+      check(
+        "a second follow-up supersedes the first — one outstanding commitment per conversation",
+        supersededId === undoData.jobId,
+        String(supersededId),
+      );
+      check(
+        "and exactly one row is left due",
+        demo.listFollowups(CONV).filter((f) => f.status === "due").length === 1,
+      );
+      // The inverse really runs, and its honest second answer is pinned too: a
+      // commitment that already settled reports that it had nothing to cancel
+      // rather than claiming a rollback that did not happen.
+      const undone = await undoers.schedule_follow_up!(demo, undoData);
+      check("undoing a superseded follow-up says so instead of claiming a rollback", /already settled/.test(undone), undone);
+      const live = demo.listFollowups(CONV).find((f) => f.status === "due")!;
+      const cancelled = await undoers.schedule_follow_up!(demo, { kind: "cancel_followup", jobId: live.jobId });
+      check("undoing the live one really cancels it", /Cancelled the scheduled follow-up/.test(cancelled), cancelled);
+      check(
+        "…and leaves nothing due on the thread",
+        demo.listFollowups(CONV).every((f) => f.status !== "due"),
+      );
+      resetStores();
+    }
+
     check(
       "link_customer rides the shipped support.inbox_replies duty, so the owner's pause switch still stops it",
       DUTY_BY_KEY.get("support.inbox_replies")?.minLevel === 2,
@@ -1999,9 +2108,9 @@ async function main(): Promise<void> {
     resetStores();
   }
 
-  // --- module 03 corpora (D-33) ---
+  // --- module 03/04 corpora (D-33) ---
   // Run LAST and folded into the same totals, so `npm run test:inbox` is one
-  // gate with one number rather than four files somebody has to remember to
+  // gate with one number rather than five files somebody has to remember to
   // invoke. Each returns its own tally instead of exiting, and each failure is
   // prefixed with the corpus it came from so the report still says which suite
   // broke. `privacy` gate 1 SKIPS loudly (never fails) when dakio-api is not
@@ -2012,8 +2121,9 @@ async function main(): Promise<void> {
     ["customer-360", runC360Suite],
     ["undeclared-promise", runPromisesSuite],
     ["privacy", runPrivacySuite],
+    ["nba", runNbaSuite],
   ] as const) {
-    console.log(`\n─── module 03 corpus: ${label} ${"─".repeat(Math.max(0, 34 - label.length))}`);
+    console.log(`\n─── inbox corpus: ${label} ${"─".repeat(Math.max(0, 34 - label.length))}`);
     const result = await runSuite();
     passed += result.passed;
     for (const f of result.failures) failures.push(`[${label}] ${f}`);

@@ -564,6 +564,18 @@ export type ActionType =
    */
   | "link_customer_identity"
   | "merge_customer_records"
+  /**
+   * Stage 10 Front Office (module 04). Books a `followup` NovaJob that brings
+   * Nova BACK to this thread at a chosen delay. It is the only verb here whose
+   * whole effect is in the future: nothing customer-visible happens at T0, and
+   * the reply it eventually composes goes through `send_inbox_reply` and the
+   * full gate like any other.
+   *
+   * That is exactly why it is NOT in `NEVER_GATED` alongside
+   * `link_customer_identity` — see the set's own comment in authority.ts. What
+   * it schedules is a customer touch, so it is not bookkeeping.
+   */
+  | "schedule_follow_up"
   /** Founder-only (PRD 5.4): Nova may propose, never execute. */
   | "bulk_refund";
 
@@ -919,6 +931,18 @@ export interface InboxThread {
    * key the server sends and the client silently drops.
    */
   proposal: { basis: string } | null;
+  /**
+   * The server-computed Next-Best-Action block (module 04 D6), rendered
+   * TRUSTED beside `customer` for the same reason: dakio-api's `novaNba.js`
+   * assembles it from the journey row, the 360 and the guardrails — no part of
+   * it is a stranger's typing.
+   *
+   * OPTIONAL, not required, and that is deliberate: a dakio-api that predates
+   * module 04 simply does not send the key, and "this server has no journey
+   * engine" must stay distinguishable from "this thread has no journey". Both
+   * read as `null` to the model, but only one of them is a bug.
+   */
+  nba?: NbaBlock | null;
 }
 
 /** One human-sized bubble. 1–3 of these are a reply (canonical C-12). */
@@ -1045,6 +1069,173 @@ export interface PromiseSettleRequest {
   releasedReason?: string;
 }
 
+/* ── Front Office — lifecycle & NBA (Stage 10 module 04) ────────────────────
+ *
+ * Same rule as identity, one layer up: the SERVER decides. The journey stage is
+ * a deterministic reducer's output (D1.1 — "stage is code, never model
+ * output"), the eligible-candidate list is computed from it, and the model
+ * chooses among what it is handed. Nothing below is a shape nova-ai authors;
+ * these are the views of dakio-api rows the runtime reads and the two writes it
+ * is allowed to make.
+ */
+
+/**
+ * The delays a follow-up may be booked at (module 04 D7). Closed on purpose:
+ * the model picks from the list the NBA block hands it and cannot invent "in 10
+ * minutes", which is a pressure loop, not a follow-up.
+ *
+ * Mirrored by `FOLLOWUP_DELAYS` in `nova/schemas.ts` (the zod enum the model is
+ * validated against) and by the route's own allow-list server-side — the same
+ * three-copies-of-one-taxonomy arrangement as {@link PromiseKind}, and for the
+ * same reason: the model names it, zod rejects anything else, dakio-api stores
+ * the string.
+ */
+export type FollowupDelay = "2h" | "4h" | "24h" | "3d";
+
+/**
+ * One row of the NBA candidate list. `eligible:false` always carries a `reason`
+ * from dakio-api's closed reason-code set (`stage_not_X`, `window_closed`,
+ * `quiet_hours`, `touch_budget_reached`, `unanswered_streak`, `no_consent`,
+ * `opted_out`, …) — an ineligible candidate with no reason is one the model can
+ * only guess about, and it will guess out loud to the customer.
+ *
+ * `action` is typed `string`, not a union, deliberately. The candidate
+ * vocabulary is closed and VERSIONED server-side (D6, `nbaVersion`), and a
+ * fourth hand-copy of it here would be a taxonomy with no CI check keeping it
+ * honest — the failure mode would be a candidate dakio-api computes and nova-ai
+ * silently type-errors on. Read it, do not re-declare it.
+ */
+export interface NbaCandidate {
+  action: string;
+  eligible: boolean;
+  /** Closed reason code. Present whenever `eligible` is false. */
+  reason?: string;
+  /** What `evaluateAuthority` WILL do — advisory mirror, never the gate itself. */
+  gate?: "auto" | "draft" | "refuse";
+  /** For `schedule_follow_up`: which delays are legal in this stage. */
+  allowedDelays?: FollowupDelay[];
+  /** Verb-specific limits the server already applied (e.g. discount bounds). */
+  bounds?: Record<string, unknown>;
+  /** Founder-facing note about the cap that let this through. */
+  capNote?: string;
+}
+
+/**
+ * The D6 context block, injected every turn and on every fired follow-up.
+ *
+ * Assembled ONLY by dakio-api (`src/lib/novaNba.js`), which is also the single
+ * redaction point: like the 360, nothing customer-authored belongs in it — it
+ * carries flags, ids and server-computed state, and the customer's own words
+ * stay in the fenced transcript where authorship is visible. A field added here
+ * that echoes back what the customer typed would cross the trust boundary
+ * silently, because this block is rendered UNFENCED.
+ *
+ * The nested shapes dakio-api owns outright (`stageData`, `priors`) stay open
+ * for the same reason `InboxThread.customer` does: naming them here would freeze
+ * a serializer this repo does not write.
+ */
+export interface NbaBlock {
+  /** Bumped when the candidate vocabulary or reason codes change. */
+  nbaVersion: number;
+  journey: {
+    /** The id the `intent-observed` callback is posted against. */
+    id: string;
+    stage: string;
+    /** Fixed per-stage string (D11) — what "forward" means here. */
+    stageGoal: string;
+    enteredAt: string;
+    hoursInStage: number;
+    /** Where an `at_risk` journey returns to once it resolves. */
+    resumeStage: string | null;
+    stageData: Record<string, unknown>;
+  };
+  customer: {
+    /** false for stranger/inquirer — an unlinked thread is the honest default. */
+    known: boolean;
+    segment: string | null;
+    ordersCount: number;
+    ltvBdt: number;
+    riskLevel: string | null;
+    language: string | null;
+    openOrder: Record<string, unknown> | null;
+    /** Open `NovaPromise` rows (module 03) — what Nova already owes. */
+    promises: { promiseId: string; text: string; dueAt: string }[];
+  };
+  /** Meta's 24h window, as dakio-api computed it. Past = no sends, ever. */
+  window: { open: boolean; expiresAt: string | null };
+  quietHours: { quietNow: boolean; tz: string; nextAllowedAt: string | null };
+  touchBudget: { proactiveUsedThisWeek: number; max: number; unansweredStreak: number };
+  /** Follow-ups already booked on this thread — the founder sees the same list. */
+  commitments: { jobId: string; dueAt: string; note: string }[];
+  candidates: NbaCandidate[];
+  /** Ledger-derived counts, `sample`-marked so thin data reads as thin. */
+  priors: Record<string, unknown>;
+}
+
+/**
+ * Body of `POST /api/v1/inbox/followups` (module 04 D7).
+ *
+ * `scheduledByActionId` is BOTH the receipt correlation id and the route's
+ * `w()` idempotency key (sent as the `Idempotency-Key` header, since that is
+ * what `novaIdempotency.js` reads — a body field named "key" would key nothing).
+ * A retry after a network timeout must not book two commitments for one
+ * decision.
+ */
+export interface ScheduleFollowupRequest {
+  conversationId: string;
+  /** From the NBA block. Null when the thread has no journey row yet. */
+  journeyId?: string | null;
+  delay: FollowupDelay;
+  /** Why Nova is coming back — founder-facing, lands on the commitments list. */
+  reason: string;
+  /** The intent the follow-up expects to serve; decides its department. */
+  plannedIntent: string;
+  scheduledByActionId: string;
+  /**
+   * Module 03's debts ride the same job kind (canonical C-15). Set ONLY by a
+   * promise-fulfilment producer: a job carrying it is never superseded by an
+   * NBA nudge and never cancelled as one, because a customer writing back
+   * cancels a nudge but does not settle a debt.
+   */
+  promiseId?: string;
+}
+
+/**
+ * `superseded` names the job this one replaced — one outstanding NBA follow-up
+ * per conversation (D7). It is `null`, not absent, when nothing was replaced:
+ * "nothing to supersede" and "this server does not supersede" must not read the
+ * same on a receipt.
+ */
+export interface ScheduleFollowupResult {
+  jobId: string;
+  dueAt: string;
+  superseded: string | null;
+}
+
+/**
+ * Body of `POST /api/v1/inbox/journeys/:id/intent-observed` (module 04 D5
+ * pass 2 / D12) — one callback per turn.
+ *
+ * This is how a MODEL judgement becomes a DETERMINISTIC transition without the
+ * model ever setting a stage: it reports the intent it classified and the NBA
+ * candidate it chose, and the server's table decides what that means. Sending
+ * `nbaAction: "do_nothing"` is what makes chosen silence countable
+ * (`journey.silences_chosen`) instead of indistinguishable from a dropped turn.
+ */
+export interface IntentObservedRequest {
+  intent: string;
+  /** The inbound this turn answered. Idempotency is per (journeyId, messageId). */
+  messageId: string;
+  nbaAction?: string;
+  nbaReason?: string;
+}
+
+/** What the reducer's second pass did with it — stage AFTER, plus what moved. */
+export interface IntentObservedResult {
+  stage: string;
+  transitions: { fromStage: string | null; toStage: string; cause: string }[];
+}
+
 // ---------------------------------------------------------------------------
 // Proactive job queue (Phase 05). Per-tenant daily rhythm: a JobDef is the
 // tenant's cadence config for a job kind (edited by the founder eventually —
@@ -1085,7 +1276,19 @@ export type JobKind =
   // `TEMPLATES` map are routing tripwires, not instructions.
   | "promise_sweep"
   | "identity_merge_sweep"
-  | "conversation_distill";
+  | "conversation_distill"
+  // Stage 10 module 04: the nightly journey pass — dormancy, retained
+  // promotion, delivery stagnation, slot-filling abandonment, refill windows,
+  // review arming. Server-side for the same reason as the three above, and for
+  // one more: the stage machine is a deterministic reducer (D1.1 — "stage is
+  // code, never model output"), so handing it to a session would be handing the
+  // model the one thing module 04 exists to keep away from it. Its entry in
+  // `TEMPLATES` is a routing tripwire, not instructions.
+  //
+  // It is the only one of the four with a cron: dakio-api's `PLATFORM_JOB_DEFS`
+  // runs it daily on the PLATFORM timezone, not the tenant's. Pausing it is a
+  // stored `NovaJobDef{enabled:false}` shadowing that default.
+  | "journey_sweep";
 export type JobStatus = "due" | "leased" | "done" | "failed" | "skipped";
 
 export interface NovaJobDef {

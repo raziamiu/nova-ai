@@ -51,12 +51,15 @@ import type {
   InboxReplyRequest,
   InboxReplyResult,
   InboxThread,
+  IntentObservedRequest,
+  IntentObservedResult,
   JobKind,
   LinkCustomerRequest,
   LinkCustomerResult,
   MemoryEntry,
   MemoryNamespace,
   MemoryUpsert,
+  NbaBlock,
   NovaExperiment,
   NovaJob,
   NovaJobDef,
@@ -69,6 +72,8 @@ import type {
   Product,
   PromiseSettleRequest,
   PurchaseOrder,
+  ScheduleFollowupRequest,
+  ScheduleFollowupResult,
   SocialPost,
   Supplier,
   SupportTicket,
@@ -391,6 +396,67 @@ export interface StoreClient {
     conversationsMoved: number;
     promisesMoved: number;
   }>;
+
+  // ---- Front Office — lifecycle & NBA (Stage 10, module 04) ----
+  //
+  // Same rule again, one layer up: the SERVER decides what forward means. The
+  // journey stage is a deterministic reducer's output and the eligible-candidate
+  // list is computed from it, so Nova reads a scaffold it did not build and
+  // chooses INSIDE it. Nothing here sets a stage, and nothing here sends: the
+  // one write that touches a customer books a job for later, and the reply that
+  // job eventually composes goes through `replyInThread` and the full gate like
+  // any other.
+
+  /**
+   * Read the D6 NBA block for a thread: stage, goal, window, quiet hours, touch
+   * budget, the eligible candidates and why the rest are not.
+   *
+   * `null` is a real answer, not a fault, and it means one of two honest
+   * things — this thread has no journey row yet (nothing real has happened to
+   * it), or this server predates module 04. Callers must treat a missing block
+   * as "no scaffold, answer the person anyway", never as a reason to refuse: a
+   * customer waiting for a price does not care that the lifecycle engine is
+   * down.
+   */
+  getNba(conversationId: string): Promise<NbaBlock | null>;
+  /**
+   * Book a follow-up: a `followup` NovaJob at `now + delay`, quiet-hour
+   * shifted, superseding this conversation's existing NBA nudge if it has one.
+   *
+   * The server validates the delay against the journey's stage and rejects a
+   * chain past `chainCount` 2 — after two unanswered follow-ups Nova stops
+   * until the customer comes back. Those refusals arrive as
+   * {@link InboxSendRefused}, because they are ANSWERS about what is legal, not
+   * transport faults to retry.
+   */
+  scheduleFollowup(input: ScheduleFollowupRequest): Promise<ScheduleFollowupResult>;
+  /**
+   * Cancel a booked follow-up — the inverse of `scheduleFollowup`, and the only
+   * thing the `schedule_follow_up` undoer can call.
+   *
+   * `cancelled:false` means the row was already settled (fired, superseded, or
+   * cancelled by the customer writing back). That is an outcome, not an error:
+   * the commitment is gone either way, which is what the founder asked for.
+   *
+   * ⚠️ SERVER COUNTERPART NOT YET BUILT. This needs the service-plane
+   * `POST /api/v1/inbox/followups/:jobId/cancel` beside module 04's
+   * merchant-plane `POST /api/nova/followups/:jobId/cancel` — same `updateMany`,
+   * `lastError:'cancelled:undo'`. Declared here because the undo cannot exist
+   * without it: `schedule_follow_up` returns `undoable:true`, and
+   * `scripts/check-undo-coverage.ts` requires an engineered inverse, not a
+   * comment promising one.
+   */
+  cancelFollowup(jobId: string): Promise<{ cancelled: boolean }>;
+  /**
+   * Report the turn back to the reducer (D5 pass 2, D12): the intent the model
+   * classified and the NBA candidate it chose.
+   *
+   * This is the ONLY way a model judgement becomes a stage transition, and it
+   * still never sets one — the server's table reads the intent slug and decides.
+   * Posting `nbaAction: "do_nothing"` is what makes chosen silence a counted
+   * row rather than a turn that looks dropped.
+   */
+  postIntentObserved(journeyId: string, input: IntentObservedRequest): Promise<IntentObservedResult>;
 
   // ---- Proactive job queue (Phase 05) ----
 

@@ -37,6 +37,14 @@ import { isCustomerSession, type CustomerSessionContext } from "./principal";
  * resolve — the model never picks whom to link to, so the widest failure this
  * opens is "no match", not "the wrong person's history".
  *
+ * `schedule_follow_up` joined in module 04 (D7). Also customer-plane on
+ * purpose: deciding to check back happens mid-conversation, in the same breath
+ * as "achha, ami dekhe janai". It books a job and sends nothing — the reply it
+ * eventually composes is a separate `reply_in_thread` through the same gate —
+ * and the server owns the delay bounds, the quiet hours, the one-per-thread
+ * rule and the cancel-on-inbound, so the widest failure this opens is a
+ * reminder nobody needed.
+ *
  * `remember` is deliberately still NOT here even though it is shipped and
  * module 03 has landed: a customer can dictate a "brand note" that renders back
  * as trusted shop fact in every later session, so customer memory is written by
@@ -49,6 +57,7 @@ export const CUSTOMER_SLIM_TOOLS: readonly string[] = [
   "flag_handover",
   "get_products",
   "link_customer",
+  "schedule_follow_up",
 ];
 
 /**

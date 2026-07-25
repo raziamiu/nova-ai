@@ -53,16 +53,30 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
     "A customer conversation has undelivered inbound messages. Re-read the " +
     "unprocessed inbox events for this conversation before doing anything.",
 
-  // Defensive dead path, same as `inbox_reply` above and for the same reason:
-  // a promise-backed `followup` is routed by `dispatchJobToChannel` back into
-  // `customer:inbox:<conversationId>`, so the fulfilment turn carries the whole
-  // thread rather than starting cold on the founder plane. Kept here only so
-  // the record stays total over JobKind; if this text ever reaches a session,
-  // the routing broke (or module 04 landed a non-promise follow-up on this kind
-  // without giving it a prompt).
+  // A ROUTING TRIPWIRE, not instructions — and it had to become one in module
+  // 04. Every `followup` that carries a `conversationId` is routed by
+  // `dispatchJobToChannel` into `customer:inbox:<conversationId>`, whether it
+  // is module 03's promise repayment or module 04's NBA nudge, so nothing that
+  // has a thread reaches this text.
+  //
+  // What used to be here was the promise-fulfilment instruction ("A promise you
+  // made to a customer is coming due…"), written when the dispatcher branched
+  // on `promiseId != null` and NBA nudges were expected to fall through to the
+  // founder plane. Under that arrangement a nudge with no promiseId opened a
+  // `job:<id>` founder session and was handed promise copy for a promise that
+  // did not exist — the model would then go looking for the debt it was told it
+  // owed. Module 04 widened the branch (G-10); this text stopped being a
+  // fallback and became the fault report it always should have been.
+  //
+  // A `followup` that lands here therefore has NO conversationId, which means
+  // it was enqueued malformed. There is no thread to read and no customer to
+  // answer, so it asks for nothing.
   followup:
-    "A promise you made to a customer is coming due. Read the thread with " +
-    "get_conversation, gather the answer with tools, and only then reply.",
+    "A followup job reached a founder-plane session. Every follow-up that has a " +
+    "conversation is routed into that conversation's own session " +
+    "(`dispatchJobToChannel`, agent/channels/internal.ts); reaching this text " +
+    "means this one carries no conversationId and was enqueued malformed. Do " +
+    "nothing: touch no customer, no record and no ledger, and report the fault.",
 
   // Defensive dead paths too — for a STRONGER reason than the two above, which
   // at least reach nova-ai and are merely routed elsewhere within it. These
@@ -79,18 +93,22 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
   // engineer extending the job system reads, so a false claim here is how
   // module 04/09 gets designed on a premise the server contradicts.
   //
-  // STILL WRONG NEXT DOOR: the twin comment on `JobKind` (agent/lib/types.ts,
-  // above `promise_sweep`) makes the same claim — "All three run as ordinary
-  // `job:<id>` founder-plane sessions (priority 6)" — and was outside this fix
-  // pass's file scope. OWNER: types.ts. Correct it there before treating either
-  // registry as describing model work.
+  // (The twin comment on `JobKind` in agent/lib/types.ts, which used to make
+  // the opposite claim, has since been corrected to match. Both registries now
+  // say the same true thing.)
   //
   // None joins FILES_REPORT either: the sweeps author Decisions and the
   // distiller writes memory, so a filed report would be a third copy of work
   // that already has a home.
+  //
+  // Module 04's `journey_sweep` is the fourth, on the strongest version of the
+  // argument yet: the stage machine is a deterministic reducer over DB events
+  // (D1.1 — "stage is code, never model output"), so handing it to a session
+  // would hand the model the one thing the module exists to keep away from it.
   promise_sweep: serverSideLane("promise_sweep"),
   identity_merge_sweep: serverSideLane("identity_merge_sweep"),
   conversation_distill: serverSideLane("conversation_distill"),
+  journey_sweep: serverSideLane("journey_sweep"),
 
   morning_report:
     "It is morning report time. Load the morning-report skill and follow it " +

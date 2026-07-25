@@ -46,6 +46,8 @@ import type {
   InboxReplyRequest,
   InboxReplyResult,
   InboxThread,
+  IntentObservedRequest,
+  IntentObservedResult,
   JobKind,
   LinkCustomerRequest,
   LinkCustomerResult,
@@ -53,6 +55,7 @@ import type {
   MemoryNamespace,
   MemoryUpsert,
   MorningBrief,
+  NbaBlock,
   NovaExperiment,
   NovaJob,
   NovaJobDef,
@@ -65,6 +68,8 @@ import type {
   PromiseKind,
   PromiseSettleRequest,
   PurchaseOrder,
+  ScheduleFollowupRequest,
+  ScheduleFollowupResult,
   SocialPost,
   StoreSeed,
   Supplier,
@@ -99,6 +104,10 @@ const PRIORITY_BY_KIND: Record<JobKind, number> = {
   promise_sweep: 6,
   identity_merge_sweep: 6,
   conversation_distill: 6,
+  // Stage 10 module 04: the nightly journey pass. Same band and the same
+  // argument — nobody is waiting on a dormancy recalculation, and it runs
+  // server-side in dakio-api rather than as model work.
+  journey_sweep: 6,
   cart_sweep: 5,
   pulse: 9,
 };
@@ -126,6 +135,20 @@ function demoNormalizePhone(raw: string): string {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * The bookable follow-up delays (module 04 D7), in milliseconds. Keyed by the
+ * same four strings as `FOLLOWUP_DELAYS` in `nova/schemas.ts` and
+ * `FollowupDelay` in types.ts; an unknown key is a refusal here, not a default,
+ * because silently rounding "in 10 minutes" to something legal is how a
+ * pressure loop gets built out of a validation shortcut.
+ */
+const FOLLOWUP_DELAY_MS: Record<string, number> = {
+  "2h": 2 * 60 * 60 * 1000,
+  "4h": 4 * 60 * 60 * 1000,
+  "24h": DAY_MS,
+  "3d": 3 * DAY_MS,
+};
+
+/**
  * One demo conversation: the thread row, its transcript, and the queued sends.
  * Kept OUT of `StoreSeed` deliberately — a seeded dataset would imply real
  * customers wrote in, and the demo backend has no Meta webhook. Threads exist
@@ -137,6 +160,15 @@ interface DemoInboxThread {
   customer: Record<string, unknown> | null;
   /** Module 03 D2: basis-only, and never the candidate's id or data. */
   proposal: { basis: string } | null;
+  /**
+   * Module 04 D6. Seeded, never computed — for exactly the reason `customer`
+   * is: dakio-api's `novaNba.js` derives this from a journey row, the 360 and
+   * the tenant's guardrails, and a demo that assembled a plausible one would be
+   * inventing the eligibility decisions the whole module exists to make
+   * server-side. Unseeded it is `null`, which is the honest reading of a
+   * backend with no journey engine.
+   */
+  nba: NbaBlock | null;
   /**
    * Module 03 provenance. Internal demo state, NOT part of the wire view —
    * `conversationOut` does not expose which rung of the ladder wrote the join,
@@ -172,6 +204,12 @@ export interface DemoInboxSeed {
    * call — so an unlinked-but-proposed thread is only reachable by seeding one.
    */
   proposal?: { basis: string } | null;
+  /**
+   * Module 04 D6. Seedable for the same reason `customer` is: the block is
+   * dakio-api's to compute, so a suite that needs a thread with a stage and a
+   * candidate list hands one over rather than asking this backend to invent it.
+   */
+  nba?: NbaBlock | null;
   messages?: {
     direction: "in" | "out";
     actor: string;
@@ -201,6 +239,37 @@ export interface DemoPromiseSeed {
   status?: InboxPromise["status"];
 }
 
+/**
+ * One booked follow-up (module 04 D7). The demo's stand-in for the `followup`
+ * NovaJob row dakio-api writes — same fields the founder's commitments list
+ * renders, and the same two that decide its fate: `promiseId` (exempt from
+ * supersession and from the inbound cancel) and `status`.
+ */
+export interface DemoFollowup {
+  jobId: string;
+  conversationId: string;
+  journeyId: string | null;
+  dueAt: string;
+  reason: string;
+  plannedIntent: string;
+  scheduledByActionId: string;
+  /** Non-null = module 03 debt repayment, never an NBA nudge. */
+  promiseId: string | null;
+  status: "due" | "superseded" | "cancelled";
+  /** The job this one replaced, if any. */
+  superseded: string | null;
+}
+
+/** One turn-end `intent-observed` callback (module 04 D5 pass 2 / D12). */
+export interface DemoIntentObservation {
+  journeyId: string;
+  intent: string;
+  messageId: string;
+  nbaAction: string | null;
+  nbaReason: string | null;
+  at: string;
+}
+
 export class DemoStore implements StoreClient {
   private readonly data: StoreSeed;
   private idCounter = 9000;
@@ -216,6 +285,14 @@ export class DemoStore implements StoreClient {
    * answers `matched:false`.
    */
   private readonly customerPhones: { phone: string; customerId: string }[] = [];
+  /**
+   * The commitments ledger (module 04 D7). Empty until a follow-up is booked —
+   * a demo store that started with pending commitments would be a store that
+   * owes customers things nobody promised.
+   */
+  private readonly followups: DemoFollowup[] = [];
+  /** Every `intent-observed` callback this store received, in order. */
+  private readonly intentObservations: DemoIntentObservation[] = [];
 
   constructor(seed?: StoreSeed) {
     this.data = seed ?? createSeed(Date.now());
@@ -1067,6 +1144,7 @@ export class DemoStore implements StoreClient {
       messages,
       customer: seed.customer ?? null,
       proposal: seed.proposal ?? null,
+      nba: seed.nba ?? null,
       // A seeded link is a human writing the join by hand, which is exactly
       // what `founder_manual` means — the one rung of the ladder a demo can
       // honestly claim. `linkCustomer` overwrites it with the rung it used.
@@ -1080,6 +1158,7 @@ export class DemoStore implements StoreClient {
       messages: thread.messages,
       customer: thread.customer,
       proposal: thread.proposal,
+      nba: thread.nba,
     };
   }
 
@@ -1098,6 +1177,9 @@ export class DemoStore implements StoreClient {
       // A linked thread has nothing to propose — the proposal is cleared on
       // link or on mismatch, and it is never a substitute for one.
       proposal: thread.conversation.customerId === null ? thread.proposal : null,
+      // Module 04. Handed back as-is: dakio-api embeds the same block it would
+      // return from `GET /nba/:conversationId`, assembled once per read.
+      nba: thread.nba,
     };
   }
 
@@ -1449,6 +1531,149 @@ export class DemoStore implements StoreClient {
       conversationsMoved,
       promisesMoved,
     };
+  }
+
+  // ---- Front Office — lifecycle & NBA (Stage 10, module 04) ----
+  //
+  // The demo plays the COMMITMENT half in full — booking, idempotency,
+  // supersession, the promise-backed exemption, cancellation — because those
+  // are rules, and a rule this backend does not enforce is a rule an eval
+  // cannot see broken.
+  //
+  // What it deliberately does NOT play, and says so at each site rather than
+  // faking it: the NBA block itself (dakio-api derives it from a journey row,
+  // the 360 and the tenant's guardrails), quiet-hour shifting (no tenant
+  // timezone here), the `chainCount ≤ 2` cap (the count lives on the job rows
+  // dakio-api keeps), and the D4 transition table (the reducer is the server's,
+  // by D1.1 — "stage is code, never model output"). A demo that guessed any of
+  // them would be guessing exactly the thing module 04 exists to compute.
+
+  async getNba(conversationId: string): Promise<NbaBlock | null> {
+    // A thread this backend has never seen and a thread with no journey row
+    // answer the same way, and that is right: both mean "no scaffold", and the
+    // caller's contract is to answer the person anyway.
+    return this.inbox.get(conversationId)?.nba ?? null;
+  }
+
+  async scheduleFollowup(input: ScheduleFollowupRequest): Promise<ScheduleFollowupResult> {
+    const thread = this.inbox.get(input.conversationId);
+    if (!thread) throw new Error(`Conversation not found: ${input.conversationId}`);
+
+    // The route is `w()`-idempotent on `scheduledByActionId` (it rides the
+    // Idempotency-Key header). Replaying one decision must return the SAME
+    // commitment, not book a second one and supersede the first — that would
+    // read as Nova changing its mind on a network retry.
+    const replay = this.followups.find((f) => f.scheduledByActionId === input.scheduledByActionId);
+    if (replay) {
+      return { jobId: replay.jobId, dueAt: replay.dueAt, superseded: replay.superseded };
+    }
+
+    const ms = FOLLOWUP_DELAY_MS[input.delay];
+    if (ms === undefined) {
+      // Not an Error: the route answers 409 with a code, because "that delay is
+      // not legal here" is an ANSWER the model should read and pick again from.
+      throw new InboxSendRefused(
+        "FOLLOWUP_DELAY",
+        `"${input.delay}" is not one of the bookable delays (${Object.keys(FOLLOWUP_DELAY_MS).join(" | ")}).`,
+      );
+    }
+    // dueAt is `now + delay` and nothing else here. dakio-api additionally
+    // shifts it out of the tenant's quiet hours; this backend has no timezone
+    // to shift against, so it returns the unshifted time rather than a
+    // plausible-looking one an eval would read as proof the shift works.
+    const dueAt = new Date(Date.parse(this.now()) + ms).toISOString();
+
+    // D7 supersession: ONE outstanding NBA nudge per conversation. Rows
+    // carrying a `promiseId` are exempt and stay due — a customer coming back
+    // cancels a nudge, but a debt is only settled by paying it (module 03 §4.1,
+    // the rule `meta.js`'s cancel hook carries in a comment).
+    let superseded: string | null = null;
+    for (const row of this.followups) {
+      if (row.conversationId !== input.conversationId) continue;
+      if (row.status !== "due") continue;
+      if (row.promiseId !== null) continue;
+      row.status = "superseded";
+      superseded = row.jobId;
+    }
+
+    const booked: DemoFollowup = {
+      jobId: this.nextId("job"),
+      conversationId: input.conversationId,
+      journeyId: input.journeyId ?? null,
+      dueAt,
+      reason: input.reason,
+      plannedIntent: input.plannedIntent,
+      scheduledByActionId: input.scheduledByActionId,
+      promiseId: input.promiseId ?? null,
+      status: "due",
+      superseded,
+    };
+    this.followups.push(booked);
+    return { jobId: booked.jobId, dueAt: booked.dueAt, superseded };
+  }
+
+  async cancelFollowup(jobId: string): Promise<{ cancelled: boolean }> {
+    const row = this.followups.find((f) => f.jobId === jobId);
+    // A jobId this store never issued is a caller bug, not an outcome — unlike
+    // an already-settled row, which is the ordinary race the undo button loses.
+    if (!row) throw new Error(`Followup not found: ${jobId}`);
+    if (row.status !== "due") return { cancelled: false };
+    row.status = "cancelled";
+    return { cancelled: true };
+  }
+
+  async postIntentObserved(
+    journeyId: string,
+    input: IntentObservedRequest,
+  ): Promise<IntentObservedResult> {
+    const thread = [...this.inbox.values()].find((t) => t.nba?.journey.id === journeyId);
+    if (!thread?.nba) throw new Error(`Journey not found: ${journeyId}`);
+    // Idempotent per (journeyId, messageId): one turn answers one inbound, and
+    // a replayed callback must not record a second `do_nothing` — that marker
+    // is what `journey.silences_chosen` counts.
+    const seen = this.intentObservations.find(
+      (o) => o.journeyId === journeyId && o.messageId === input.messageId,
+    );
+    if (!seen) {
+      this.intentObservations.push({
+        journeyId,
+        intent: input.intent,
+        messageId: input.messageId,
+        nbaAction: input.nbaAction ?? null,
+        nbaReason: input.nbaReason ?? null,
+        at: this.now(),
+      });
+    }
+    // `transitions: []` is the honest answer, not an empty stub: the D4 table
+    // lives in dakio-api's `novaJourney.js` and is deliberately the one thing
+    // no model-adjacent process computes. The stage is reported back exactly as
+    // it was read, so nothing here can look like a stage this backend moved.
+    return { stage: thread.nba.journey.stage, transitions: [] };
+  }
+
+  /**
+   * The commitments this store holds, newest last. Not part of
+   * {@link StoreClient}: the founder's list is a MERCHANT-plane route
+   * (`GET /api/nova/followups`, JWT) that Nova's service token cannot read, so
+   * exposing one here as a client method would invent a capability the agent
+   * does not have. It exists for suites that need to see supersession happen.
+   */
+  listFollowups(conversationId?: string): DemoFollowup[] {
+    return this.followups
+      .filter((f) => conversationId === undefined || f.conversationId === conversationId)
+      .map((f) => ({ ...f }));
+  }
+
+  /**
+   * Every turn-end callback this store received. Not part of
+   * {@link StoreClient} for the same reason as {@link listFollowups}: the
+   * transition log is read by module 09's nightly pass over `JourneyTransition`
+   * rows, never by the agent.
+   */
+  listIntentObservations(journeyId?: string): DemoIntentObservation[] {
+    return this.intentObservations
+      .filter((o) => journeyId === undefined || o.journeyId === journeyId)
+      .map((o) => ({ ...o }));
   }
 
   // ---- Proactive job queue (Phase 05) ----

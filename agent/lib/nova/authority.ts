@@ -74,6 +74,19 @@ export const FOUNDER_ONLY: ReadonlySet<string> = new Set([
  * NOT bypass is the duty ladder above — a founder who pauses
  * `support.inbox_replies` still stops the link, and an off-roster `dutyRef`
  * still fails closed.
+ *
+ * **`schedule_follow_up` is deliberately NOT here (module 04, OD-6), and this
+ * DIVERGES from the module-04 doc**, which classes it a bookkeeping verb that
+ * executes at every tier including T0 Shadow on the grounds that it "sends
+ * nothing customer-visible". That is true of the scheduling and false of its
+ * consequence. `link_customer_identity` above ends where it starts — a join
+ * written, nothing owed, nobody contacted. Scheduling a follow-up ends with
+ * Nova speaking to a customer at a time it picked; the send is gated on its
+ * own, but membership here would let a T0 Shadow store, whose whole promise is
+ * that Nova only watches, accumulate real commitments the founder never
+ * approved. The cost of leaving it out is named honestly: it does not execute
+ * at T0, and `support.inbox_replies`' minLevel 2 plus any future `inbox.*` cap
+ * apply to it — which is the point.
  */
 export const NEVER_GATED: ReadonlySet<string> = new Set([
   "escalate_conversation",
@@ -165,6 +178,24 @@ export const TARGET_TEXT: Partial<Record<ActionType | string, Extractor>> = {
     [str(p.conversationId), "customer", "identity", "link", "phone"].join(" "),
   merge_customer_records: (p) =>
     [str(p.customerIdA), str(p.customerIdB), str(p.basis), "customer", "merge", "records"].join(" "),
+  /**
+   * Module 04. `reason` is the load-bearing half: it is the sentence Nova wrote
+   * about what it is coming back to do, so a founder who locked "REFUND" must
+   * stop a follow-up that plans to revisit one, exactly as the same lock stops
+   * a reply that promises one. `plannedIntent` is in for the same reason at
+   * slug level (`return_refund`, `payment_claim`).
+   *
+   * Ids and literals otherwise, never a phone — same rule as the two above, and
+   * the payload deliberately carries none to begin with.
+   *
+   * Registering it is not bookkeeping: with no extractor `targetTextFor`
+   * returns null, and this verb is NOT never-gated, so the seam would refuse
+   * every follow-up with `no_touch:unverifiable` for any tenant that has set a
+   * single lock. That failure is silent to tsc and loud to exactly one person —
+   * the customer who was told "kal janabo" and never heard back.
+   */
+  schedule_follow_up: (p) =>
+    [str(p.conversationId), str(p.reason), str(p.plannedIntent), "follow", "up", "reminder"].join(" "),
 };
 
 /**

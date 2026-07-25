@@ -59,6 +59,8 @@ import type {
   InboxReplyRequest,
   InboxReplyResult,
   InboxThread,
+  IntentObservedRequest,
+  IntentObservedResult,
   JobKind,
   LinkCustomerRequest,
   LinkCustomerResult,
@@ -66,6 +68,7 @@ import type {
   MemoryNamespace,
   MemoryUpsert,
   MorningBrief,
+  NbaBlock,
   NovaExperiment,
   NovaJob,
   NovaJobDef,
@@ -77,6 +80,8 @@ import type {
   Product,
   PromiseSettleRequest,
   PurchaseOrder,
+  ScheduleFollowupRequest,
+  ScheduleFollowupResult,
   SocialPost,
   Supplier,
   SupportTicket,
@@ -894,6 +899,72 @@ export class DakioStoreClient implements StoreClient {
     promisesMoved: number;
   }> {
     return this.request("/api/v1/inbox/customers/merge", { method: "POST", body: input });
+  }
+
+  // ==========================================================================
+  // Front Office — lifecycle & NBA (Stage 10 module 04, `/api/v1/inbox/*`)
+  //
+  // Same router, same per-tenant service token. One read and three writes, and
+  // the writes are keyed the way this router's other writes are: on an id the
+  // CALLER already owns, so a retry after a network timeout re-books nothing.
+  // dakio-api's `w()` reads the `Idempotency-Key` HEADER (novaIdempotency.js) —
+  // a body field of the same name would key nothing, which is why
+  // `scheduledByActionId` is passed as `idempotencyKey` here and not just sent.
+  // ==========================================================================
+
+  async getNba(conversationId: string): Promise<NbaBlock | null> {
+    // 404 → null, like `getInboxConversation`: a thread with no journey row is
+    // a normal state (nothing real has happened to that person yet), and it
+    // must not read as an outage that stops Nova answering them.
+    return this.get<NbaBlock | null>(
+      `/api/v1/inbox/nba/${encodeURIComponent(conversationId)}`,
+      undefined,
+      true,
+    );
+  }
+
+  async scheduleFollowup(input: ScheduleFollowupRequest): Promise<ScheduleFollowupResult> {
+    return this.request<ScheduleFollowupResult>("/api/v1/inbox/followups", {
+      method: "POST",
+      body: input,
+      idempotencyKey: input.scheduledByActionId,
+      // 409 is the route saying what is LEGAL: a delay outside the stage's
+      // `allowedDelays`, or a chain already at 2. Both are answers the model
+      // should read and respect — retrying either would be arguing with the
+      // rule that stops Nova nagging a customer who has stopped replying.
+      refusalOn: [409],
+    });
+  }
+
+  async cancelFollowup(jobId: string): Promise<{ cancelled: boolean }> {
+    return this.request<{ cancelled: boolean }>(
+      `/api/v1/inbox/followups/${encodeURIComponent(jobId)}/cancel`,
+      {
+        method: "POST",
+        body: {},
+        // The jobId IS the logical write — cancelling twice is the same cancel,
+        // so it keys itself rather than minting a throwaway uuid per attempt.
+        idempotencyKey: `followup-cancel:${jobId}`,
+      },
+    );
+  }
+
+  async postIntentObserved(
+    journeyId: string,
+    input: IntentObservedRequest,
+  ): Promise<IntentObservedResult> {
+    return this.request<IntentObservedResult>(
+      `/api/v1/inbox/journeys/${encodeURIComponent(journeyId)}/intent-observed`,
+      {
+        method: "POST",
+        body: input,
+        // Idempotent per (journeyId, messageId): one turn answers one inbound,
+        // and a retried callback must not write a second `nba.do_nothing`
+        // marker row — `journey.silences_chosen` counts those rows, so a
+        // double-post would inflate the one metric that proves restraint.
+        idempotencyKey: `${journeyId}:${input.messageId}`,
+      },
+    );
   }
 
   // ==========================================================================

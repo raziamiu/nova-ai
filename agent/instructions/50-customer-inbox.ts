@@ -132,7 +132,9 @@ export const SLIM_TOOLS_PENDING: Readonly<Record<string, string>> = {
   get_product: "module 05 (selling)",
   get_order_status: "module 05 (selling)",
   validate_coupon: "module 05 (selling)",
-  schedule_follow_up: "module 04 (lifecycle)",
+  // `schedule_follow_up` left this list in module 04: its tool file landed, so
+  // it moved up into `CUSTOMER_SLIM_TOOLS` and is advertised. The eval asserts
+  // both directions, so a name staying here after its file exists is red.
 };
 
 /**

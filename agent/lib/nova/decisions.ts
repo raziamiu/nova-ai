@@ -101,6 +101,15 @@ export function paramsLineFor(type: string, payload: Record<string, unknown>): s
       if (p.conversationId) parts.push(`thread ${p.conversationId}`);
       parts.push(p.verify ? "digit check" : "self-stated number");
       break;
+    // Module 04. Drafted more often than the link above, because
+    // `schedule_follow_up` is deliberately NOT never-gated (OD-6) — at T0
+    // Shadow every one of these becomes a card. The two things a founder needs
+    // to answer it in three seconds are WHEN and WHY, so both are here; the
+    // conversation id is not, because it tells them nothing they can read.
+    case "schedule_follow_up":
+      if (p.delay) parts.push(`in ${p.delay}`);
+      if (p.reason) parts.push(String(p.reason));
+      break;
     default:
       // Unknown verb: say nothing rather than guess at its parameters.
       break;

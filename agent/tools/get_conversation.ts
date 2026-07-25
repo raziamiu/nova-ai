@@ -17,17 +17,26 @@ import type { InboxMessageView } from "../lib/types";
  * the same fact, and the fence says so structurally rather than hoping the
  * instruction layer is remembered.
  *
+ * The count below is TWO and has to be re-derived, not incremented, every time
+ * a key is added here: it once said ONE, and the field it was not counting —
+ * `conversation.senderName` — is precisely the one a stranger could author into
+ * the trusted frame. Module 04 added `nba`, which is server-computed and
+ * therefore does not move the count; the test is authorship, never arithmetic.
+ *
  * The customer-360 block sits OUTSIDE the fence on purpose: it is Dakio's own
  * server-assembled data (module 03 owns its content and its redaction
- * boundary), not something a stranger typed.
+ * boundary), not something a stranger typed. Module 04's NBA block joins it on
+ * the same side and on the same grounds: a deterministic reducer computed the
+ * stage and the server filtered the candidate list, so it is Dakio telling Nova
+ * what is legal — not a suggestion from the person in the thread.
  *
  * There is no `trusted()` helper to pair with `untrusted()`, and its absence is
  * the design, not an omission: an unfenced sibling key IS the trusted frame, so
- * a reader diffing this file should read a bare `customer:` / `proposal:` as
- * "server-authored" rather than as a `trusted()` call somebody forgot. Adding a
- * symmetric wrapper would also invite the real failure — a future key rendered
- * "trusted" because the author reached for the matching helper rather than
- * because the bytes came from Dakio.
+ * a reader diffing this file should read a bare `customer:` / `proposal:` /
+ * `nba:` as "server-authored" rather than as a `trusted()` call somebody
+ * forgot. Adding a symmetric wrapper would also invite the real failure — a
+ * future key rendered "trusted" because the author reached for the matching
+ * helper rather than because the bytes came from Dakio.
  *
  * TWO things in this return value are customer-controlled, and both are fenced:
  * the `transcript`, and `conversation.senderName` — the display name the person
@@ -183,6 +192,30 @@ export default defineTool({
        * observation.
        */
       proposal: thread.proposal ?? null,
+      /**
+       * Module 04 D6 — the Next-Best-Action scaffold: this person's journey
+       * stage and what forward means from it, the messaging window, the shop's
+       * quiet hours, how many proactive touches are left this week, the
+       * commitments already booked, and which candidate actions are legal right
+       * now with a machine-readable reason for each one that is not.
+       *
+       * Server-authored, so it is a BARE sibling like `customer` above — the
+       * unfenced frame IS how this file says "Dakio computed this". It must
+       * never be moved inside `untrusted()`: telling the model that its own
+       * eligibility rules are a stranger's suggestions is how a rule stops
+       * being a rule.
+       *
+       * It is a SCAFFOLD, not an authority. `evaluateAuthority` is still the
+       * only thing that authorizes, and a model that picks an ineligible
+       * candidate gets a receipted refusal — which is a prompt-quality signal,
+       * not a gate failure.
+       *
+       * `?? null` for the same reason `proposal` uses it: a dakio-api that
+       * predates module 04 omits the key entirely, and `undefined` would drop
+       * out of the JSON, collapsing "no journey yet" and "this server has no
+       * journey engine" into one silent observation.
+       */
+      nba: thread.nba ?? null,
     };
   },
 });

@@ -30,6 +30,13 @@ export const MINUTES_BY_ACTION: Record<ActionType, number> = {
   // minutes, and it fires rarely enough that a modest number costs nothing.
   link_customer_identity: 2,
   merge_customer_records: 5,
+  // Module 04 (canonical D7). Writing "chase Rahima at 4" on a notepad is about
+  // a minute of a founder's evening — and the minute that actually gets saved
+  // is the one spent REMEMBERING to look at the notepad, which no number here
+  // can honestly claim. Deliberately the lowest entry in this table: it fires
+  // on a large share of unresolved threads, so anything bigger would inflate
+  // the hours-saved headline on the strength of a reminder.
+  schedule_follow_up: 1,
   resolve_ticket: 12,
   publish_social_post: 35,
   update_campaign: 20,
