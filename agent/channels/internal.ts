@@ -132,7 +132,12 @@ export async function dispatchJobToChannel(
     const message =
       `A promise you made on this conversation is coming due (promise ${promiseId}). ` +
       "Re-read the thread and the open promises before you answer, and check the messaging " +
-      "window is still open — if it is not, do not send: record it and hand it to the founder.";
+      "window is still open — if it is not, do not send: record it and hand it to the founder. " +
+      // Without this sentence the debt is never closed: the reply goes out, the
+      // customer is answered, and the nightly sweep still marks the promise
+      // broken because nothing told the ledger it was paid.
+      `When the reply you send IS the answer you owed, set promiseId="${promiseId}" on it — ` +
+      "that is what pays the debt off. If you cannot answer yet, do not set it.";
     return receive(customer, {
       message,
       target: { storeId, conversationId, platform },

@@ -18,6 +18,31 @@ function dedupeInstruction(job: NovaJob): string {
   return `\n\nWhen filing the report, pass dedupeKey: "${job.dedupeKey}" so a retried run of this same occurrence never double-files it.`;
 }
 
+/**
+ * The body for a lane dakio-api executes itself. Reaching a session with this
+ * text means `leaseServerSweeps` did NOT claim the row and the dispatcher was
+ * handed it anyway — a routing fault, not work — so it says exactly that and
+ * asks for nothing.
+ *
+ * Writing the plausible instructions instead is what the module-03 review
+ * caught: the obvious text for these three lanes describes capabilities that do
+ * not exist on this side of the wire, so a model that somehow received it would
+ * try, fail, and retry. `PATCH /promises/:id` answers 409 SWEEP_ONLY to any
+ * caller claiming `broken`; there is no merge tool (only the
+ * `merge_customer_records` verb, always behind a founder-approved Decision, per
+ * D-09); and `remember` writes FOUNDER memory — customer memory has one writer,
+ * the server-side distiller (D-24).
+ */
+function serverSideLane(kind: NovaJob["kind"]): string {
+  return (
+    `The ${kind} lane runs SERVER-SIDE in dakio-api (\`SERVER_SWEEPS\`, ` +
+    "src/routes/novaJobs.js); it is never model work. Receiving this text means " +
+    "the job reached a session instead of being claimed by the server — the " +
+    "routing broke. Do nothing: touch no customer, no record and no ledger, and " +
+    "report the fault."
+  );
+}
+
 const TEMPLATES: Record<NovaJob["kind"], string> = {
   // Defensive dead path: `inbox_reply` jobs never render this template — the
   // dispatcher routes them to the customer conversation session via
@@ -39,34 +64,33 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
     "A promise you made to a customer is coming due. Read the thread with " +
     "get_conversation, gather the answer with tools, and only then reply.",
 
-  // The three module-03 lanes below are NOT dead paths — they really do run as
-  // `job:<id>` founder-plane sessions, and none of them touches a customer
-  // thread directly. None joins FILES_REPORT either: sweeps author Decisions
-  // and the distiller writes memory, so a filed report would be a third copy of
-  // work that already has a home.
-  promise_sweep:
-    "Nightly promise sweep. Read the open commitments ledger, find every " +
-    "promise now past its due time plus its grace hours, and mark each one " +
-    "broken. For each broken promise raise ONE recovery decision for the " +
-    "founder naming the customer, the exact words that were promised, and how " +
-    "late it is — a broken promise is never closed silently, and never " +
-    "re-promised on its own. Say nothing to any customer from this session.",
-
-  identity_merge_sweep:
-    "Nightly identity merge sweep. Look for customer records that phone " +
-    "matching says are one person, and propose a merge decision for each pair " +
-    "with the evidence that paired them. You never pick the survivor and you " +
-    "never merge here — merging is always the founder's signature. If a pair " +
-    "is already awaiting a decision, leave it alone rather than asking twice.",
-
-  conversation_distill:
-    "Distill a quiet conversation into durable memory. Read the thread, then " +
-    "write AT MOST three memory updates, and only facts that will still be " +
-    "true next month: sizes, preferences, the register that worked, how a " +
-    "complaint ended. Never store this order's address, a phone, an ID " +
-    "number, a payment detail, or a single bad day's mood. Anything the " +
-    "customer-360 already computes live (lifetime value, RTO count) is not " +
-    "yours to copy — a duplicate goes stale and then contradicts the truth.",
+  // Defensive dead paths too — for a STRONGER reason than the two above, which
+  // at least reach nova-ai and are merely routed elsewhere within it. These
+  // three never arrive here at all: dakio-api executes them itself
+  // (`SERVER_SWEEPS`, src/routes/novaJobs.js) and `leaseServerSweeps` claims
+  // those rows INSIDE the claim transaction, before the candidates query, so
+  // the dispatcher can never be handed one. They are in this record only
+  // because it is total over JobKind.
+  //
+  // This comment used to say the opposite — "they really do run as `job:<id>`
+  // founder-plane sessions" — while the dakio-api half of the same PR said
+  // "nova-ai has no prompt template for them … This server runs them". Two
+  // exhaustive registries (here and `JobKind` in types.ts) are exactly what an
+  // engineer extending the job system reads, so a false claim here is how
+  // module 04/09 gets designed on a premise the server contradicts.
+  //
+  // STILL WRONG NEXT DOOR: the twin comment on `JobKind` (agent/lib/types.ts,
+  // above `promise_sweep`) makes the same claim — "All three run as ordinary
+  // `job:<id>` founder-plane sessions (priority 6)" — and was outside this fix
+  // pass's file scope. OWNER: types.ts. Correct it there before treating either
+  // registry as describing model work.
+  //
+  // None joins FILES_REPORT either: the sweeps author Decisions and the
+  // distiller writes memory, so a filed report would be a third copy of work
+  // that already has a home.
+  promise_sweep: serverSideLane("promise_sweep"),
+  identity_merge_sweep: serverSideLane("identity_merge_sweep"),
+  conversation_distill: serverSideLane("conversation_distill"),
 
   morning_report:
     "It is morning report time. Load the morning-report skill and follow it " +

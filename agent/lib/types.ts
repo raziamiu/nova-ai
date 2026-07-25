@@ -1075,10 +1075,14 @@ export type JobKind =
   // BACK INTO `customer:inbox:<conversationId>` when the payload carries both
   // promiseId and conversationId (see `dispatchJobToChannel`).
   | "followup"
-  // Stage 10 module 03: the nightly sweeps and the quiet-thread distiller. All
-  // three run as ordinary `job:<id>` founder-plane sessions (priority 6) and
-  // touch no customer thread directly — the sweeps author Decisions, the
-  // distiller writes memory.
+  // Stage 10 module 03: the nightly sweeps and the quiet-thread distiller.
+  // Registered here so the kind unions on both sides of the wire agree, but
+  // nova-ai never runs one: dakio-api executes all three server-side
+  // (`SERVER_SWEEPS`), claiming their rows inside the claim transaction before
+  // the candidate query, so the dispatcher is never handed one. They are
+  // model-free by design — the sweeps author Decisions and the distiller writes
+  // memory, none of which needs a turn. Their entries in the exhaustive
+  // `TEMPLATES` map are routing tripwires, not instructions.
   | "promise_sweep"
   | "identity_merge_sweep"
   | "conversation_distill";

@@ -35,20 +35,35 @@
  * ## Wiring — read this before believing it is a gate
  *
  * A corpus that is not in `package.json`'s `&&` chain is not a gate; it is a
- * file. This module exports {@link runPromisesSuite} and does not exit at
- * import, so the integrator can fold it into the inbox runner (or give it its
- * own `test:promises` script) without the import itself calling `process.exit`.
- * Until that lands, `npx -y tsx evals/inbox/promises.ts` is the only thing that
- * runs it.
+ * file (D-33). This one IS in the chain: it exports {@link runPromisesSuite} and
+ * does not exit at import, `evals/inbox/run.ts` imports and awaits it into the
+ * same pass/fail totals and the same exit code, and `test:inbox` is one of the
+ * `&&` links in `npm test`. It also still self-runs standalone
+ * (`npx -y tsx evals/inbox/promises.ts`) for iteration.
+ *
+ * That paragraph used to say the opposite — that a standalone run was "the only
+ * thing that runs it" — for the whole life of the integration commit that wired
+ * it in. Section [promise-7] below pins the two together in BOTH directions, so
+ * neither the sentence nor the wiring can rot without a red check.
  *
  * Deterministic by construction: no model, no network, no key.
  *
  * Run:  npx -y tsx evals/inbox/promises.ts
  */
 
-import { pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { renderJobPrompt } from "../../agent/lib/jobs/prompts";
+import { executors } from "../../agent/lib/nova/executors";
 import { PROMISE_KINDS, sendInboxReplyPayload } from "../../agent/lib/nova/schemas";
+import { DemoStore } from "../../agent/lib/store/backend";
+import { resetStores, storeFor } from "../../agent/lib/store/resolve";
+import type { NovaJob } from "../../agent/lib/types";
+
+const AURORA = "store-aurora";
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 // --- assert framework (same shape as the sibling suites) --------------------
 
@@ -280,6 +295,164 @@ export async function runPromisesSuite(): Promise<{ passed: number; failures: st
     const same = one("kal janabo apnake");
     check("the same sentence flips on the presence of the field",
       isUndeclaredPromise(same) && !isUndeclaredPromise({ ...same, promise: DECLARED }));
+  }
+
+  console.log("\n[promise-6] A fulfilment reply SETTLES the debt it pays back");
+  {
+    // Declaring a debt and paying one are the two halves of one ledger, and
+    // this suite used to pin only the first. `open → kept` needs a
+    // `keptActionId`, that id is written by exactly one call —
+    // `settlePromise` — and until the reply executor made it, nothing in either
+    // repo ever moved a promise out of `open`: every declared debt aged past
+    // its grace window, `runPromiseSweep` marked it `broken`, the founder's
+    // desk filled with "Promise broken — X is still waiting" cards about
+    // promises answered on time, and `inbox.promise.kept_rate` (D-37) read 0%
+    // structurally.
+    resetStores();
+    const demo = storeFor(AURORA) as DemoStore;
+    const CONV = "conv-promise-fulfil";
+    demo.seedInboxConversation({
+      id: CONV,
+      customerId: "cus-nusrat-1",
+      messages: [{ direction: "in", actor: "customer", text: "courier er khobor ki?", id: "m-in-1" }],
+    });
+    const debt = demo.seedPromise({
+      id: "prm-fulfil-1",
+      conversationId: CONV,
+      customerId: "cus-nusrat-1",
+      text: "courier er sathe kotha bole kal janabo",
+      kind: "courier_check",
+    });
+    check("the debt starts open", debt.status === "open");
+
+    // Called the way `performAction` calls it: with the STORED payload object,
+    // not a zod-parsed one. `promiseId` rides that object — see the OWNER note
+    // in `send_inbox_reply` for the hops that still have to land before a model
+    // can put it there, which is why this corpus is the thing exercising it.
+    const paid = await executors.send_inbox_reply(demo, {
+      ...one("courier bollo kal delivery hobe"),
+      conversationId: CONV,
+      inReplyToMessageId: "m-in-1",
+      promiseId: debt.id,
+    });
+
+    const kept = (await demo.listPromises({ status: "kept" })).find((p) => p.id === debt.id);
+    check("the debt leaves `open` — nothing else in either repo can move it", kept !== undefined);
+    check("it settles KEPT rather than waiting to be swept broken", kept?.status === "kept");
+    check("the ledger outcome names the promise this reply paid", paid.outcome.includes(debt.id), paid.outcome);
+    check(
+      "and the receipt records which debt it answered",
+      (paid.after as Record<string, unknown> | null)?.fulfilsPromiseId === debt.id,
+    );
+
+    // The control. A reply that pays nothing back must settle nothing — a
+    // settle that fired on every send would keep debts no message answered,
+    // which is the same lie in the flattering direction.
+    const OTHER = "conv-promise-plain";
+    demo.seedInboxConversation({
+      id: OTHER,
+      messages: [{ direction: "in", actor: "customer", text: "dam koto?", id: "m-in-1" }],
+    });
+    const untouched = demo.seedPromise({
+      id: "prm-untouched-1",
+      conversationId: OTHER,
+      text: "stock ashle janabo",
+      kind: "restock_notify",
+    });
+    const plain = await executors.send_inbox_reply(demo, {
+      ...one("ji bhai, eta 1250 taka"),
+      conversationId: OTHER,
+      inReplyToMessageId: "m-in-1",
+    });
+    const still = (await demo.listPromises({ status: "open" })).find((p) => p.id === untouched.id);
+    check("a reply with no promiseId settles nothing", still?.status === "open");
+    check("and its outcome claims nothing about a promise", !/promise/i.test(plain.outcome), plain.outcome);
+
+    // A refused settle must NOT un-send the reply. The bubbles are queued; a
+    // 409 (usually "the sweep got there first") is an answer about the ledger,
+    // and recording the action as failed would say a delivered message was
+    // never sent — the mirror of the rule the executor exists to keep.
+    const settledAlready = demo.seedPromise({
+      id: "prm-already-1",
+      conversationId: CONV,
+      text: "kal janabo",
+      kind: "follow_up_info",
+      status: "broken",
+    });
+    const anyway = await executors.send_inbox_reply(demo, {
+      ...one("ekhon o courier reply kore nai"),
+      conversationId: CONV,
+      inReplyToMessageId: "m-in-1",
+      promiseId: settledAlready.id,
+    });
+    check("a refused settle still reports the reply as queued", anyway.outcome.startsWith("Queued"));
+    check("and says plainly that the debt is still on the books", /NOT settled/.test(anyway.outcome), anyway.outcome);
+  }
+
+  console.log("\n[promise-7] The wiring paragraph and the wiring agree (D-33)");
+  {
+    // This file's header is titled "read this before believing it is a gate",
+    // and for the whole life of the integration commit it told the reader the
+    // opposite of the truth: that a standalone `npx tsx` run was the only thing
+    // that ran the corpus. Pinned in BOTH directions, because either half can
+    // rot: unwire the runner and the first check fails; re-introduce the "only
+    // thing that runs it" sentence and the second does.
+    const runner = readFileSync(resolvePath(HERE, "run.ts"), "utf8");
+    check("evals/inbox/run.ts imports runPromisesSuite", runner.includes("runPromisesSuite"));
+    const self = readFileSync(resolvePath(HERE, "promises.ts"), "utf8");
+    const header = self.slice(0, self.indexOf("import "));
+    check(
+      "and this file's header no longer claims nothing runs it",
+      !header.includes("is the only thing that\n * runs it") && !header.includes("is the only thing that runs it"),
+    );
+  }
+
+  console.log("\n[promise-8] The nightly promise lane belongs to the server, and the prompt registry says so");
+  {
+    // `promise_sweep` is what GRADES every row this suite is about, so what
+    // nova-ai tells a model about that lane is a promise-ledger fact. All three
+    // module-03 sweeps are checked together because one mechanism kills them
+    // all: dakio-api's `leaseServerSweeps` claims these kinds inside the claim
+    // transaction, before the candidates query, so the dispatcher can never be
+    // handed one.
+    //
+    // The templates used to carry plausible instructions for work that cannot
+    // be done from here — "mark each one broken" against a route that answers
+    // 409 SWEEP_ONLY to exactly that claim, "propose a merge decision" with no
+    // merge tool in `agent/tools/`, "write memory updates" with `remember`
+    // founder-only under D-24 — under a comment asserting the three lanes
+    // "really do run as `job:<id>` founder-plane sessions".
+    const asJob = (kind: NovaJob["kind"]): NovaJob => ({
+      id: "job-x",
+      kind,
+      payload: {},
+      dueAt: new Date().toISOString(),
+      priority: 6,
+      status: "due",
+      attempts: 0,
+      lastError: null,
+      dedupeKey: `${kind}:2026-07-20T03:00:00.000Z`,
+      leaseUntil: null,
+      leaseToken: null,
+    });
+
+    const sweep = renderJobPrompt(asJob("promise_sweep"));
+    check("the promise_sweep template names the server as the executor", /server-side/i.test(sweep), sweep);
+    check(
+      "and no longer tells a model to mark promises broken — the route answers 409 SWEEP_ONLY to that claim",
+      !/broken/i.test(sweep),
+      sweep,
+    );
+    for (const kind of ["promise_sweep", "identity_merge_sweep", "conversation_distill"] as const) {
+      const text = renderJobPrompt(asJob(kind));
+      check(`${kind}: reads as a routing tripwire, not as work`, /routing broke/i.test(text), text);
+    }
+    // Non-vacuity: a lane that really IS model work still reads as instructions,
+    // so this section cannot pass by the templates having gone empty.
+    check(
+      "a genuinely model-run lane still gets real instructions",
+      /Load the morning-report skill/.test(renderJobPrompt(asJob("morning_report"))),
+    );
   }
 
   return { passed, failures };

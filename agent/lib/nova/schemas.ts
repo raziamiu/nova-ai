@@ -232,6 +232,24 @@ export const sendInboxReplyPayload = z.object({
     .describe(
       "REQUIRED whenever this reply commits to a future action or answer ('janachchi', 'kal janabo', 'stock asle inform korbo'). A committing reply without this field is a debt with no ledger row.",
     ),
+  // The other half of `promise`: that field OPENS a debt, this one CLOSES one.
+  // Without it there is no way for a reply to say "this is the answer I owed
+  // you", so every declared promise would age past its due date and be swept
+  // `broken` — Nova reporting itself, in the founder's own scorecard, as a page
+  // that never keeps its word.
+  //
+  // It is a claim, not a settlement: dakio-api decides. A claim against an
+  // already-sent reply keeps the promise now; against a still-queued one it
+  // ARMS and settles when the send is confirmed; against a canceled or failed
+  // one it is refused. Only a message that actually reached the customer can
+  // pay a debt (module 03 D8) — which is why the model cannot simply assert it.
+  promiseId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The id of the open promise this reply FULFILS, from the 360 block's promises list. Set it only when this message actually delivers the answer you owed — never to tidy up a debt you have not paid.",
+    ),
   // assessment: <reserved slot — schema owned by module 11, and reserved on
   // escalateConversationPayload and createOrderFromChatPayload too. Left out
   // rather than stubbed: an unused field the model can fill is a field that

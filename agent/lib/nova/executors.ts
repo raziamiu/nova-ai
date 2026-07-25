@@ -10,7 +10,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ActionType } from "../types";
-import type { StoreClient } from "../store/client";
+import { InboxSendRefused, type StoreClient } from "../store/client";
 import {
   assignCourierPayload,
   createCampaignPayload,
@@ -269,9 +269,43 @@ export const executors: Record<ActionType, Executor> = {
    * refuse — in which case {@link InboxSendRefused} propagates and NOTHING is
    * recorded as executed. A message the customer will never see must never
    * read as a message that was sent.
+   *
+   * It is also where a promise is PAID (module 03 D7). Declaring a debt and
+   * settling one are the two halves of the same ledger, and both ride this one
+   * request: `payload.promise` opens a NovaPromise row inside the outbound's
+   * transaction, and `promiseId` on a later reply claims an existing row kept.
    */
   async send_inbox_reply(client, raw, context) {
     const payload = sendInboxReplyPayload.parse(raw);
+    // ---- the fulfilment half (module 03 D7) ---------------------------------
+    //
+    // Which open promise, if any, THIS reply pays back. Read off `raw` rather
+    // than `payload` for a reason that is a gap, not a style choice — see the
+    // OWNER note below.
+    //
+    // `open → kept` has exactly two entry points server-side and both need a
+    // `keptActionId`: `PATCH /promises/:id` records the claim, and
+    // `onOutboundSent` flips the row once Graph confirms the send that claim
+    // points at. Nothing in this repo wrote that id before this line existed, so
+    // every declared promise aged past its grace window and `runPromiseSweep`
+    // marked it `broken` — the founder's desk filling with "Promise broken — X
+    // is still waiting" cards about promises Nova answered on time, Nova
+    // apologising to customers for debts it had paid (`broken_promise_recent`
+    // reaches the 360, and rule 16 makes it own the miss before selling), and
+    // `inbox.promise.kept_rate` — the metric this module is named for, computed
+    // from these rows per D-37 — reading 0% forever.
+    //
+    // The four hops this needs are all wired: `promiseId` on
+    // `sendInboxReplyPayload` (schemas.ts — without it zod would strip the key
+    // before it ever reached here), the tool description and hard rule 16 that
+    // tell the model when to set it, and the fulfilment turn's own prompt in
+    // `dispatchJobToChannel`. A field the model is never told to fill is a field
+    // it never fills, so the schema alone would not have been enough.
+    //
+    // This executor half decides what "kept" MEANS, and both approve surfaces
+    // share it — which is why the settle lives here and not in the tool.
+    const fulfilsPromiseId = payload.promiseId?.trim() ?? "";
+
     // The id this send is booked under, stable across the client's retries so
     // a network timeout cannot queue the reply twice. On the approve path it is
     // the prepared row's own id — the SAME id dakio-api's Decision-Desk
@@ -307,8 +341,49 @@ export const executors: Record<ActionType, Executor> = {
       ...(payload.promise ? { promise: payload.promise } : {}),
     });
     const bubbles = result.chunks.length;
+
+    // The claim is made with the SAME `novaActionId` the reply was booked
+    // under, because that is what the route resolves to PROOF: the outbound
+    // behind that action being `sent`/`partial` keeps the promise now, a
+    // `queued`/`sending` one ARMS it (the row stays `open` and `onOutboundSent`
+    // flips it when Graph confirms), and a `canceled`/`failed` one is refused
+    // 409 NOT_SENT. So this call can never turn an undelivered reply into a kept
+    // promise — the server decides, exactly the way it decides identity. Arming
+    // is the normal outcome here, since `replyInThread` returns at QUEUE time,
+    // seconds to minutes before the bubbles land.
+    let promiseOutcome = "";
+    let promiseStatus: string | null = null;
+    if (fulfilsPromiseId) {
+      try {
+        const settled = await client.settlePromise(fulfilsPromiseId, {
+          status: "kept",
+          keptActionId: novaActionId,
+        });
+        // The RETURNED row is the authority, never the request: asking to keep
+        // and having kept are different facts, and only the server knows which
+        // one happened.
+        promiseStatus = settled.promise.status;
+        promiseOutcome =
+          settled.promise.status === "kept"
+            ? ` Promise ${fulfilsPromiseId} settled kept.`
+            : ` Promise ${fulfilsPromiseId} is claimed against this reply and settles kept the moment the send is confirmed.`;
+      } catch (err) {
+        // A failed settle does NOT un-send the reply, so it must not fail the
+        // action. Throwing here would record nothing executed for bubbles that
+        // are already queued — the mirror of this executor's own rule that a
+        // message the customer will never see must never read as sent. The
+        // usual cause is a 409 the route means as an ANSWER (ALREADY_SETTLED —
+        // the sweep got there first; SWEEP_ONLY; NOT_SENT), so the honest record
+        // is "replied, debt still open, here is why".
+        promiseStatus = "unsettled";
+        promiseOutcome = ` The reply went out but promise ${fulfilsPromiseId} was NOT settled (${
+          err instanceof InboxSendRefused ? err.code : String(err)
+        }) — the debt is still on the books.`;
+      }
+    }
+
     return {
-      outcome: `Queued ${bubbles} ${bubbles === 1 ? "message" : "messages"} to the customer (${payload.language}, ${payload.intent}), first one due ${result.scheduledAt}.`,
+      outcome: `Queued ${bubbles} ${bubbles === 1 ? "message" : "messages"} to the customer (${payload.language}, ${payload.intent}), first one due ${result.scheduledAt}.${promiseOutcome}`,
       // Sent is sent. There is no unsend on Messenger, and pretending
       // otherwise would put an undo button on a promise we can't keep.
       undoable: false,
@@ -325,6 +400,12 @@ export const executors: Record<ActionType, Executor> = {
         intent: payload.intent,
         language: payload.language,
         purpose: payload.purpose ?? null,
+        // Both halves of the ledger on the receipt: what this reply PROMISED and
+        // which promise it PAID. `null` on each is the honest default — most
+        // replies do neither.
+        promiseDeclared: payload.promise ? payload.promise.kind : null,
+        fulfilsPromiseId: fulfilsPromiseId || null,
+        promiseStatus,
       },
       targetRef: `inbox_message:${result.firstMessageId}`,
     };
@@ -583,8 +664,27 @@ export const executors: Record<ActionType, Executor> = {
       customerIdB: payload.customerIdB,
       basis: payload.basis,
     });
+    // `mergeCustomerRecordsInTx` is idempotent: when only one of the two rows is
+    // still there — the founder deleted the other from the merchant UI while the
+    // card sat prepared, or this pair was already approved on the Desk — it
+    // moves nothing and answers `alreadyMerged:true` with four zero counts.
+    // Reporting THAT as "Merged two customer records into X" writes a ledger row
+    // and a founder receipt for an operation that did not happen on this run.
+    // dakio-api's executor for the same verb (`src/lib/novaExecutors.js`)
+    // already branches; this is one verb with two approve surfaces (a Desk tap
+    // runs that one, `approve_action` in chat runs this one), and they have to
+    // say the same true thing.
+    //
+    // Read off the object rather than the type: the flag IS on the wire
+    // (`mergeCustomersHandler` returns the record verbatim and `request()` does
+    // no field stripping), but `StoreClient.mergeCustomers`'s declared return
+    // shape in agent/lib/store/client.ts does not name it yet — that widening
+    // belongs to the client file and is called out in the module-03 fix report.
+    const alreadyMerged = (result as { alreadyMerged?: boolean }).alreadyMerged === true;
     return {
-      outcome: `Merged two customer records into ${result.survivorCustomerId} — ${result.ordersMoved} orders, ${result.channelsMoved} channels, ${result.conversationsMoved} conversations and ${result.promisesMoved} promises now point at one person.`,
+      outcome: alreadyMerged
+        ? `Nothing to merge — only ${result.survivorCustomerId} still exists; these two records were already folded together.`
+        : `Merged two customer records into ${result.survivorCustomerId} — ${result.ordersMoved} orders, ${result.channelsMoved} channels, ${result.conversationsMoved} conversations and ${result.promisesMoved} promises now point at one person.`,
       undoable: false,
       undoData: null,
       revenueInfluence: 0,
@@ -597,6 +697,10 @@ export const executors: Record<ActionType, Executor> = {
         channelsMoved: result.channelsMoved,
         conversationsMoved: result.conversationsMoved,
         promisesMoved: result.promisesMoved,
+        // On the receipt as well as in the sentence: the counts are all zero on
+        // a no-op run, and zero-because-nothing-moved must be readable as
+        // something other than zero-because-the-records-were-empty.
+        alreadyMerged,
       },
       // `customer:<id>` is NOT in dakio-api's ATTRIBUTABLE map
       // (src/lib/novaLedger.js), so `attributeDoorRecord` no-ops with

@@ -34,10 +34,14 @@
  * Deterministic by construction: no model, no network, no key. The detectors
  * are text lints and the backend is `DemoStore`.
  *
- * WIRING: this module exports {@link runIdentityLeakSuite} instead of running
- * on import, so the integrator can fold it into `evals/inbox/run.ts` or give it
- * its own `test:inbox:identity` script. It also self-runs when invoked directly
- * (`npx -y tsx evals/inbox/identity.ts`).
+ * WIRING: this module exports {@link runIdentityLeakSuite} instead of running on
+ * import, and `evals/inbox/run.ts` imports it and folds its counts into the
+ * inbox suite's totals and exit code — so it is a real gate, through
+ * `test:inbox` in `package.json`'s `&&` chain (D-33). It also still self-runs
+ * when invoked directly (`npx -y tsx evals/inbox/identity.ts`). The forward
+ * tense this paragraph used to carry ("so the integrator CAN fold it in")
+ * outlived the commit that folded it in; `evals/inbox/promises.ts` [promise-7]
+ * pins the corpora-to-runner wiring for all four.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -49,6 +53,7 @@ import { renderCustomerInbox } from "../../agent/instructions/50-customer-inbox"
 import { customerPrincipal } from "../../agent/lib/customer/principal";
 import { executors, undoers } from "../../agent/lib/nova/executors";
 import { linkCustomerPayload } from "../../agent/lib/nova/schemas";
+import type { StoreClient } from "../../agent/lib/store/client";
 import { DemoStore } from "../../agent/lib/store/backend";
 import { resetStores, storeFor } from "../../agent/lib/store/resolve";
 import getConversation from "../../agent/tools/get_conversation";
@@ -670,6 +675,77 @@ export async function runIdentityLeakSuite(): Promise<SuiteResult> {
       );
     }
     resetStores();
+  }
+
+  // 8. MERGE — an idempotent re-run must not report a merge that did not happen.
+  console.log("\n[8] MERGE — a no-op re-run says so, on both approve surfaces");
+  {
+    // `mergeCustomerRecordsInTx` is idempotent: when only one row of the pair is
+    // still there it moves nothing and answers `alreadyMerged:true` with four
+    // zero counts. That state is one click away — `DELETE /api/customers/:id`
+    // hard-deletes a Customer and never checks for a prepared merge card — and
+    // this verb has TWO approve surfaces for one Decision: a Desk tap runs
+    // dakio-api's executor, an `approve_action` in chat runs the one below.
+    // dakio-api's has always branched; this one built its sentence
+    // unconditionally, so the same card produced two different ledger rows and
+    // one of them claimed a merge that did not occur.
+    //
+    // A stub client rather than `DemoStore`: the demo's `mergeCustomers` throws
+    // through `mustFind` when a row is missing instead of answering
+    // `alreadyMerged`, so it cannot reach this state at all. What is under test
+    // is the executor's SENTENCE, and the object below is the 200 body
+    // `mergeCustomersHandler` actually returns.
+    const NOOP_BODY = {
+      survivorCustomerId: "cus-1",
+      mergedCustomerId: "cus-2",
+      ordersMoved: 0,
+      channelsMoved: 0,
+      conversationsMoved: 0,
+      promisesMoved: 0,
+      tagsMoved: 0,
+      memoryMerged: 0,
+      alreadyMerged: true,
+    };
+    const clientReturning = (body: Record<string, unknown>): StoreClient =>
+      ({ async mergeCustomers() { return body; } }) as unknown as StoreClient;
+    const PAIR = { customerIdA: "cus-1", customerIdB: "cus-2", basis: "phone_variant" };
+
+    const noop = await executors.merge_customer_records(clientReturning(NOOP_BODY), PAIR);
+    check(
+      "an already-merged pair is NOT reported as a merge that happened on this run",
+      !noop.outcome.startsWith("Merged two customer records"),
+      noop.outcome,
+    );
+    check(
+      "…it says the true thing instead: only one record is left, nothing moved",
+      /Nothing to merge/.test(noop.outcome),
+      noop.outcome,
+    );
+    check(
+      "and the receipt carries the flag, so four zero counts are readable as a no-op",
+      (noop.after as Record<string, unknown> | null)?.alreadyMerged === true,
+      JSON.stringify(noop.after),
+    );
+
+    // The other direction. A branch that answered "Nothing to merge" for every
+    // run would pass the three checks above and lie the opposite way.
+    const real = await executors.merge_customer_records(
+      clientReturning({
+        ...NOOP_BODY,
+        ordersMoved: 3,
+        channelsMoved: 1,
+        conversationsMoved: 2,
+        promisesMoved: 1,
+        alreadyMerged: false,
+      }),
+      PAIR,
+    );
+    check(
+      "a genuine merge still reports the counts that moved",
+      /^Merged two customer records into cus-1 — 3 orders, 1 channels, 2 conversations and 1 promises/.test(real.outcome),
+      real.outcome,
+    );
+    check("and its receipt says it was not a no-op", (real.after as Record<string, unknown> | null)?.alreadyMerged === false);
   }
 
   return { passed, failures };
