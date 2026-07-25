@@ -57,6 +57,34 @@ I'll pick it up from here.
 
 ---
 
+## Stage 10 — Front Office (phase 16) checklist
+
+The Front Office modules ship on `feat/front-office` (both repos), one module at
+a time. Each module's gate has steps only a human can run — a real Facebook
+page, a real phone, a real customer typing Bangla. **They accumulate here as
+each module lands, and get knocked off as you work through them.** A module is
+"built" when its code + tests are green; it is "signed off" when its F-rows are
+✅. The phase gate is: every F-row ✅.
+
+Anything marked **HARD BLOCKER** must be ✅ before that module's behavior is
+enabled for a real store — not merely before the phase ends.
+
+| # | Status | Module | What to do | Why I can't | Blocker level |
+|---|---|---|---|---|---|
+| F-1 | ⬜ | 01 | **Connect a staging Facebook page and confirm `message_echoes` is in its subscribed fields.** Then message the page from a different account and verify within 10s: one `InboxMessage` (`actor:'customer'`, `metaTimestamp` set), one `NovaInbox` `message.received` row, `windowExpiresAt ≈ +24h`. | Needs a real page + real page token + a second Meta account. Everything below the Graph call is unit-proven; the Graph call itself cannot be faked without lying about it. | **HARD BLOCKER** — nothing downstream works if the pipe doesn't fill |
+| F-2 | ⬜ | 01 | **Reply to that customer from the Meta Business Suite app on your phone.** Verify within one webhook delivery: `InboxMessage {actor:'founder_external'}`, `novaLockedAt` set on the conversation, one `conversation.taken_over` event. | This is the whole reason the echo subscription exists, and it only proves itself against the real Business Suite app — the echo shape, the `is_echo` flag, and whether Meta stamps our `metadata` back are all live-Graph behavior. | **HARD BLOCKER** — the handover lock has a hole the size of your phone until this passes |
+| F-3 | ⬜ | 01 | **Confirm metadata stamping doesn't break Instagram sends.** Reply to an Instagram DM from the Dakio inbox and confirm Graph accepts it (no `(#100)` error). If it rejects, the `metadata` field must be gated to Messenger only — the code is already structured for that one-line change. | The IG Messaging API's support for `message.metadata` is undocumented; mocked tests prove nothing here. A reviewer flagged this as a plausible regression against existing merchant IG replies. | **HARD BLOCKER** — a regression here breaks a shipping feature merchants use daily |
+| F-4 | ⬜ | 01 | **Replay a webhook delivery and confirm nothing duplicates.** Re-POST the identical body (valid signature) and verify: zero new rows, zero new events, `lastMessageAt` unchanged. | Machine-asserted in tests, but the assertion is against a mock. Meta's real redelivery behavior (timing, identical vs near-identical bodies) is worth one live confirmation. | Standard |
+| F-5 | ⬜ | 01 | **Fire the Meta data-deletion callback for the test PSID** and verify the conversation, messages, outbounds, channel spokes, psid memories, pipe events, and queued jobs are gone — while the `Customer` row and its orders survive. | Compliance-shaped: the consequence of getting it wrong is a regulatory one, and the cascade behavior is a real-DB property that mocks can only approximate. | **HARD BLOCKER** — Meta compliance |
+| F-6 | ⬜ | 01 | **Provision every pilot tenant in nova-ai's tenant registry BEFORE enabling the pipe** (`agent/lib/tenants.ts` / production registry). Confirm a delivery for each returns 202, not 409. | Ops step on production data. An unprovisioned tenant fails *correctly* (events accumulate, alarm fires) but silently from the founder's point of view — the classic "Nova sees nothing and nobody knows why". | **HARD BLOCKER** — silent total failure otherwise |
+| F-7 | ⬜ | 01 | **Set `NOVA_INBOX_SHARED_SECRET` (identical value) in Railway's dakio-api env and nova-ai's production env.** Confirm the delivery lane authenticates (202s, not 401s) after deploy. | Production secrets. Set locally in both `.env`s already; production is yours. | **HARD BLOCKER** — pipe is dead without it |
+| F-8 | ⬜ | 01 | **Leave `NOVA_CUSTOMER_TURNS_ENABLED` unset/false in production until module 02 ships.** Nothing to do now — this is a "don't" — but confirm it is not set when you deploy. | Judgement call I made and want you to know about: with it on, an authenticated delivery would run Nova's *founder* instruction stack and full business toolset against whatever a stranger types into Messenger. | **HARD BLOCKER** — do not flip early |
+| F-9 | ⬜ | 01 | **Confirm the module-01 migration deployed to Railway** (`20260725034728_nova_front_office_01_pipe`) and the app came up clean. It adds columns to `InboxMessage`/`InboxConversation`, creates `InboxOutbound`, and **backfills `actor` on every existing InboxMessage row**. | Applied to local Postgres only, by design. The backfill touches existing production rows, which per `RELEASE_CHECKLIST.md` and the 2026-07-01 P0 is exactly the class of change to watch. Deploy ordering is safe (`npm start` runs `migrate deploy` before boot). | **HARD BLOCKER** — a stale client drops inbound messages |
+
+---
+
+---
+
 ## Where the code is (branch split)
 
 From 2026-07-23, Nova work goes to a **`develop`** branch in every repo it
