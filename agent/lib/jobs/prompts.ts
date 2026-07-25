@@ -19,6 +19,15 @@ function dedupeInstruction(job: NovaJob): string {
 }
 
 const TEMPLATES: Record<NovaJob["kind"], string> = {
+  // Defensive dead path: `inbox_reply` jobs never render this template — the
+  // dispatcher routes them to the customer conversation session via
+  // `dispatchJobToChannel` (agent/channels/internal.ts), which builds its own
+  // minimal instruction. Kept here only so the record stays total over
+  // JobKind; if this text ever reaches a session, the routing broke.
+  inbox_reply:
+    "A customer conversation has undelivered inbound messages. Re-read the " +
+    "unprocessed inbox events for this conversation before doing anything.",
+
   morning_report:
     "It is morning report time. Load the morning-report skill and follow it " +
     "exactly: gather the overnight numbers, completed work, anomalies, and " +

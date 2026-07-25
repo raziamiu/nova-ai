@@ -22,11 +22,9 @@
  */
 
 import { defineSchedule } from "eve/schedules";
-import internal from "../channels/internal";
+import { dispatchJobToChannel } from "../channels/internal";
 import { listTenants, isTenantActive } from "../lib/tenants";
 import { storeFor } from "../lib/store/resolve";
-import { tenantAppPrincipal } from "../lib/jobs/principal";
-import { renderJobPrompt } from "../lib/jobs/prompts";
 
 const JOBS_PER_TENANT_PER_TICK = 10;
 
@@ -51,11 +49,11 @@ export default defineSchedule({
           await Promise.all(
             jobs.map((job) => {
               const leaseToken = job.leaseToken ?? "";
-              return receive(internal, {
-                message: renderJobPrompt(job),
-                target: { storeId: tenant.storeId, jobId: job.id },
-                auth: tenantAppPrincipal(tenant.storeId),
-              }).then(
+              // Per-kind channel routing lives with the internal channel
+              // (Stage 10 module 01): `inbox_reply` rejoins the customer
+              // conversation session; every other kind keeps the Phase 05
+              // `job:<id>` internal session unchanged.
+              return dispatchJobToChannel(receive, tenant.storeId, job).then(
                 // Two-arg .then, not .then().catch(): a failure to ACK
                 // completion (e.g. dakio-api transiently unreachable) must
                 // never be routed through releaseJob — the job's real work

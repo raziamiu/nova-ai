@@ -148,7 +148,9 @@ On founder-held/locked threads (`handledBy:'founder'` or `novaLockedAt` set) eve
 when guardrail key `inbox.draftWhileFounderActive` is true (seeded default true) — silent drafting
 (module 08 §6.4 behavior) needs the events; the guardrail branch and the `/reply` hard gate force
 draft/blocked so the lock still cannot be raced. A missing key reads false ⇒ no events on held
-threads ⇒ fail-closed in the quiet direction.
+threads ⇒ fail-closed in the quiet direction. **The default-true seed is NOT shipped in
+this module** — it is deferred to module 08's guardrail seeding (a gate item there); until
+then held-thread events stay off, which is the quiet direction and therefore safe to defer.
 
 ### D4. `InboxOutbound` — the delayed-send + retry ledger (schema owned here)
 
@@ -202,6 +204,11 @@ Decisions:
   timestamp (401 on failure), parses the body, and returns 202 (or 409 when the continuation is
   busy — the app-layer queue of unprocessed events is the burst buffer). Module 02 fills in the
   principal/session/tool behavior behind the same route without changing this contract.
+  **Interim safety flag:** dispatch is gated behind `NOVA_CUSTOMER_TURNS_ENABLED` (default
+  OFF) — deliveries authenticate and return 202 so the contract holds end to end, but no
+  model turn starts. Without module 02's `dakio-inbox` instruction layer a dispatched turn
+  would run Nova's FOUNDER instructions and full business toolset against
+  customer-controlled input; the flag flips on with module 02, never before.
 
 ### D6. Reply-loop prevention — five layers, defense in depth
 

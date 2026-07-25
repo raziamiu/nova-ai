@@ -70,6 +70,7 @@ import { randomUUID } from "node:crypto";
 // 1 = approval-surfacing/critical … 9 = lowest. Mirrors dakio-api's
 // novaJobs.js — no dedicated approval-surfacing job kind exists yet.
 const PRIORITY_BY_KIND: Record<JobKind, number> = {
+  inbox_reply: 1, // reserved fast-lane band — a waiting customer outranks everything
   morning_report: 3,
   night_ops: 3,
   weekly_strategy: 4,

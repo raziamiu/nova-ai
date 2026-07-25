@@ -799,7 +799,19 @@ export interface InboxEvent {
 // as memory/actions/activity/reports/inbox — Nova itself holds no job state.
 // ---------------------------------------------------------------------------
 
-export type JobKind = "morning_report" | "pulse" | "cart_sweep" | "night_ops" | "weekly_strategy" | "reflection";
+export type JobKind =
+  | "morning_report"
+  | "pulse"
+  | "cart_sweep"
+  | "night_ops"
+  | "weekly_strategy"
+  | "reflection"
+  // Stage 10 module 01: fallback lane for undelivered inbound customer
+  // messages (drained from unprocessed `message.received` events when the
+  // live delivery POST to the customer channel failed). Never cron-defined —
+  // event-enqueued by dakio-api's drain, priority 1, and routed by the
+  // dispatcher to the customer conversation session, not a `job:<id>` one.
+  | "inbox_reply";
 export type JobStatus = "due" | "leased" | "done" | "failed" | "skipped";
 
 export interface NovaJobDef {

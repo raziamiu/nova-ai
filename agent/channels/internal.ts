@@ -11,11 +11,28 @@
  * session never approves/parks (the trust plane denies non-`"user"`
  * principals — see `agent/lib/jobs/principal.ts`), so there is no long-lived
  * park to worry about here.
+ *
+ * Stage 10 module 01 adds `dispatchJobToChannel` — the per-kind channel
+ * routing the dispatcher calls instead of addressing this channel directly.
+ * `inbox_reply` jobs (the fallback lane for when the live delivery POST to
+ * `customer.ts` failed) must NOT become throwaway `job:<id>` sessions: they
+ * rejoin the SAME durable `customer:inbox:<conversationId>` session the live
+ * lane uses, via the customer channel's `receive` hook (cross-channel
+ * hand-off, custom.mdx). The branch lives here — not in the dispatcher —
+ * because this file owns the job→session mapping; the dispatcher only
+ * supplies the `receive` capability (eve exposes cross-channel receive to
+ * schedules and route handlers, never to a channel's own `receive` hook).
  */
 
-import { defineChannel } from "eve/channels";
+import { defineChannel, type Session } from "eve/channels";
+import type { ScheduleHandlerArgs } from "eve/schedules";
+import customer from "./customer";
+import { customerPrincipal } from "../lib/customer/principal";
+import { tenantAppPrincipal } from "../lib/jobs/principal";
+import { renderJobPrompt } from "../lib/jobs/prompts";
+import type { NovaJob } from "../lib/types";
 
-export default defineChannel<undefined, void, { storeId: string; jobId: string }>({
+const channel = defineChannel<undefined, void, { storeId: string; jobId: string }>({
   routes: [],
   async receive(input, { send }) {
     const jobId = String(input.target.jobId ?? "unknown");
@@ -25,3 +42,58 @@ export default defineChannel<undefined, void, { storeId: string; jobId: string }
     });
   },
 });
+
+export default channel;
+
+/**
+ * Route one claimed job to its session. Every kind except `inbox_reply`
+ * keeps the Phase 05 behavior byte-for-byte: a fresh `job:<id>` session on
+ * this channel under the scheduler principal.
+ *
+ * `inbox_reply` (priority 1, drained from unprocessed `message.received`
+ * events when nova-ai was unreachable) instead rejoins the customer
+ * conversation session under the same `customerPrincipal` the live lane
+ * mints — same tenant pinning, same non-`"user"` trust-plane denial, and
+ * module 02's customer instruction layer keys on its authenticator. The
+ * payload's `conversationId` comes from dakio-api's drain (D5); a job
+ * without one is malformed. The function is `async` so that throw becomes a
+ * REJECTION: the dispatcher maps jobs inside a callback whose `.then(ok, fail)`
+ * chain is built after the call, so a synchronous throw would escape it — the
+ * releaseJob path would never run and sibling jobs in the same claimed batch
+ * would keep dangling leases until the watchdog. As a rejection it lands in
+ * the existing releaseJob handler and the failure is a visible `lastError`.
+ */
+export async function dispatchJobToChannel(
+  receive: ScheduleHandlerArgs["receive"],
+  storeId: string,
+  job: NovaJob,
+): Promise<Session> {
+  if (job.kind === "inbox_reply") {
+    const conversationId = job.payload.conversationId;
+    if (typeof conversationId !== "string" || conversationId.length === 0) {
+      throw new Error(`inbox_reply job ${job.id} has no payload.conversationId`);
+    }
+    const platform = typeof job.payload.platform === "string" ? job.payload.platform : "messenger";
+    const messageIds = Array.isArray(job.payload.messageIds)
+      ? job.payload.messageIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [];
+    // Mirror the live lane's minimal instruction (ids only — content never
+    // rides the job bus either). The handler re-reads unprocessed events, so
+    // an already-processed batch makes this turn a cheap no-op (D7).
+    const message =
+      messageIds.length > 0
+        ? `Customer message(s) received: ${messageIds.join(", ")}`
+        : `Customer message(s) received on conversation ${conversationId} (fallback delivery) — re-read the unprocessed inbox events for the latest messages.`;
+    return receive(customer, {
+      message,
+      target: { storeId, conversationId, platform },
+      auth: customerPrincipal(storeId, conversationId, platform),
+    });
+  }
+
+  return receive(channel, {
+    message: renderJobPrompt(job),
+    target: { storeId, jobId: job.id },
+    auth: tenantAppPrincipal(storeId),
+  });
+}

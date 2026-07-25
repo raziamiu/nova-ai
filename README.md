@@ -13,6 +13,23 @@ founder's dashboard. Phase 01 (foundation agent core, demo store) is implemented
 
 Requires Node 24 and a model key (`AI_GATEWAY_API_KEY` in `.env.local`) for live runs.
 
+Stage 10 (Front Office) additionally needs `NOVA_INBOX_SHARED_SECRET` — the
+shared secret authenticating dakio-api's inbound-message delivery POSTs to the
+customer channel (`POST /customer/message`: `x-nova-signature` is a hex
+HMAC-SHA256 over `` `${x-nova-timestamp}.${rawBody}` `` — the timestamp is
+inside the MAC so the ±5-minute freshness window actually bounds replay). The
+SAME value must be set in dakio-api's environment (`lib/inboxDelivery.js` signs
+with it).
+
+`NOVA_CUSTOMER_TURNS_ENABLED` gates whether an authenticated delivery actually
+starts a model turn. It defaults to OFF and **must stay off in production until
+module 02 ships the customer instruction layer** — until then a dispatched turn
+would run Nova's founder-facing instructions and full business toolset against
+customer-controlled input. With the flag off the channel still authenticates
+and returns 202, so the end-to-end pipe is exercisable without that risk.
+Missing/empty ⇒ the channel fails closed: every delivery is a 401 and no
+customer session can start.
+
 ```bash
 npm install
 npm exec -- eve dev      # chat with Nova against the seeded demo store

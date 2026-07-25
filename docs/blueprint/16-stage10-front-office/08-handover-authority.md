@@ -234,7 +234,7 @@ Notes: `refund_promise` joins `FOUNDER_ONLY` alongside `bulk_refund` — proposa
   "inbox.quietHours": { "start": "23:00", "end": "08:00" },                  // Asia/Dhaka (04/08)
   "inbox.maxProactiveTouchesPerWeek": 4, "inbox.maxUnansweredProactiveStreak": 2, // (04)
   "inbox.highValueMinor": 500000,   // (11) high-value iff LTV OR live cart/quote total >= threshold (default ৳5,000)
-  "inbox.shadowStartedAt": "<ISO>",    "inbox.draftWhileFounderActive": true, // (08)
+  "inbox.shadowStartedAt": "<ISO>",    "inbox.draftWhileFounderActive": true, // (08) — OWED SINCE MODULE 01 (D3): module 01 reads this key fail-closed but ships no seed, so held-thread events stay off until this module seeds it. Gate item.
   "inbox.escalationLexiconExtra": [],  "inbox.holdingTemplates": {}           // (08)
 }
 ```
