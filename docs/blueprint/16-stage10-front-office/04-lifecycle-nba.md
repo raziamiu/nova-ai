@@ -334,6 +334,8 @@ sequence BEFORE the model speaks:
 4. Quiet hours now (the job may have been delayed by lease retries)? → re-lease with dueAt = next
    allowed time; don't send.
 5. Touch budget exhausted / `unansweredProactiveStreak ≥ 2`? → `skipped:touch_budget`.
+   Exception: RTO-critical `confirm_order_intent` jobs skip the budget check only (D8 exemption,
+   OQ-11) — the window, quiet-hours, and streak checks above still apply to them.
 
 Then and only then: fresh NBA block → model composes → `send_inbox_reply` through the normal gate.
 `chainCount` increments; a follow-up may schedule at most one successor (**chainCount ≤ 2** — after
@@ -370,6 +372,13 @@ killed):
   paths, never by turn replies). Resets lazily when `weekStartAt + 7d` passes (checked in the NBA
   lib). Skips and reactive replies never count. **Reactive-never-budgeted is test-pinned** — a bug
   that budgets reactive replies would silently starve legitimate answers.
+- **RTO exemption (OQ-11, founder-resolved 2026-07-25):** RTO-critical pre-dispatch
+  confirmations — `confirm_order_intent` sends on at-risk orders (module 06 movement 1) — are
+  exempt from `inbox.maxProactiveTouchesPerWeek`: the NBA eligibility gate never returns
+  `touch_budget_reached` for them. They remain fully bound by the 24h window, quiet hours, and
+  the unanswered-streak cap, and they still increment `touchesThisWeek` (flagged `rtoExempt` in
+  telemetry) so overuse stays visible. Rationale: a returned parcel costs far more than one
+  extra ping. No other trigger is exempt.
 - Missing keys fail closed per the guardrail invariant: absent `inbox.quietHours` reads as the
   default (quiet enforced), absent caps read as the defaults — never as "unlimited".
 

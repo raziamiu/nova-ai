@@ -449,10 +449,12 @@ deferred, recorded in module 12.
 - **Promises/commitments** (data modules 03/04): `NovaCommitmentsDrawer` (D8) — followup
   jobs + NovaPromise rows, founder cancel, kept/broken visibility. Handover cards always
   include open promises (D5).
-- **Open question (founder)**: should the chat header show the linked customer's journey
-  stage (`CustomerJourney.stage`, module 04) as a small chip (`REPEAT BUYER`)? Costs one
-  join on the thread endpoint; risk is stage-chip clutter for unlinked threads. Deferred to
-  module 12's consolidated open-questions list; the response shape reserves nothing for it.
+- **Journey-stage chip — v1, founder-resolved (OQ-15, 2026-07-25)**: the chat header shows
+  the linked customer's journey stage (`CustomerJourney.stage`, module 04) as a small chip
+  (`REPEAT BUYER`, `AT RISK`, `NEGOTIATING`) — linked threads only; unlinked threads render
+  no chip, which keeps the clutter risk at zero. The thread endpoint gains `journeyStage`
+  (one join on `CustomerJourney` via the conversation's `customerId`); chip styling follows
+  the existing dept-room chip tokens. The founder instantly sees who is worth attention.
 
 ### D14. Component inventory
 

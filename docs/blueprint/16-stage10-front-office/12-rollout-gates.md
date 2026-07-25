@@ -312,17 +312,17 @@ founder stays silent.
 | OQ-2 | Model tier for inbox on growth+ plans: Sonnet quality vs Haiku speed (~2× faster P50)? | starter → haiku-4.5, growth+ → sonnet-5 | 02 |
 | OQ-3 | Outside the 24h window: stay honestly silent (v1 stance) or pursue Meta HUMAN_AGENT / MESSAGE_TAG approval? | silent + `skipped_window` receipts; skip counts are the business case for v2 | 01, 04 |
 | OQ-4 | `inbox.maxAutoOrderMinor` ৳5,000 default — right cap, and per-order or per-customer-per-day? | ৳5,000 per order | 05, 08 |
-| OQ-5 | Inbox discount bounds: default max pct (platform `maxDiscountPct` is 20; handover designed around 15) and is FIXED-amount haggling ("৳50 koman") in-bounds for v1? | 15% inbox ceiling; FIXED coupon type ships (module 05) but haggling script prefers pct | 05, 08 |
+| OQ-5 | **RESOLVED (founder, 2026-07-25):** 15% inbox ceiling — `inbox.maxDiscountPct` seeds at 15; the platform `maxDiscountPct` seed stays 20 for dashboard/campaign coupons. FIXED coupon type ships (module 05) but the haggling script prefers pct. | — | 05, 08 |
 | OQ-6 | Marketing opt-in ask: should Nova ever ask customers for marketing consent — recommendation: only after a completed order, max once? | never asks in v1 (transactional consent only, never inferred) | 03, 07 |
 | OQ-7 | CSAT: does any in-chat rating ask break the "never feels like a bot" bar? Blocks the v2 `csat` metric | no rating asks | 09, 11 |
 | OQ-8 | `order_status`→support / `delivery_eta`→shipping split — bless, or route all tracking to shipping? | the split (canonical intent map) | 09 |
 | OQ-9 | Pending (undelivered) COD chat revenue: visible only in targetText as designed, or also on the tile value labeled? | targetText only | 09, 10 |
-| OQ-10 | Quiet hours 23:00–08:00 default — right for BD customers, and may founders disable quiet hours entirely? | fixed default, not disableable in v1 | 04 |
-| OQ-11 | Touch cap 4 proactive/customer/week — and should RTO-critical confirmation pings be exempt? | 4/week, confirmations NOT exempt (reactive replies never count) | 04, 06 |
+| OQ-10 | **RESOLVED (founder, 2026-07-25):** 23:00–08:00 Asia/Dhaka confirmed; fixed default, not disableable in v1. | — | 04 |
+| OQ-11 | **RESOLVED (founder, 2026-07-25, overriding the proposed default):** 4 proactive/customer/week confirmed, and RTO-critical pre-dispatch confirms (`confirm_order_intent` on at-risk orders) ARE exempt from the cap — a lost parcel costs more than one extra ping. Exempt sends stay bound by the 24h window and quiet hours, and still count in `touchesThisWeek` telemetry (flagged `rtoExempt`) so overuse is visible. Reactive replies never count. | — | 04, 06 |
 | OQ-12 | Dormancy thresholds 45d customers / 30d leads / 180d lost — tune per store category? | fixed defaults | 04 |
 | OQ-13 | Review asks: organic-window-only (lower volume, zero bot-feel) — accept, or allow one synthetic ask in v2? | organic-only | 07 |
 | OQ-14 | Repeat-purchase prepared cards per open reorder window: useful, or noise until a real send channel exists? | ship them, monitor ignore-rate | 07 |
-| OQ-15 | Show journey stage on the Inbox conversation header from day one, or keep stage internal until the funnel view? | internal in v1 | 10 |
+| OQ-15 | **RESOLVED (founder, 2026-07-25, overriding the proposed default):** show the journey stage as a small chip on the Inbox conversation header from day one — linked threads only (unlinked threads render no chip). Module 10's thread response shape gains `journeyStage`. | — | 10 |
 | OQ-16 | Identity merge: auto-merge provably-identical normalized-phone dupes, or founder Decision for every merge? | founder Decision for every merge | 03 |
 | OQ-17 | Promise grace window 12h before "broken" — or stricter per kind (6h for delivery_eta)? | 12h flat | 03 |
 | OQ-18 | SMS fallback for promise fulfillment under `transactional` consent — comfortable, or require the marketing tier? | transactional SMS allowed for order-related follow-through | 03 |
