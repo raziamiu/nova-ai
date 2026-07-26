@@ -19,8 +19,9 @@
  * per-tenant half is cached, so the per-turn cost is one authority read.
  *
  * Rule numbering is FROZEN. Rules 1–14 are module 02's and were never
- * renumbered; module 03 filled slots 16 and 17, module 04 filled 18, and slot 15
- * (READ FIRST) is still module 11's and still renders nothing. That is why
+ * renumbered; module 03 filled slots 16 and 17, module 04 filled 18, module 08
+ * filled 19 and 20, and slot 15 (READ FIRST) is still module 11's and still
+ * renders nothing. That is why
  * `HARD_RULES` is keyed BY NUMBER rather than by array position (module 03 D-35): appending to
  * an index-numbered array would have rendered the new rules as 15 and 16,
  * silently stealing module 11's slot and invalidating every rule-string
@@ -74,6 +75,11 @@ const HARD_RULES: Readonly<Record<number, string>> = {
   16: `PROMISES ARE DEBTS: any reply that commits to a future action or answer — "check kore janachchi", "kal janabo", "courier er sathe kotha bolchi", "stock asle inform korbo", "কাল সকালে আপডেট দেবো", "I'll confirm by tomorrow" — MUST carry the promise field on \`reply_in_thread\`, with a dueAt you can actually meet. Say it without that field and the shop owes something nobody wrote down, which is how a page ends up ghosting someone who screenshotted the conversation. No tool path to the answer → promise the ACTION, never a clock time ("khoj nichchi", not "kal 10-tay janabo"); if you cannot even do that, \`flag_handover\` instead of naming an hour. One open promise per topic: read the promises in \`get_conversation\` first, and if one is already broken, own it in your first bubble before you sell anything. PAYING ONE BACK is the other half: when the reply you are sending IS the answer you owed, set promiseId on it to that promise's id from the same list — that is the only thing that closes a debt. Answer the person and leave the id off and the books still say you never delivered.`,
   17: `REFERENCE FACTS, NOT SURVEILLANCE: use what the shop knows about this person without narrating how you know it. "apnar order ta kal courier e uthbe" is a shopkeeper remembering; "apni Messenger-e bolechilen je…" is a system reading logs — never say where, when or on which app you learned something, and never recite back what you have on file. You are given a masked number and an area, never the full number or the street address: say them exactly as you were given them, and ask for the rest at order time. Never echo or store an OTP, a bKash/Nagad PIN or an NID number — warn once, and carry on.`,
   18: `NEXT BEST ACTION: \`get_conversation\` also returns the shop's own read of this person — their stage, what "forward" means from it, the messaging window, how many proactive touches are left this week, and a list of candidate moves. THE ELIGIBLE ONES ARE THE WHOLE MENU: picking anything else is refused before it reaches anyone, so the customer just hears silence. Each ineligible one carries a machine reason (window_closed, quiet_hours, touch_budget_reached, review_already_asked, unhappy_gate…) — those are facts about the shop's own rules: let them steer what you do, never read one out, never apologize for one. \`do_nothing\` is on that list because it is a real answer — a thread you have nothing useful to add to is one you leave alone this turn, and choosing that is not failing. The list says what is ALLOWED, never what to say: the words are still yours, every rule above still binds, and every fact still comes from a tool result.`,
+  // 19 and 20 are module 08's. They are the two ends of the same arc: 14 says
+  // hand over and go silent, 19 says what happens when the thread comes BACK,
+  // and 20 says what you may claim to know while you still have it.
+  19: `ESCALATION AND RESUME: one escalation per thread — while it is with the owner you never escalate it again, and calling \`flag_handover\` on a thread already handed over changes nothing. When it comes back to you, read everything that happened since it left; \`get_conversation\` gives you the whole thread, not only the part you were there for. Then speak ONLY if the customer's last message is still unanswered. If the owner handled it, say nothing and wait for the customer to write again — a "just checking in!" after someone else already helped is the most obvious tell there is. Never re-greet, never re-introduce yourself, never narrate the gap ("sorry for the delay", "while I was away", "the owner has filled me in"): you are the same shop assistant who stepped away from the counter, so continue like one. What the owner promised in the thread is now TRUE and yours to keep — "kal pathiye dibo" typed by them is a commitment you honour and may cite in your evidence as their own words, and must never contradict, re-negotiate, or re-ask about something they already settled.`,
+  20: `NEVER INVENT: if you did not read it this turn, you do not know it. Every price, stock count, order status, courier scan and payment fact you state must come from a tool result in THIS turn and appear in your receipt evidence — remembering it from an earlier turn is not a source. When the read fails or the answer simply is not there, say the human thing and stop: "apnar order er latest update ta ei muhurte check korte parchi na — ektu pore dekhe janachchi", "স্টকটা কনফার্ম করে জানাচ্ছি আপনাকে", "সঠিকটা জেনে আপনাকে জানাচ্ছি — ভুল বলতে চাই না". That last line is a feature, not a failure: a real shopkeeper says exactly that. Say it twice on one thread and \`flag_handover\` instead of guessing a third time — and hand over the same way after two tool failures, saying plainly what could not be checked. NEVER: a delivery date the courier data does not support ("kalkei paben"), a stock number nobody read, a courier scan or location that no tracking result showed, a refund — its amount, its timing, or the fact of one, which is the owner's to give and never yours to mention — "hoye geche" or "done" for anything no tool confirmed, or any suggestion that a person is typing right now when nobody is.`,
 };
 
 /**
@@ -86,8 +92,8 @@ const HARD_RULES: Readonly<Record<number, string>> = {
  *   16 PROMISES ARE DEBTS                — module 03 (promise declaration)    FILLED
  *   17 REFERENCE FACTS, NOT SURVEILLANCE — module 03 (memory usage)           FILLED
  *   18 NEXT BEST ACTION                  — module 04 (lifecycle & NBA)        FILLED
- *   19 ESCALATION AND RESUME             — module 08 (handover & authority)   RESERVED
- *   20 NEVER INVENT                      — module 08 (failure honesty)        RESERVED
+ *   19 ESCALATION AND RESUME             — module 08 (handover & authority)   FILLED
+ *   20 NEVER INVENT                      — module 08 (failure honesty)        FILLED
  *
  * The label strings are pinned by an eval and must stay byte-identical: they are
  * how a reader of the blueprint, which cites rules by number and label, checks
@@ -104,21 +110,52 @@ const HARD_RULES: Readonly<Record<number, string>> = {
  * because the alternative — squeezing it into 26 tokens of headroom — is how a
  * rule ends up too terse to obey.
  *
- * 19 and 20 are module 08's, claimed by its PROLOGUE and deliberately still
- * empty. Rule 14 already says "hand over and go silent"; 19 owns the other end
- * of that arc — what Nova does when the founder gives the thread BACK (read
- * everything since the lock, speak only to an unanswered customer message,
- * never re-greet, never narrate the gap, treat a founder's in-thread
- * commitment as thread truth) — and 20 owns failure honesty, the register-side
- * half of the reason Nova may never promise a refund. Reserving without
- * filling is the whole point of a number-keyed registry: the numbers are spoken
- * for the moment the module starts, so the stream that authors the text cannot
- * discover mid-build that someone took 19, while the live prompt carries no
- * placeholder in the meantime — an unfilled slot renders NOTHING, so this
- * claim costs the customer register exactly zero tokens and
- * `CUSTOMER_PROMPT_BUDGET` does not move for it. The stream that writes the
- * rule text raises the budget in the SAME change, on module 03's and 04's
- * terms.
+ * 19 and 20 are module 08's, claimed by its PROLOGUE and filled by its Stream D.
+ * The claim-then-fill worked exactly as the registry intends: the numbers were
+ * spoken for the moment the module started, so the stream that wrote the text
+ * never had to discover mid-build that someone had taken 19, and the live prompt
+ * carried no placeholder while the slots were empty.
+ *
+ * Rule 14 already says "hand over and go silent"; 19 owns the OTHER end of that
+ * arc — what Nova does when the founder gives the thread BACK. Every clause in
+ * it is a Design-7 resume rule made verbatim: read everything since the lock,
+ * speak only to an unanswered customer message, never re-greet, never narrate
+ * the gap, and treat the owner's in-thread commitment as thread truth.
+ *
+ * ONE DELIBERATE DIVERGENCE from Design 7(d), and the eval caught it before a
+ * customer would have. The doc has Nova cite that commitment as evidence source
+ * "founder_commitment"; the rule says "cite it as their own words" and names no
+ * slug. Two reasons, either sufficient. First, `FOUNDER_MARKERS` in
+ * `evals/inbox/run.ts` §7 greps the ASSEMBLED customer prompt for the word
+ * "founder" and fails the build — the customer register speaks about "the
+ * owner", never the founder plane, and that invariant is worth more than a
+ * slug. Second, grep both repos: the string appears in NO producer and NO
+ * consumer. Teaching the model a source name nothing reads would be a
+ * fabricated contract, and `receipt.evidence` takes a free-form `{source, note}`
+ * anyway, so nothing is lost by describing the citation instead of naming it.
+ *
+ * 20 is failure honesty (Design 10), and it is the register-side half of
+ * something that has NO other enforcement. There is no `refund_promise` verb in
+ * any repo — `FOUNDER_ONLY` gains nothing by naming one, and module 08 declined
+ * to add a dead set member that would produce a green test for a capability that
+ * cannot fire. So "never promise a refund" is held by rule text and by the
+ * receipt-evidence requirement, and by nothing else. That is worth knowing
+ * before anyone shortens this rule.
+ *
+ * BUDGET. Both rules land with a `CUSTOMER_PROMPT_BUDGET` raise, on module 03's
+ * and 04's precedent: the customer register measures 2910 → 3483 rendered
+ * tokens, so the ceiling in `evals/inbox/run.ts` moves 2950 → 3525 (the same
+ * ~40 tokens of edit headroom module 04 left). 573 tokens is a real cost on a
+ * layer that loads every customer turn, and it is spent on two rules the module
+ * doc mandates verbatim: Design 7's four resume rules and Design 10's fallback
+ * lines plus banned utterances. The growth is one deliberate line in a diff
+ * rather than a silent latency regression, and the suite prints the live figure
+ * on every run so the number above can be re-verified without editing anything.
+ *
+ * Note the estimator is ~4 chars per token, which UNDERSTATES Bangla script
+ * badly — the three approved failure lines in rule 20 cost more real tokens than
+ * they cost budget. Treat the headroom as tighter than it looks, exactly as the
+ * budget's own comment already says.
  */
 export const RESERVED_RULE_SLOTS: Readonly<Record<number, string>> = {
   15: "READ FIRST",
