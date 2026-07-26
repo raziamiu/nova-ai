@@ -7,8 +7,14 @@ description: Sweep abandoned carts and send (or prepare) personalized recovery m
 1. `get_abandoned_carts` with `state: "none"` — these are untouched. Also check
    `state: "message_sent"`: carts older than 72h with no recovery are lost
    causes — leave them; do not send twice.
+   **Then split that list on `conversationId`.** A cart carrying one has a live
+   chat thread, and the server has already booked the in-thread nudge for it —
+   that basket is spoken for. This lane reaches email and SMS only, so
+   contacting them from here is one customer hearing about one basket twice, in
+   two channels, from the same shop. Work only the carts where `conversationId`
+   is null; report the rest separately as handled in chat.
 2. `recall` namespace `brand` and `rules` — the message voice and discount rules.
-3. For each untouched cart, look at the customer (`get_customers` /
+3. For each untouched cart **with no thread**, look at the customer (`get_customers` /
    `get_orders` if needed) and write a personal message:
    - Reference the actual items by name.
    - Repeat customers: warm, familiar tone; mention their history naturally.

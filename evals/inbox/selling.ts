@@ -43,6 +43,9 @@ import { pathToFileURL } from "node:url";
 import { evaluateAuthority } from "../../agent/lib/nova/authority";
 import { executors, undoers } from "../../agent/lib/nova/executors";
 import { DemoStore } from "../../agent/lib/store/backend";
+import { resetStores, storeFor } from "../../agent/lib/store/resolve";
+import getAbandonedCarts from "../../agent/tools/get_abandoned_carts";
+import { renderJobPrompt } from "../../agent/lib/jobs/prompts";
 import type { StoreClient } from "../../agent/lib/store/client";
 import type { AuthorityState, CustomerRiskView, Product, StoreSettings } from "../../agent/lib/types";
 
@@ -680,6 +683,87 @@ export async function runSellingGuardrailSuite(): Promise<{ passed: number; fail
       "…and does not stamp the order door — a by:nova chip on that sale would claim Nova touched it",
       String(filed.targetRef).startsWith("inbox_conversation:"),
       String(filed.targetRef),
+    );
+  }
+
+  // [sell-10] D8's division of labour, checked on the ONE field it rests on.
+  //
+  // The `cart_sweep` prompt tells the model "SKIP any cart that already has a
+  // conversationId" — that customer has a live thread and dakio-api has already
+  // booked the in-thread nudge. `get_abandoned_carts` did not return the field.
+  // So no cart ever appeared to have one, the instruction could not be obeyed
+  // even in principle, and every cart with a thread was contacted by BOTH lanes:
+  // one customer, one basket, two channels, from the same shop — the exact
+  // failure that sentence exists to prevent. An instruction naming a field the
+  // tool does not emit is not a weak rule, it is no rule.
+  console.log("\n[sell-10] The cart sweep can actually see what it is told to skip");
+  {
+    resetStores();
+    const AURORA = "store-aurora";
+    const demo = storeFor(AURORA) as DemoStore;
+    // `private readonly data` is a compile-time fence, not a runtime one; the
+    // seed carries no threads, and a cart with one is the whole case here.
+    const carts = (demo as unknown as { data: { abandonedCarts: Record<string, unknown>[] } }).data
+      .abandonedCarts;
+    check("the demo seed has carts to work with", carts.length >= 2, `${carts.length}`);
+    carts[0].conversationId = "conv-cart-live";
+    carts[1].conversationId = null;
+
+    // A founder principal: `get_abandoned_carts` opens with
+    // `requireFounderSession`, and the sweep runs on the founder plane.
+    const founderCtx = {
+      session: {
+        auth: {
+          current: {
+            authenticator: "dakio",
+            principalId: "user-founder",
+            principalType: "user",
+            attributes: { storeId: AURORA, role: "owner" },
+          },
+        },
+      },
+    };
+    const out = (await getAbandonedCarts.execute({}, founderCtx as never)) as {
+      carts: Record<string, unknown>[];
+    };
+    const withThread = out.carts.find((c) => c.id === carts[0].id);
+    const withoutThread = out.carts.find((c) => c.id === carts[1].id);
+
+    check(
+      "a cart with a live thread reports its conversationId",
+      withThread?.conversationId === "conv-cart-live",
+      JSON.stringify(withThread?.conversationId ?? null),
+    );
+    check(
+      "…and a cart with no thread reports null, which is 'recover this one'",
+      withoutThread !== undefined && withoutThread.conversationId === null,
+      JSON.stringify(withoutThread?.conversationId),
+    );
+    // ABSENT and null are different facts. Null is "no thread matched" — a normal
+    // cart. Absent is "this dakio-api predates module 05 and cannot match threads
+    // at all", in which case nothing else is nudging anyone and this lane is the
+    // only recovery there is. `?? null` would collapse the two and quietly stand
+    // the whole sweep down against an older server.
+    delete carts[0].conversationId;
+    const legacy = (await getAbandonedCarts.execute({}, founderCtx as never)) as {
+      carts: Record<string, unknown>[];
+    };
+    const older = legacy.carts.find((c) => c.id === carts[0].id);
+    check(
+      "an API that cannot match threads leaves the key ABSENT, not null",
+      older !== undefined && !("conversationId" in older),
+      JSON.stringify(older?.conversationId),
+    );
+
+    // And the two halves of the contract still name the same field.
+    const sweep = renderJobPrompt({ kind: "cart_sweep" } as never);
+    check(
+      "the cart_sweep prompt still keys the split on conversationId",
+      sweep.includes("conversationId"),
+    );
+    check(
+      "…and the tool still advertises it, so the model knows what the field means",
+      getAbandonedCarts.description?.includes("conversationId") === true,
     );
   }
 
