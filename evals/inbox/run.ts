@@ -56,8 +56,10 @@
  *                           text through the NFC path.
  *  13. Guard ladder       — THREAD_OFF / LOCKED / STALE / WINDOW_CLOSED /
  *                           LOOP_GUARD on a real backend, plus the
- *                           untrusted() transcript framing and the
- *                           per-conversation pinning of the read tool.
+ *                           untrusted() transcript framing, the
+ *                           per-conversation pinning of the read tool, and
+ *                           the escalation outcome sentences byte-pinned
+ *                           against a client that answers to order.
  * 13b. Approve path       — an approved draft sends instantly and is booked
  *                           under the LEDGER id (the same Idempotency-Key the
  *                           Decision Desk uses), the live path carries no
@@ -1066,6 +1068,16 @@ async function main(): Promise<void> {
         RESERVED_RULE_SLOTS[17] === "REFERENCE FACTS, NOT SURVEILLANCE" &&
         RESERVED_RULE_SLOTS[18] === "NEXT BEST ACTION",
     );
+    // Module 08's prologue claims 19 and 20 and fills neither — the claim is the
+    // point, so that the stream authoring the text cannot find the number taken.
+    // Deliberately NOT asserting that they are unrendered: filling them is the
+    // expected next edit, and a check that goes red on the intended change is a
+    // trap for whoever makes it. The labels are pinned because the blueprint
+    // cites rules by number AND label.
+    check(
+      "slots 19/20 are claimed by module 08 (labels pinned; text is the filling stream's)",
+      RESERVED_RULE_SLOTS[19] === "ESCALATION AND RESUME" && RESERVED_RULE_SLOTS[20] === "NEVER INVENT",
+    );
     // Rule 16 is only as good as the field it names, and rule 17 is only as
     // good as the thing it forbids — so pin the load-bearing clause of each
     // rather than its presence.
@@ -1789,6 +1801,81 @@ async function main(): Promise<void> {
         }
       })()) === "LOCKED",
     );
+
+    // The three outcome sentences, byte-pinned against a client that answers
+    // whatever we tell it to (module 08 prologue).
+    //
+    // Why this is worth six checks. The escalation outcome is the ONLY record
+    // of a handover the founder reads in the ledger, and two of its three
+    // clauses assert facts the executor cannot observe: that a holding line
+    // reached the customer, and that a brief was updated. dakio-api answers
+    // `alreadyEscalated:true` today and writes nothing on that path, so the
+    // "brief was updated" sentence is currently a claim in advance of the work
+    // — module 08's escalation transaction is what makes it true. Pinning the
+    // strings NOW means the sentence that becomes true is the sentence that was
+    // reviewed, and that neither clause can quietly re-word itself into a claim
+    // nobody checked. The demo backend cannot express these cases: it always
+    // returns `holdingSent:false` and `decisionId:null`, so a check written
+    // against it would pass whatever the executor said.
+    {
+      let answer: Record<string, unknown> = {};
+      const teller = {
+        handoverConversation: async () => answer,
+      } as unknown as StoreClient;
+
+      answer = { escalated: true, alreadyEscalated: true, decisionId: "dec-1", holdingSent: false };
+      const dup = await executors.escalate_conversation(teller, validEscalation({ conversationId: CONV, reason: "anger" }));
+      check(
+        "alreadyEscalated says the brief was updated, verbatim — the string module 08's server side has to earn",
+        dup.outcome ===
+          `Conversation ${CONV} was already with you (anger); the brief was updated rather than asking twice.`,
+        dup.outcome,
+      );
+
+      answer = { escalated: true, alreadyEscalated: false, decisionId: "dec-2", holdingSent: true };
+      const told = await executors.escalate_conversation(teller, validEscalation({ conversationId: CONV, reason: "anger" }));
+      check(
+        "holdingSent:true earns the 'customer was told' clause, verbatim",
+        told.outcome === `Handed conversation ${CONV} to you — anger, support. The customer was told someone is looking at it.`,
+        told.outcome,
+      );
+
+      answer = { escalated: true, alreadyEscalated: false, decisionId: null, holdingSent: false };
+      const silent = await executors.escalate_conversation(teller, validEscalation({ conversationId: CONV, reason: "anger" }));
+      check(
+        "holdingSent:false claims NOTHING reached the customer",
+        silent.outcome === `Handed conversation ${CONV} to you — anger, support.`,
+        silent.outcome,
+      );
+      check(
+        "decisionId and holdingSent are forwarded from the route, never synthesized here",
+        told.after?.decisionId === "dec-2" &&
+          told.after?.holdingSent === true &&
+          silent.after?.decisionId === null &&
+          silent.after?.holdingSent === false,
+        JSON.stringify(silent.after),
+      );
+
+      // The widened `department` enum, end to end. TSC catches the type; this
+      // catches the enum being narrowed back, which TSC would call correct.
+      answer = { escalated: true, alreadyEscalated: false, decisionId: null, holdingSent: false };
+      const shipped = await executors.escalate_conversation(
+        teller,
+        validEscalation({ conversationId: CONV, reason: "lost", department: "shipping" }),
+      );
+      check(
+        "a delivery escalation can name `shipping` — the range of DEPARTMENT_BY_INTENT, not a subset of it",
+        shipped.outcome === `Handed conversation ${CONV} to you — lost, shipping.` && shipped.after?.department === "shipping",
+        shipped.outcome,
+      );
+      check(
+        "…and `marketing` (ad_reply's room) parses too",
+        (await executors.escalate_conversation(
+          teller,
+          validEscalation({ conversationId: CONV, department: "marketing" }),
+        )).after?.department === "marketing",
+      );
+    }
     resetStores();
   }
 

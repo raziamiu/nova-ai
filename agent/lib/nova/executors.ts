@@ -422,6 +422,19 @@ export const executors: Record<ActionType, Executor> = {
    * (`decisionId:null` today) and the deterministic holding line
    * (`holdingSent:false`) — the outcome string below only claims the customer
    * was told something when the route says it was.
+   *
+   * MODULE 08 PROLOGUE — the one string here that is NOT yet earned. The route
+   * returns `alreadyEscalated:true` on a second call today and writes NOTHING
+   * (dakio-api `routes/novaInbox.js`, the early return on `conv.escalatedAt`),
+   * so "the brief was updated" is a claim about work nobody does until module
+   * 08's escalation transaction lands the update path. It stays worded as-is
+   * rather than being softened, because the fix is server-side and a hedged
+   * string would have to be un-hedged in the same breath — but BOTH branches
+   * are now byte-pinned by an eval (`evals/inbox/run.ts` §13, "outcome strings"),
+   * so the day the server starts updating the brief, the sentence the founder
+   * reads is provably the sentence this comment describes, and it cannot drift
+   * back into a lie unnoticed. `decisionId` and `holdingSent` are forwarded
+   * from the result and never synthesized here — same reason.
    */
   async escalate_conversation(client, raw) {
     const payload = escalateConversationPayload.parse(raw);

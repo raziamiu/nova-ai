@@ -38,6 +38,24 @@ import { DUTY_BY_KEY } from "../duties";
  * EVERY level including L4, on every path. This is a classification of the act,
  * not a check on the caller's role: raising autonomy must never turn a
  * founder-only verb into something Nova can do alone.
+ *
+ * **Module 08 adds nothing here, and that is a finding, not an oversight.** Its
+ * doc lists `FOUNDER_ONLY += refund_promise` twice (Files touched, and the §5.4
+ * matrix row "Refund promise / payment confirmation"). There is no
+ * `refund_promise`: `ActionType` ends at `bulk_refund`, and the string occurs in
+ * no executor, tool, schema, Prisma model or migration in any of the three
+ * repos. A member naming a verb nothing can dispatch buys a green assertion for
+ * a capability that cannot fire, and an `AuthorityDecision.rule` of
+ * `founder_only:refund_promise` that nothing can ever emit — coverage-shaped,
+ * and worse than the gap because it reads as closed.
+ * `DEFAULT_GUARDRAILS.maxAutoRefundTotal` (`autonomy.ts`) already carries the
+ * same NOT-ENFORCED note for the same reason.
+ *
+ * What actually stops Nova promising a refund today is that there is no refund
+ * verb to call and the customer register forbids the utterance: an absent
+ * capability plus an instruction-level control, NOT a set membership. Say it
+ * that way. Whoever ships a real refund verb (module 05/06) adds it here in the
+ * same change — the only moment the membership means anything.
  */
 export const FOUNDER_ONLY: ReadonlySet<string> = new Set([
   "bulk_refund",
@@ -62,8 +80,30 @@ export const FOUNDER_ONLY: ReadonlySet<string> = new Set([
  * it writes a JOIN, sends the customer nothing, exposes nothing (the 360 is a
  * separate server-side read), and its undo removes the join cleanly. It must
  * work at T0 Shadow because a thread Nova cannot identify is a thread Nova
- * answers blind. Module 08 extends this set further with the rest of its
- * bookkeeping verbs.
+ * answers blind.
+ *
+ * **Module 08 examined this set and added NOTHING — do not re-litigate it from
+ * the doc.** The sentence above used to promise that module 08 would "extend
+ * this set with the rest of its bookkeeping verbs"; it shipped and it did not,
+ * for four separate reasons, all verified against the code:
+ *
+ *  - The mechanism the doc names, `BOOKKEEPING_VERBS` — "a set consulted before
+ *    the ceiling check" — exists in no repo. This set is that mechanism, and it
+ *    is consulted at "3b" below, before the ceiling, exactly as described. There
+ *    is nothing to build; there was only something to find.
+ *  - `open_case` and `flag_courier_issue` are module 06's and module 06 has not
+ *    shipped, so neither string exists to add. Worse for the doc's own case,
+ *    module 06 specifies `flag_courier_issue` as forced `needs_approval` ALWAYS
+ *    — the exact opposite of never-gated. Two docs, one verb, contradictory
+ *    rulings: 06 owns it, and the ruling is 06's to make when it lands.
+ *  - `schedule_follow_up` stays out for the reasons written below, and a
+ *    CI check pins its absence.
+ *  - `refund_promise` does not exist at all (see `FOUNDER_ONLY` above).
+ *
+ * So the honest statement of module 08's tier carve-out is: it is this set, it
+ * has two members, and module 08 added none of them. A future module extends it
+ * by naming a verb that EXISTS and arguing membership on the terms below — never
+ * by pre-registering a name from a doc.
  *
  * **Know what membership costs.** The check at "3b" below returns BEFORE
  * `effectiveLevel`/`verdictForLevel` and BEFORE `checkGuardrailsForAuthority`,

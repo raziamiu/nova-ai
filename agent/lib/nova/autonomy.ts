@@ -170,14 +170,41 @@ async function checkGuardrails(
       return { result: "allow" };
     }
     /**
-     * Front Office reply gate (module 02 D9). Four checks, EVERY read fail
-     * closed — a missing platform key reads as absent and downgrades to
-     * approval, never up to autosend. This is the branch that makes "the model
-     * never sends" true at the tier dial rather than only at the route.
+     * Front Office reply gate (module 02 D9). FIVE checks (the header said
+     * "four" from the day it shipped and the numbered list below has always had
+     * five — the count was the typo, not the code), EVERY read fail closed — a
+     * missing platform key reads as absent and downgrades to approval, never up
+     * to autosend. This is the branch that makes "the model never sends" true at
+     * the tier dial rather than only at the route.
      *
      * Thread state is read from the SERVER, never from the payload: the model
      * writes the payload, and a payload that could assert "the founder isn't
      * here" would be a lock the model can talk its way past.
+     *
+     * **MODULE 08 IS THE SPEC AUTHORITY FOR THIS BRANCH AND CHANGED NOT ONE LINE
+     * OF IT.** Write that down so the next reader does not re-derive it from the
+     * doc. Module 08 owns the semantics — fail-closed `inbox.*` guardrails, the
+     * escalation-draft rule, silent drafting while the founder is active — and
+     * module 02 implemented every one of them here first, because it needed them
+     * to ship a reply path at all. Checked one at a time against doc 08's
+     * "new `AuthorityDecision.rule` strings" list: `guardrail:inbox_escalated`
+     * (check 1) and `guardrail:inbox_intent_not_auto` (check 2) are emitted
+     * here; `duty:thread_off` (check 4) is emitted here as a BLOCK, which is
+     * stronger than the doc's downgrade and deliberately so;
+     * `concurrency:founder_active` and `concurrency:stale_reply` are dakio-api's
+     * `/reply` ladder, not this branch (see the naming note below); the six
+     * `inbox_order_*`/`inbox_discount_*`/`inbox_cancel_*` strings gate verbs
+     * that exist in NO repo, and a `case` arm for an absent verb is unreachable
+     * code that reads as coverage — modules 05/06 add each arm with the verb it
+     * gates, in the same change.
+     *
+     * On the two names for one condition: this branch returns
+     * `guardrail:inbox_founder_active` (check 5) where the server returns
+     * `concurrency:founder_active`. That is a deliberate split, not drift. This
+     * one is a DOWNGRADE TO DRAFT decided before anything was attempted; the
+     * server's is a REFUSAL of an attempted send, receipted on a blocked row. A
+     * founder reading a receipt needs to know which happened, so the two names
+     * stay distinct — and nobody mints a third.
      */
     case "send_inbox_reply": {
       // 1. An escalation draft is a message for the founder to look at, not to

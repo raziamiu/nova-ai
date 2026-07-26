@@ -278,8 +278,17 @@ export const escalateConversationPayload = z.object({
   reason: z
     .enum(ESCALATION_REASONS)
     .describe("Which escalation trigger fired. One of the defined set — never a free-form category."),
+  // The range of `DEPARTMENT_BY_INTENT` (`./inboxIntents.ts`), not a hand-picked
+  // subset of it, and not the whole of `NOVA_DEPARTMENTS` either — a customer
+  // hand-off never lands in `inventory` or `ceo`. Module 08 widened it from
+  // {support, sales, finance}: the map routes `delivery_eta`/`delivery_issue`/
+  // `address_confirm`/`cod_confirm` to `shipping` and `ad_reply` to `marketing`,
+  // so on the old three-value enum the model could not name the room a delivery
+  // escalation actually belongs to, and every parcel problem landed in support.
+  // Widen this and the map together or they disagree, and then the same thread
+  // routes one way when Nova replies and another when Nova hands over.
   department: z
-    .enum(["support", "sales", "finance"])
+    .enum(["support", "sales", "finance", "shipping", "marketing"])
     .describe("Which room owns this hand-off, so it lands in front of the right person."),
   summary: z
     .string()

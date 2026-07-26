@@ -86,6 +86,8 @@ const HARD_RULES: Readonly<Record<number, string>> = {
  *   16 PROMISES ARE DEBTS                — module 03 (promise declaration)    FILLED
  *   17 REFERENCE FACTS, NOT SURVEILLANCE — module 03 (memory usage)           FILLED
  *   18 NEXT BEST ACTION                  — module 04 (lifecycle & NBA)        FILLED
+ *   19 ESCALATION AND RESUME             — module 08 (handover & authority)   RESERVED
+ *   20 NEVER INVENT                      — module 08 (failure honesty)        RESERVED
  *
  * The label strings are pinned by an eval and must stay byte-identical: they are
  * how a reader of the blueprint, which cites rules by number and label, checks
@@ -101,12 +103,30 @@ const HARD_RULES: Readonly<Record<number, string>> = {
  * a `CUSTOMER_PROMPT_BUDGET` raise in the same change (module 03's precedent),
  * because the alternative — squeezing it into 26 tokens of headroom — is how a
  * rule ends up too terse to obey.
+ *
+ * 19 and 20 are module 08's, claimed by its PROLOGUE and deliberately still
+ * empty. Rule 14 already says "hand over and go silent"; 19 owns the other end
+ * of that arc — what Nova does when the founder gives the thread BACK (read
+ * everything since the lock, speak only to an unanswered customer message,
+ * never re-greet, never narrate the gap, treat a founder's in-thread
+ * commitment as thread truth) — and 20 owns failure honesty, the register-side
+ * half of the reason Nova may never promise a refund. Reserving without
+ * filling is the whole point of a number-keyed registry: the numbers are spoken
+ * for the moment the module starts, so the stream that authors the text cannot
+ * discover mid-build that someone took 19, while the live prompt carries no
+ * placeholder in the meantime — an unfilled slot renders NOTHING, so this
+ * claim costs the customer register exactly zero tokens and
+ * `CUSTOMER_PROMPT_BUDGET` does not move for it. The stream that writes the
+ * rule text raises the budget in the SAME change, on module 03's and 04's
+ * terms.
  */
 export const RESERVED_RULE_SLOTS: Readonly<Record<number, string>> = {
   15: "READ FIRST",
   16: "PROMISES ARE DEBTS",
   17: "REFERENCE FACTS, NOT SURVEILLANCE",
   18: "NEXT BEST ACTION",
+  19: "ESCALATION AND RESUME",
+  20: "NEVER INVENT",
 };
 
 /**
