@@ -1313,6 +1313,28 @@ async function main(): Promise<void> {
       unshippedVerbs.join(", "),
     );
 
+    // THE WORKED EXAMPLE HAS TO BE AN OUTCOME THIS BUILD CAN REACH.
+    //
+    // §5's close used to show exactly one script — "order hoye geche ✅ order
+    // number #KQ3-8FZM" — and that is the one result `create_order_from_chat`
+    // cannot produce on any shipped shop. `inbox.orderAuto` is false and stays
+    // false until module 11, so the tool answers `status: "prepared"` with an
+    // actionId and NO order number. A prose rule three lines lower said not to
+    // claim an order exists, but a worked example is what a model matches on: it
+    // had a template for the sentence it must never write and none at all for
+    // the sentence it must write every single time. The cost of getting that
+    // wrong is a customer waiting for a parcel nobody committed to sending.
+    check(
+      "the playbook's close scripts the PREPARED outcome, which is the only one that happens today",
+      playbook.includes('status: "prepared"') && playbook.includes("confirm korben"),
+    );
+    check(
+      "…and teaches it BEFORE the placed-order script, which is gated on an executed result",
+      playbook.includes('status: "executed"') &&
+        playbook.indexOf('status: "prepared"') < playbook.indexOf('status: "executed"'),
+      "prepared is 100% of turns today; it cannot be the footnote",
+    );
+
     // Prompt-size discipline: this layer is the latency lever for every reply.
     // The measured size is in the label, not just the failure detail, so the
     // number quoted in CUSTOMER_PROMPT_BUDGET's comment can be re-verified from
