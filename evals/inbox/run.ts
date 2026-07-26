@@ -1972,6 +1972,17 @@ async function main(): Promise<void> {
     check("after escalating, the thread reads as the founder's", held?.conversation.handledBy === "founder");
     const again = await executors.escalate_conversation(demo, validEscalation({ conversationId: CONV }));
     check("a second escalation updates the brief instead of asking twice", /already with you/.test(again.outcome), again.outcome);
+    // …and says so without claiming an update the demo backend never reported.
+    // The demo keeps no brief at all, so `briefUpdated` is absent from its
+    // answer; the receipt must therefore claim nothing about a brief. This is
+    // the cheap half of the §13 pins below — it catches the executor going back
+    // to asserting the update unconditionally, against the real demo store
+    // rather than a fake.
+    check(
+      "…and claims no brief update when the store never reported one",
+      !/the brief was updated/.test(again.outcome),
+      again.outcome,
+    );
     check(
       "an escalated (founder-held) thread refuses further replies",
       (await (async () => {
@@ -1984,34 +1995,65 @@ async function main(): Promise<void> {
       })()) === "LOCKED",
     );
 
-    // The three outcome sentences, byte-pinned against a client that answers
-    // whatever we tell it to (module 08 prologue).
+    // The four outcome sentences, byte-pinned against a client that answers
+    // whatever we tell it to (module 08).
     //
-    // Why this is worth six checks. The escalation outcome is the ONLY record
-    // of a handover the founder reads in the ledger, and two of its three
-    // clauses assert facts the executor cannot observe: that a holding line
-    // reached the customer, and that a brief was updated. dakio-api answers
-    // `alreadyEscalated:true` today and writes nothing on that path, so the
-    // "brief was updated" sentence is currently a claim in advance of the work
-    // — module 08's escalation transaction is what makes it true. Pinning the
-    // strings NOW means the sentence that becomes true is the sentence that was
-    // reviewed, and that neither clause can quietly re-word itself into a claim
-    // nobody checked. The demo backend cannot express these cases: it always
-    // returns `holdingSent:false` and `decisionId:null`, so a check written
-    // against it would pass whatever the executor said.
+    // Why this is worth eight checks. The escalation outcome is the ONLY record
+    // of a handover the founder reads in the ledger, and two of its clauses
+    // assert facts the executor cannot observe: that a holding line reached the
+    // customer, and that a brief was updated. dakio-api's `refreshEscalation`
+    // now answers BOTH — `holdingSent` and `briefUpdated` — and answers
+    // `briefUpdated:false` on the branches where it deliberately writes nothing
+    // (no `escalationDecisionId`, no Decision, or a linked action that has left
+    // `prepared`). The executor used to discard that field and assert the
+    // update unconditionally, which made the commonest re-trigger — a thread
+    // whose draft the founder already answered — read as work nobody did. So
+    // the three `alreadyEscalated` sentences are pinned SEPARATELY here: true,
+    // explicitly-false, and not-reported-at-all. Collapsing any two of them
+    // back into one string is the regression these checks exist to catch. The
+    // demo backend cannot express the cases: it always returns
+    // `holdingSent:false`, `decisionId:null` and no `briefUpdated`, so a check
+    // written against it would pass whatever the executor said.
     {
       let answer: Record<string, unknown> = {};
       const teller = {
         handoverConversation: async () => answer,
       } as unknown as StoreClient;
 
-      answer = { escalated: true, alreadyEscalated: true, decisionId: "dec-1", holdingSent: false };
+      answer = { escalated: true, alreadyEscalated: true, decisionId: "dec-1", holdingSent: false, briefUpdated: true };
       const dup = await executors.escalate_conversation(teller, validEscalation({ conversationId: CONV, reason: "anger" }));
       check(
-        "alreadyEscalated says the brief was updated, verbatim — the string module 08's server side has to earn",
+        "briefUpdated:true earns the 'brief was updated' clause, verbatim",
         dup.outcome ===
           `Conversation ${CONV} was already with you (anger); the brief was updated rather than asking twice.`,
         dup.outcome,
+      );
+
+      // The branch that was a shipped lie: the route says outright that it
+      // updated nothing, and the receipt has to say the same thing.
+      answer = { escalated: true, alreadyEscalated: true, decisionId: "dec-1", holdingSent: false, briefUpdated: false };
+      const stale = await executors.escalate_conversation(teller, validEscalation({ conversationId: CONV, reason: "anger" }));
+      check(
+        "briefUpdated:false says nothing was changed — never 'the brief was updated'",
+        stale.outcome ===
+          `Conversation ${CONV} was already with you (anger); there was no open card left to update, so nothing was changed.`,
+        stale.outcome,
+      );
+
+      // Field absent (an older dakio-api, or the demo store). Neither claim is
+      // earned, so neither is made — `briefUpdated` is read with `=== true` /
+      // `=== false`, so "not reported" cannot collapse into "reported false".
+      answer = { escalated: true, alreadyEscalated: true, decisionId: "dec-1", holdingSent: false };
+      const mute = await executors.escalate_conversation(teller, validEscalation({ conversationId: CONV, reason: "anger" }));
+      check(
+        "an absent briefUpdated claims nothing about the brief at all",
+        mute.outcome === `Conversation ${CONV} was already with you (anger); I did not ask twice.`,
+        mute.outcome,
+      );
+      check(
+        "briefUpdated rides the receipt beside the sentence it produced, null when unreported",
+        dup.after?.briefUpdated === true && stale.after?.briefUpdated === false && mute.after?.briefUpdated === null,
+        JSON.stringify([dup.after?.briefUpdated, stale.after?.briefUpdated, mute.after?.briefUpdated]),
       );
 
       answer = { escalated: true, alreadyEscalated: false, decisionId: "dec-2", holdingSent: true };

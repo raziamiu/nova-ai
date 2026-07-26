@@ -9,7 +9,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { ActionType } from "../types";
+import type { ActionType, InboxHandoverResult } from "../types";
 import { InboxSendRefused, type StoreClient } from "../store/client";
 import {
   assignCourierPayload,
@@ -415,26 +415,48 @@ export const executors: Record<ActionType, Executor> = {
   },
 
   /**
-   * Hand the thread to the founder. The route shipped in module 02 and really
-   * does lock Nova out: `escalatedAt` + `handledBy:'founder'`, after which
-   * every `/reply` on the thread is refused LOCKED with no release path in
-   * this module. What module 08 still owns is the priority-1 Decision
-   * (`decisionId:null` today) and the deterministic holding line
-   * (`holdingSent:false`) — the outcome string below only claims the customer
-   * was told something when the route says it was.
+   * Hand the thread to the founder. The route really does lock Nova out:
+   * `escalatedAt` + `handledBy:'founder'`, after which every `/reply` on the
+   * thread is refused LOCKED until the founder gives it back.
    *
-   * MODULE 08 PROLOGUE — the one string here that is NOT yet earned. The route
-   * returns `alreadyEscalated:true` on a second call today and writes NOTHING
-   * (dakio-api `routes/novaInbox.js`, the early return on `conv.escalatedAt`),
-   * so "the brief was updated" is a claim about work nobody does until module
-   * 08's escalation transaction lands the update path. It stays worded as-is
-   * rather than being softened, because the fix is server-side and a hedged
-   * string would have to be un-hedged in the same breath — but BOTH branches
-   * are now byte-pinned by an eval (`evals/inbox/run.ts` §13, "outcome strings"),
-   * so the day the server starts updating the brief, the sentence the founder
-   * reads is provably the sentence this comment describes, and it cannot drift
-   * back into a lie unnoticed. `decisionId` and `holdingSent` are forwarded
-   * from the result and never synthesized here — same reason.
+   * MODULE 08 SHIPPED THE SERVER HALF. `dakio-api/src/lib/novaInboxHandover.js`
+   * (mounted at `routes/novaInbox.js`) now queues the deterministic holding
+   * line, authors the priority-1 escalation Decision carrying the context
+   * brief, and on a RE-trigger refreshes that brief instead of stacking a
+   * second ask. So `decisionId` and `holdingSent` are real values now, not the
+   * `null`/`false` placeholders the prologue comment here used to describe.
+   *
+   * WHY THERE ARE FOUR OUTCOME SENTENCES AND NOT TWO. This string is the
+   * founder's permanent ledger receipt for the hand-off (`actions.ts` writes it
+   * onto the NovaAction and repeats it as the live-feed detail), so every
+   * clause has to be a fact the ROUTE reported, never one this executor
+   * assumed. Two clauses are claims the executor cannot observe:
+   *
+   *  - "the customer was told someone is looking at it" — gated on
+   *    `holdingSent`, forwarded and never synthesized.
+   *  - "the brief was updated" — gated on `briefUpdated`. `refreshEscalation`
+   *    deliberately answers `false` in the cases where it writes nothing: a
+   *    legacy thread with no `escalationDecisionId`, a missing Decision, or a
+   *    linked action that has left `prepared` because the card was already
+   *    approved or rejected. That last case is not exotic — until the Design-7
+   *    hand-back exists, `escalatedAt` survives a tap-send, so an answered
+   *    thread stays escalated and EVERY later trigger on it lands there. This
+   *    executor discarding `briefUpdated` is what made the sentence a shipped
+   *    lie on the commonest path; reading it is the whole fix.
+   *  - `briefUpdated` absent (an older dakio-api, or the demo backend, which
+   *    keeps no brief to update): claim nothing about the brief rather than
+   *    guess in either direction.
+   *
+   * All four sentences are byte-pinned in `evals/inbox/run.ts` §13, so none of
+   * them can quietly re-word itself into a claim nobody checked.
+   *
+   * TYPE RESIDUE, NAMED AND OWNED. `briefUpdated` is on the wire and in the
+   * dakio-api route's own JSDoc, but it is not yet declared on
+   * `InboxHandoverResult` (`agent/lib/types.ts`) — that file is outside this
+   * fix's scope, so the field is read through a local widening instead of a
+   * cast-free property access. OWNER: whoever next lands a `types.ts` change
+   * for module 08 should add `briefUpdated?: boolean` to `InboxHandoverResult`
+   * and delete the widening below; nothing else has to move with it.
    */
   async escalate_conversation(client, raw) {
     const payload = escalateConversationPayload.parse(raw);
@@ -448,9 +470,19 @@ export const executors: Record<ActionType, Executor> = {
       ...(payload.suggestedAction ? { suggestedAction: payload.suggestedAction } : {}),
       factsChecked: payload.factsChecked,
     });
+    // See TYPE RESIDUE above. Compared with `=== true` / `=== false` and never
+    // for truthiness, so "the server did not tell us" stays a third state and
+    // does not silently collapse into "the server said no".
+    const { briefUpdated } = result as InboxHandoverResult & { briefUpdated?: boolean };
+    const alreadyClause =
+      briefUpdated === true
+        ? "the brief was updated rather than asking twice."
+        : briefUpdated === false
+          ? "there was no open card left to update, so nothing was changed."
+          : "I did not ask twice.";
     return {
       outcome: result.alreadyEscalated
-        ? `Conversation ${payload.conversationId} was already with you (${payload.reason}); the brief was updated rather than asking twice.`
+        ? `Conversation ${payload.conversationId} was already with you (${payload.reason}); ${alreadyClause}`
         : `Handed conversation ${payload.conversationId} to you — ${payload.reason}, ${payload.department}.${result.holdingSent ? " The customer was told someone is looking at it." : ""}`,
       undoable: false,
       undoData: null,
@@ -462,6 +494,9 @@ export const executors: Record<ActionType, Executor> = {
         department: payload.department,
         decisionId: result.decisionId,
         holdingSent: result.holdingSent,
+        // The fact the sentence above was derived from, on the receipt beside
+        // it: `null` means the route never said, which is not the same as `false`.
+        briefUpdated: briefUpdated ?? null,
       },
       targetRef: `inbox_conversation:${payload.conversationId}`,
     };
