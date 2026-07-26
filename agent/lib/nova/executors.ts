@@ -15,11 +15,13 @@ import {
   assignCourierPayload,
   createCampaignPayload,
   createDiscountPayload,
+  createOrderFromChatPayload,
   createPurchaseOrderPayload,
   escalateConversationPayload,
   importProductPayload,
   linkCustomerPayload,
   mergeCustomerRecordsPayload,
+  offerChatDiscountPayload,
   publishSocialPostPayload,
   resolveTicketPayload,
   scheduleFollowUpPayload,
@@ -28,7 +30,43 @@ import {
   switchSupplierPayload,
   updateCampaignPayload,
   updatePricePayload,
+  verifyPaymentSlipPayload,
 } from "./schemas";
+
+/** ৳, grouped the way a Bangladeshi founder reads a number. */
+function taka(amount: number): string {
+  return `৳${Math.round(amount).toLocaleString("en-IN")}`;
+}
+
+/**
+ * The alphabet a chat coupon code is drawn from (module 05 D6).
+ *
+ * No `0`, `O`, `1`, `I` or `L`: the customer reads this code off a Messenger
+ * bubble and types it into a storefront checkout, and a code nobody can
+ * transcribe is a discount that was never given. That is also why it is short.
+ */
+const COUPON_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/**
+ * Mint a code for a chat-issued coupon.
+ *
+ * The MODEL never names it — `offerChatDiscountPayload` has no `code` field, on
+ * purpose. A model that could choose the code could be talked into re-issuing
+ * one the shop already uses in a campaign, and a coupon is the only lever these
+ * verbs have on price.
+ *
+ * `@@unique([tenantId, code])` means a collision is a P2002 the route surfaces
+ * as a failed action: no coupon is minted and the customer is told no code, so
+ * a rare clash is a retry the founder can see rather than a second person's
+ * discount handed out by accident.
+ */
+function mintCouponCode(random: () => number = Math.random): string {
+  let body = "";
+  for (let i = 0; i < 6; i += 1) {
+    body += COUPON_ALPHABET[Math.floor(random() * COUPON_ALPHABET.length)];
+  }
+  return `NOVA${body}`;
+}
 
 export interface ExecutionResult {
   /** Human-readable statement of what was done. */
@@ -98,6 +136,293 @@ export const executors: Record<ActionType, Executor> = {
     throw new Error(
       "bulk_refund reached an executor — the founder-only gate did not run. This is a bug in the authority seam, not a refund to retry.",
     );
+  },
+
+  /* ── Stage 10 module 05 — the three selling verbs ─────────────────────────
+   *
+   * The prologue owns the shared declaration surface (the `ActionType` union,
+   * the zod payloads, RISK_CLASS, MINUTES_BY_ACTION, TARGET_TEXT, ALWAYS_DRAFT,
+   * the duties) and landed these three as throwing stubs, because `executors`
+   * is `Record<ActionType, Executor>` — TOTAL — so a verb name and its block
+   * have to arrive in the same commit or the repo stops compiling for every
+   * other stream. These are the bodies.
+   *
+   * A TRAP IN THE CI CHECK, worth keeping written down because it cost a build
+   * once. `scripts/check-undo-coverage.ts` is a TEXT parser: it slices this
+   * object on `async <name>(` and regex-searches each slice for the undoable
+   * flag set to true. A comment sitting between two verbs belongs to the
+   * PRECEDING verb's slice — so spelling that flag out literally in prose next
+   * to an irreversible verb makes the checker demand an inverse for it.
+   * Describe the flag; never write it out here.
+   */
+
+  /**
+   * Module 05 D4/D5. Turn a confirmed chat into a real COD order.
+   *
+   * THE SERVER PRICES IT. Nothing on the payload carries money — no `discount`,
+   * no `paid`, no `unitPrice`, no `total` — so the only figures below are ones
+   * dakio-api computed from the catalogue, the district's own delivery charge
+   * and a coupon it re-validated. The merchant order route accepts a raw client
+   * `discount` that flows unvalidated into the total; that is the lever this
+   * verb exists not to have.
+   *
+   * ONE ORDER, EVER, per `novaActionId`. On the approve path the prepared row's
+   * id is the stable key both approve surfaces already agree on, so a Desk tap
+   * and a chat approve of one draft place ONE parcel; on the direct path a
+   * fresh id is minted and held for this call's retries. That id is not just an
+   * idempotency-cache key — `w()` is not a mutex, and the route's real
+   * at-most-once control is a conditional read-back on `Order.novaActionId`
+   * before insert, which a per-attempt id would defeat at both layers.
+   *
+   * Refusals PROPAGATE, as {@link InboxSendRefused}. Out of stock, the
+   * fake-order guard, a plan cap, a coupon that does not hold — every one is an
+   * answer the customer is owed, and an order the server declined must never be
+   * recorded as one Nova placed. The person at the other end has been told a
+   * total and is waiting for a number.
+   */
+  async create_order_from_chat(client, raw, context) {
+    const payload = createOrderFromChatPayload.parse(raw);
+    const approved = typeof context?.approvedActionId === "string" && context.approvedActionId.length > 0;
+    const novaActionId = approved ? context!.approvedActionId! : randomUUID();
+    const order = await client.createChatOrder({
+      // Named for the COLUMN, not for the concept: `Order.sourceConversationId`
+      // is a plain string with no FK because Meta's data-deletion callback hard-
+      // deletes conversations, and the route also derives the identity join and
+      // `sourceChannel` from it.
+      sourceConversationId: payload.conversationId,
+      customerName: payload.customerName,
+      customerPhone: payload.customerPhone,
+      customerCity: payload.customerCity,
+      customerDistrict: payload.customerDistrict,
+      ...(payload.customerAddress ? { customerAddress: payload.customerAddress } : {}),
+      // `productName` is dropped on purpose: it is the text a no-touch lock is
+      // matched against and what the founder's card displays, and the server
+      // prices from `productId` alone. Sending it would invite a reader to
+      // think the name selects the product.
+      items: payload.items.map((item) => ({
+        productId: item.productId,
+        ...(item.variantId ? { variantId: item.variantId } : {}),
+        qty: item.qty,
+      })),
+      ...(payload.couponCode ? { couponCode: payload.couponCode } : {}),
+      novaActionId,
+    });
+    const units = payload.items.reduce((sum, item) => sum + item.qty, 0);
+    return {
+      // Founder-facing, and it leads with the two facts that decide whether
+      // they approve: what it costs and where it is going. The phone is NOT in
+      // it — the ledger row is read on screens the 360 deliberately masks a
+      // number on, and a full number typed into a title outlives that decision.
+      outcome:
+        `Order ${order.orderNumber} — ${taka(order.codAmount)} to collect on delivery, ` +
+        `${units} item${units === 1 ? "" : "s"} to ${payload.customerCity}, ${payload.customerDistrict} ` +
+        `(order total ${taka(order.total)}, delivery ${taka(order.shippingCharge)}` +
+        (payload.couponCode ? `, coupon ${payload.couponCode}` : "") +
+        `).`,
+      undoable: true,
+      // `kind` is what dakio-api's `runUndo` dispatches on — it looks the
+      // inverse up in `UNDO[undoData.kind]` (`src/lib/novaExecutors.js`), NOT by
+      // verb name. An undoData without it reaches a founder pressing Undo on the
+      // Decision Desk as "No inverse is defined for undefined" — the bug commit
+      // 79d5d83 fixed on `link_customer_identity` and that recurred on
+      // `schedule_follow_up`. The receiving half is `UNDO.cancel_chat_order`;
+      // this key is the only thing that connects the two.
+      //
+      // nova-ai's own `undoers` map below stays keyed by VERB name, because
+      // `scripts/check-undo-coverage.ts` matches undoer keys against executor
+      // names in both directions. Two maps, two keying schemes, both correct.
+      //
+      // `orderNumber` rides along so the undo can say WHICH order it cancelled
+      // in words the founder recognises — they know `#00412`, not a cuid.
+      undoData: { kind: "cancel_chat_order", orderId: order.id, orderNumber: order.orderNumber },
+      // The one verb in this phase that genuinely claims revenue, and it claims
+      // the order's own total — not an estimate. `link_customer_identity` says
+      // "a link claims no revenue; orders do", and this is the order.
+      revenueInfluence: order.total,
+      relatedId: order.id,
+      before: null,
+      after: {
+        orderNumber: order.orderNumber,
+        shippingCharge: order.shippingCharge,
+        total: order.total,
+        // What the courier collects, from `Order.due` — not the total. The two
+        // diverge the moment an advance is recorded, and this is the number a
+        // founder checks against a consignment.
+        codAmount: order.codAmount,
+        status: order.status,
+        customerId: order.customerId,
+        // May be null: it needs a verified custom domain or a configured
+        // storefront base, and a path-based store only gets the tracking FORM.
+        trackingUrl: order.trackingUrl,
+      },
+      targetRef: `order:${order.id}`,
+    };
+  },
+
+  /**
+   * Module 05 D6. Answer a haggle with a bounded, expiring coupon.
+   *
+   * A discount is ALWAYS a Coupon row and NEVER a price change. `update_price`
+   * is a store-wide act with its own margin guardrail; answering one customer's
+   * "ektu kom hoy na?" by repricing the product silently discounts every other
+   * customer buying it that day, and no receipt anywhere records that it was
+   * meant for one person.
+   *
+   * `maxUses: 1` is how "issued to this customer" is expressed, because dakio-
+   * api's `Coupon` has NO `customerId` column at all. The per-customer
+   * frequency rule the founder set (`inbox.discountPerCustomerDays`) is
+   * enforced against the NovaAction ledger instead, and the route 422s unless
+   * this call carries a `customerId` OR a `conversationId` to match on — a
+   * guard with nothing to match on passes every time, which is worse than no
+   * guard because it reads as enforced.
+   *
+   * `free_delivery` carries no amount on the model's payload — the delivery
+   * table is not something the model is told. It is resolved HERE, from the
+   * shop's own settings, and to the OUTSIDE-Dhaka charge: a coupon smaller than
+   * the real charge means a customer who was promised free delivery in the
+   * thread still pays part of it at the door, which is a broken promise in
+   * front of a courier. Over-covering costs the shop the difference on an
+   * inside-Dhaka parcel, and the founder sees that figure on the card before
+   * approving — `inbox.discountAuto` ships false, so every one of these drafts.
+   */
+  async offer_chat_discount(client, raw, context) {
+    const payload = offerChatDiscountPayload.parse(raw);
+    const approved = typeof context?.approvedActionId === "string" && context.approvedActionId.length > 0;
+    const novaActionId = approved ? context!.approvedActionId! : randomUUID();
+    const expiresAt = new Date(
+      Date.parse(client.now()) + payload.expiresHours * 60 * 60 * 1000,
+    ).toISOString();
+    const freeDelivery =
+      payload.mechanism === "free_delivery"
+        ? (await client.getStoreSettings()).deliveryOutsideDhaka
+        : 0;
+    const discount = await client.createDiscount({
+      code: mintCouponCode(),
+      type: payload.mechanism === "percent" ? "PERCENT" : "FIXED",
+      ...(payload.mechanism === "percent"
+        ? { percentOff: payload.percentOff }
+        : { amount: payload.mechanism === "fixed" ? payload.amount : freeDelivery }),
+      expiresAt,
+      active: true,
+      // One redemption. A chat coupon any customer could use is a public
+      // discount minted in a private negotiation.
+      maxUses: 1,
+      // Attribution AND the frequency guard's trigger: the route only runs the
+      // once-per-N-days lookup when this is present.
+      novaActionId,
+      // The identity to match on. `customerId` when the thread is linked, and
+      // the thread itself otherwise — a conversation is a person even before
+      // the identity join has earned them a Customer row, and requiring the id
+      // outright would push the common case into the fail-open branch.
+      ...(payload.customerId ? { customerId: payload.customerId } : {}),
+      conversationId: payload.conversationId,
+    });
+    const offer =
+      payload.mechanism === "percent"
+        ? `${payload.percentOff}% off`
+        : payload.mechanism === "fixed"
+          ? `${taka(payload.amount ?? 0)} off`
+          : `free delivery (${taka(freeDelivery)} off)`;
+    return {
+      outcome: `Issued coupon ${discount.code} — ${offer}, one use, expires in ${payload.expiresHours}h. ${payload.reason}`,
+      undoable: true,
+      // Same two-maps arrangement as the order above. The receiving half is
+      // `UNDO.deactivate_chat_discount`; deactivating is the only honest
+      // inverse, because a code that has already been redeemed cannot be
+      // un-given and deleting the row would erase the receipt for a discount
+      // somebody really got.
+      //
+      // `couponId`, NOT this repo's usual `discountId`, and that is deliberate:
+      // `undoData` is a WIRE payload. It is posted to dakio-api with the action
+      // and read back by whichever surface the founder presses Undo on, so it is
+      // dakio-api's vocabulary that decides the field name — `UNDO.delete_coupon`
+      // and `UNDO.deactivate_chat_discount` both destructure `{ couponId }` and
+      // the second one THROWS `undoData.couponId is required` on anything else.
+      // "Discount" is this repo's word for the same Coupon row; using it here
+      // would leave the founder pressing Undo on the Desk and being told the
+      // coupon id is missing, which is the exact failure the two-maps comment
+      // above exists to prevent and which has already shipped twice.
+      undoData: { kind: "deactivate_chat_discount", couponId: discount.id, code: discount.code },
+      // Zero, on module 04's direct-cause rule: the order this may help close is
+      // attributed to the order, not to the offer that preceded it. A coupon
+      // does not get credit for existing.
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: {
+        code: discount.code,
+        mechanism: payload.mechanism,
+        percentOff: discount.percentOff,
+        amount: discount.amount ?? null,
+        expiresAt,
+        maxUses: 1,
+      },
+      // `coupon:<id>` IS in dakio-api's ATTRIBUTABLE map, so `attributeDoorRecord`
+      // stamps `Coupon.novaActionId` and the Coupons door renders the by:nova
+      // chip with this action's receipt behind it.
+      targetRef: `coupon:${discount.id}`,
+    };
+  },
+
+  /**
+   * Module 05 D7. File what the customer CLAIMED about a payment. Read the verb
+   * name honestly: it verifies nothing, and it must never look like it did.
+   *
+   * Dakio has no payment-gateway API and Meta attachments are lossy, so nothing
+   * in this system can read a bKash screenshot and know money moved. So this
+   * writes NO store record: it does not touch `Order.paid`, it does not advance
+   * a status, and it moves no money. The NovaAction row it lands on — payload,
+   * receipt and evidence — IS the filed claim, and the founder's approval is
+   * the acknowledgement that they have seen it and will judge it against a real
+   * statement.
+   *
+   * It is in `ALWAYS_DRAFT` in BOTH repos for exactly this reason, and the
+   * mirror is not optional: `riskClass: "high"` still EXECUTES at level 4, and
+   * level 4 is reachable on a good trust record. A store that auto-"verified" a
+   * payment would be telling a customer their money arrived on the strength of
+   * a picture — and in a COD market the correction lands at the door, with a
+   * courier holding a parcel nobody will pay for.
+   *
+   * The sentence below deliberately matches what dakio-api's ADVISORY branch
+   * says on the Desk approve path ("recommendation accepted; no automated store
+   * change"). One verb, two approve surfaces, one true statement.
+   */
+  async verify_payment_slip(client, raw) {
+    const payload = verifyPaymentSlipPayload.parse(raw);
+    const against = payload.orderId ? `order ${payload.orderId}` : "no matched order";
+    const amount = payload.claimedAmount != null ? ` for ${taka(payload.claimedAmount)}` : "";
+    const trx = payload.trxId ? ` trx ${payload.trxId}` : " no transaction id given";
+    return {
+      outcome:
+        `Payment CLAIM recorded: ${payload.method}${amount},${trx}, against ${against}. ` +
+        `Nothing was verified and no store record changed — the order's paid amount is untouched. ` +
+        `Match it against your own ${payload.method} statement before you treat it as received.`,
+      undoable: false,
+      undoData: null,
+      // A claim moves no money and closes no sale, so it influences no revenue.
+      // Recording the claimed amount here would put a number the shop has not
+      // received into the activity metrics.
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: {
+        method: payload.method,
+        trxId: payload.trxId ?? null,
+        claimedAmount: payload.claimedAmount ?? null,
+        orderId: payload.orderId ?? null,
+        attachmentUrl: payload.attachmentUrl ?? null,
+        // The customer's own words are the evidence the founder judges. Kept
+        // verbatim: a summary of a payment claim is a summary of the only thing
+        // anybody can check.
+        customerStatement: payload.customerStatement,
+        verified: false,
+      },
+      // `inbox_conversation:<id>` is NOT in dakio-api's ATTRIBUTABLE map, so
+      // `attributeDoorRecord` no-ops — correct, and deliberately not
+      // `order:<id>`: stamping the order with this action id would make the
+      // Orders door render a by:nova chip claiming Nova touched that sale.
+      targetRef: `inbox_conversation:${payload.conversationId}`,
+    };
   },
 
   async update_campaign(client, raw) {
@@ -915,5 +1240,40 @@ export const undoers: Partial<Record<ActionType, Undoer>> = {
     return cancelled
       ? `Cancelled the scheduled follow-up (job ${jobId}) — nothing will be sent, and the ledger row recording that it was scheduled stays, because it was.`
       : `The follow-up (job ${jobId}) was already settled — fired, superseded, or cancelled when the customer wrote back — so there was nothing left to cancel.`;
+  },
+  /**
+   * Module 05 D4. Keyed by the VERB name, like every entry here; the stored
+   * `undoData.kind` is `cancel_chat_order`, which is what dakio-api's own `UNDO`
+   * map dispatches on. Same two-maps arrangement as the two above.
+   *
+   * CANCELS, never deletes. An order is a financial record and a courier may
+   * already have been told about it, so the inverse of "placed" is "cancelled" —
+   * the row, its items and its receipt all stay readable. dakio-api's
+   * `UNDO.cancel_chat_order` additionally refuses anything past PENDING, which
+   * is the guarantee that matters and the one this side cannot make: a parcel
+   * that has been picked up is not undone by a founder tapping a button, and
+   * the server is the only thing that knows where it is.
+   */
+  async create_order_from_chat(client, undoData) {
+    const orderId = String(undoData.orderId);
+    const label = undoData.orderNumber ? String(undoData.orderNumber) : orderId;
+    await client.updateOrder({ id: orderId, status: "cancelled" });
+    return `Cancelled order ${label}. The order row stays — it is a financial record and it really was placed — and the customer must be told, because they were given this number in the thread.`;
+  },
+  /**
+   * Module 05 D6. `deactivate_chat_discount` is the stored `undoData.kind`.
+   *
+   * Deactivating, not deleting, and the reason is the same one that makes
+   * `create_discount`'s undoer deactivate: if the customer already redeemed the
+   * code, the discount happened, and erasing the row would erase the receipt
+   * explaining a sale that is short by exactly that amount. A deactivated
+   * coupon simply stops working from now on, which is what the founder means.
+   */
+  async offer_chat_discount(client, undoData) {
+    // `couponId` — dakio-api's field name, because the executor writes dakio-api's
+    // field name. See the comment beside that `undoData` for why the wire payload
+    // does not use this repo's `discountId`.
+    const discount = await client.updateDiscount(String(undoData.couponId), { active: false });
+    return `Deactivated coupon ${discount.code} — it will not apply again. If the customer already used it, that discount stands and the order still shows it.`;
   },
 };

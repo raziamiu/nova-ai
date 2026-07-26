@@ -260,6 +260,33 @@ export const sendInboxReplyPayload = z.object({
  * Escalation. `reason` is module 08's closed trigger taxonomy — the model
  * names which trigger fired, it does not invent categories. (`guardrail:<rule>`
  * is also a valid stored reason, but only the authority gate authors it.)
+ *
+ * ELEVEN SLUGS. Module 05 (FD-4) added the last two, and the reason it had to
+ * is worth keeping: neither of them is a failure, and every one of the nine
+ * above says something went wrong. `tool_failure` was the nearest fit for both
+ * and it is the wrong sentence twice over — it maps to holding template H2
+ * ("Nova is not sure"), and the founder-facing label reads "Nova could not
+ * check". Neither is true when the shop's own rules are what stopped Nova.
+ *
+ *  - `guardrail_blocked` — Nova had the answer and was not permitted to act on
+ *    it: a chat order the fake-order guard refused, a plan limit, a discount
+ *    past the ceiling. The customer must NEVER hear the reason (an order
+ *    refused for suspected fraud, explained, is an accusation), so H7 says only
+ *    that the owner will confirm this one personally. The block reason rides
+ *    the founder brief and nothing else.
+ *  - `policy_gap` — the customer asked something the shop has never answered
+ *    (exchange window, wholesale terms, warranty). Nova is not confused and
+ *    must not say it is; there is simply no configured answer to give, so H8
+ *    says the owner is being asked for the shop's rule. Module 05's
+ *    `TenantPolicy` table is the surface that eventually closes these; an
+ *    absent row is exactly what this slug reports.
+ *
+ * Adding a slug is a THREE-FILE change in one commit, in this order: this list
+ * (the source of truth), dakio-api's `src/lib/novaInboxHandover.js` mirror plus
+ * its `HOLDING_TEMPLATE_BY_REASON` / `REASON_LABEL` entries, and the pinning
+ * test that asserts the two lists byte-identical. `handoverHandler` 422s on a
+ * slug it has not been told about, so a half-landed widening fails at runtime,
+ * on a real thread, not at build time.
  */
 export const ESCALATION_REASONS = [
   "human_ask",
@@ -271,6 +298,10 @@ export const ESCALATION_REASONS = [
   "vip",
   "tool_failure",
   "fraud_risk",
+  // Stage 10 module 05 (FD-4). Appended, never inserted: the dakio-api mirror
+  // and its pinning test compare ORDER as well as membership.
+  "guardrail_blocked",
+  "policy_gap",
 ] as const;
 
 export const escalateConversationPayload = z.object({
@@ -440,6 +471,215 @@ export const scheduleFollowUpPayload = z.object({
   // by scheduling one here.
 });
 
+/* ── Front Office (Stage 10 module 05) ──────────────────────────────────────
+ *
+ * The selling verbs. Three rules bind all three payloads, and every one of them
+ * is a rule about what is ABSENT:
+ *
+ * 1. NO MINOR UNITS. dakio-api holds money in WHOLE TAKA — `Order.total`,
+ *    `OrderItem.unitPrice` and `Coupon.amount` are Decimals in taka, and
+ *    `Tenant.deliveryInsideDhaka = 60` is sixty taka, not sixty poisha. Only
+ *    the guardrail REGISTRY is denominated in poisha (`inbox.highValueMinor`,
+ *    `dailySpendCapMinor`), and `novaBrief.js`'s `takaToMinor` is the one
+ *    converter. A field here named `…Minor` would be a lying name on a wire
+ *    that carries taka, and the first reader to trust it ships a 100× error at
+ *    a real customer. There is no `Minor` field below and there must never be.
+ * 2. NO PRICE LEVER. There is no `discount`, no `paid`, no `unitPrice` and no
+ *    `total` on any of these payloads. The server prices the order from the DB
+ *    and refuses an item priced more than ±1 taka off `sellingPrice`; the only
+ *    honest way to sell below list is a Coupon row, which is what
+ *    `offer_chat_discount` mints. The merchant order route accepts a raw client
+ *    `discount` that flows unvalidated into the total — that is precisely the
+ *    lever these payloads exist not to hand a model.
+ * 3. NO CUSTOMER RECORD. The customer's identity is resolved by the SERVER from
+ *    the thread; the 360 block deliberately shows the model a MASKED phone and
+ *    no street address. Everything a chat order needs about the buyer therefore
+ *    has to come from what the customer typed in this thread, which is also why
+ *    those fields are on the payload rather than looked up.
+ */
+
+/**
+ * One line of a chat order. `productId` is the only field the server prices
+ * from; `variantId` is the size/colour the customer actually confirmed.
+ *
+ * `productName` is REQUIRED and is not redundant. It is the text a no-touch
+ * lock is matched against (`TARGET_TEXT.create_order_from_chat` in
+ * `authority.ts`): with ids alone, a founder who locked "শাড়ি" could not stop a
+ * chat order for a saree, because an id matches no word a founder would type.
+ * It is match-and-display only — the server resolves the product from
+ * `productId` and never reads this string, so a wrong name cannot change what
+ * is sold, only what a lock can see.
+ */
+export const chatOrderItemSchema = z.object({
+  productId: z.string().min(1).describe("The product id from the product read. Never a name you matched yourself."),
+  variantId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The variant id when the customer named a size/colour ('XL hobe?'). Omit ONLY for a product with no variants — an order for a sized product with no variantId is an order nobody can pick.",
+    ),
+  productName: z
+    .string()
+    .min(1)
+    .describe("The product's name as the shop lists it, in the shop's own script. Recorded on the card and matched against the owner's no-touch locks."),
+  qty: z.number().int().positive().describe("How many units the customer confirmed."),
+});
+
+/**
+ * A chat order (module 05 D4/D5).
+ *
+ * `confirmedByCustomer: z.literal(true)` is the load-bearing field. It is not a
+ * boolean the model may weigh — the schema is UNSATISFIABLE without the literal
+ * `true`, so the tool cannot be called at all except as an assertion that the
+ * customer was read the itemized total and said yes in their own words. A
+ * `boolean` here would let a model that thinks the intent is obvious book a COD
+ * parcel nobody agreed to; the customer then refuses it at the door, and the
+ * shop pays the return.
+ */
+export const createOrderFromChatPayload = z.object({
+  conversationId: z.string().min(1).describe("The conversation this order was agreed in."),
+  customerName: z.string().min(1).describe("The name the customer gave for the parcel."),
+  customerPhone: z
+    .string()
+    .min(1)
+    .describe("The number the customer stated in this thread, as they typed it. The server normalizes and validates it — do not reformat it yourself."),
+  customerCity: z.string().min(1).describe("City/upazila for delivery, as stated."),
+  customerDistrict: z
+    .string()
+    .min(1)
+    .describe("District, as stated. It decides the shipping charge server-side (inside vs outside Dhaka) — never quote a delivery charge you computed yourself."),
+  customerAddress: z
+    .string()
+    .optional()
+    .describe("House/road/area line, when the customer gave one."),
+  items: z.array(chatOrderItemSchema).min(1).describe("What they are buying, exactly as read back and confirmed."),
+  couponCode: z
+    .string()
+    .optional()
+    .describe(
+      "A coupon the customer already holds, or one you issued with offer_chat_discount. The server re-validates it (active, expiry, maxUses, minOrder) and refuses the order if it does not hold — it is never applied on trust.",
+    ),
+  confirmedByCustomer: z
+    .literal(true)
+    .describe(
+      "Set ONLY after you read back the items, the delivery charge, the total and COD, and the customer answered with an explicit yes ('হ্যাঁ', 'ji', 'ok den'). Silence, an emoji, or 'hmm' is not a confirmation. There is no false value for this field: if they have not agreed, you do not call this tool.",
+    ),
+  // assessment: <reserved slot — schema owned by module 11, and reserved on
+  // sendInboxReplyPayload and escalateConversationPayload too.>
+});
+
+/**
+ * A bounded discount offered inside a chat (module 05 D6).
+ *
+ * `mechanism` is the whole design. A discount is ALWAYS a Coupon row, never a
+ * price change: `update_price` is a store-wide act with its own margin
+ * guardrail, and a haggle answered by repricing the product silently discounts
+ * every other customer buying it that day. `free_delivery` carries no amount at
+ * all — the server resolves it to that district's own shipping charge, because
+ * the model is not told the delivery table and a model-guessed 60 taka on an
+ * outside-Dhaka order is a discount the shop did not agree to.
+ */
+export const CHAT_DISCOUNT_MECHANISMS = ["percent", "fixed", "free_delivery"] as const;
+
+export const offerChatDiscountPayload = z
+  .object({
+    conversationId: z.string().min(1).describe("The conversation you are negotiating in."),
+    customerId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The customer id from the 360 block, when the thread is linked. Supply it whenever you have it: it is the ONLY thing the once-per-N-days frequency guard can match on, and omitting it means the guard silently never fires for this customer.",
+      ),
+    mechanism: z
+      .enum(CHAT_DISCOUNT_MECHANISMS)
+      .describe(
+        "'free_delivery' first — it is the BD shopkeeper's move and costs the least margin. 'percent'/'fixed' only when free delivery does not close it.",
+      ),
+    percentOff: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe("Required for mechanism 'percent'. Whole percent. The owner's ceiling is enforced server-side and a request past it is refused, not trimmed."),
+    // WHOLE TAKA, and the name says so by not saying otherwise. `Coupon.amount`
+    // is numeric(65,30) in taka; 100 here is one hundred taka.
+    amount: z
+      .number()
+      .positive()
+      .optional()
+      .describe("Required for mechanism 'fixed'. WHOLE TAKA off the order — 100 means ৳100, not 100 poisha."),
+    expiresHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(168)
+      .describe("How long the code stays live. 48 is the default the script offers; a coupon with no deadline is a permanent discount."),
+    reason: z
+      .string()
+      .min(5)
+      .describe("Why this customer, now — 'second ask on a ৳1,720 cart, offered free delivery instead of a percent'. The owner reads this on the card."),
+  })
+  // The arms of `mechanism` carry different required fields and zod cannot
+  // express that from the enum alone. Refusing here rather than in the executor
+  // matters: an unsatisfiable payload is a validation error the model can fix on
+  // the same turn, while a missing amount discovered server-side is a failed
+  // action the customer waits through.
+  .refine((v) => v.mechanism !== "percent" || v.percentOff != null, {
+    message: "mechanism 'percent' requires percentOff",
+  })
+  .refine((v) => v.mechanism !== "fixed" || v.amount != null, {
+    message: "mechanism 'fixed' requires amount (whole taka)",
+  })
+  .refine((v) => v.mechanism !== "free_delivery" || (v.percentOff == null && v.amount == null), {
+    message: "mechanism 'free_delivery' takes no amount — the server resolves the district's shipping charge",
+  });
+
+/**
+ * Payment-slip CLAIM INTAKE (module 05 D7). Read the verb name honestly: it
+ * files what the customer asserted, it does not verify anything.
+ *
+ * Dakio has no payment-gateway API and Meta attachments are lossy, so nothing
+ * in this system can read a bKash screenshot and know money moved. This payload
+ * therefore records a CLAIM — and `Order.paid` is never touched by it. The verb
+ * is in `ALWAYS_DRAFT` in both repos for exactly this reason: a level-4 store
+ * must not be able to auto-"verify" a payment nobody read.
+ *
+ * `claimedAmount` is WHOLE TAKA. It is what the customer SAID they sent, not
+ * what anyone confirmed, and it is optional because plenty of customers send a
+ * screenshot and no number.
+ */
+export const verifyPaymentSlipPayload = z.object({
+  conversationId: z.string().min(1).describe("The conversation the claim was made in."),
+  orderId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The order the customer says this pays for, when you can identify one. Omit rather than guess — a claim filed against the wrong order is worse than an unmatched one."),
+  method: z.enum(["bkash", "nagad", "rocket", "bank", "other"]).describe("How they say they paid."),
+  trxId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The transaction id exactly as the customer typed it. Never correct, pad or re-case it — the owner matches this string by eye against a statement."),
+  claimedAmount: z
+    .number()
+    .positive()
+    .optional()
+    .describe("The amount the customer says they sent, in WHOLE TAKA. 2350 means ৳2,350. Omit when they did not say."),
+  attachmentUrl: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The slip image from the thread, if one arrived. A payment claim often comes as an attachment-only message with no text at all."),
+  customerStatement: z
+    .string()
+    .min(3)
+    .describe("What the customer actually said, in their words. This is the evidence the owner judges — never your summary of it, and never a claim you inferred."),
+});
+
 export const resolveTicketPayload = z.object({
   ticketId: z.string(),
   reply: z.string().min(10).describe("Reply to the customer, in the brand voice."),
@@ -527,6 +767,10 @@ export type EscalateConversationPayload = z.infer<typeof escalateConversationPay
 export type LinkCustomerPayload = z.infer<typeof linkCustomerPayload>;
 export type MergeCustomerRecordsPayload = z.infer<typeof mergeCustomerRecordsPayload>;
 export type ScheduleFollowUpPayload = z.infer<typeof scheduleFollowUpPayload>;
+export type ChatOrderItem = z.infer<typeof chatOrderItemSchema>;
+export type CreateOrderFromChatPayload = z.infer<typeof createOrderFromChatPayload>;
+export type OfferChatDiscountPayload = z.infer<typeof offerChatDiscountPayload>;
+export type VerifyPaymentSlipPayload = z.infer<typeof verifyPaymentSlipPayload>;
 export type ResolveTicketPayload = z.infer<typeof resolveTicketPayload>;
 export type CreatePurchaseOrderPayload = z.infer<typeof createPurchaseOrderPayload>;
 export type SwitchSupplierPayload = z.infer<typeof switchSupplierPayload>;

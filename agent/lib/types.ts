@@ -116,6 +116,16 @@ export interface AbandonedCart {
   abandonedAt: string;
   recoveryState: CartRecoveryState;
   recoveryMessage: string | null;
+  /**
+   * Stage 10 module 05 (D8): the inbox thread this cart's owner is reachable
+   * in, when the server could match one. Optional-and-nullable rather than
+   * required, for the reason `proposal` and `nba` on {@link InboxThread} are:
+   * a dakio-api that predates module 05's `cartOut` omits the key entirely, and
+   * a required field would make "no thread matched" and "this server cannot
+   * match threads" the same observation — the first is a normal cart, the
+   * second is a cart-recovery lane that is silently doing nothing.
+   */
+  conversationId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,10 +170,46 @@ export interface SocialPost {
   publishedAt: string | null;
 }
 
+/**
+ * Which arm of a coupon this is (Stage 10 module 05). The strings are
+ * dakio-api's own `Coupon.type` column values, upper-case, so a reader diffing
+ * a wire payload against the DB sees the same token in both.
+ */
+export type DiscountKind = "PERCENT" | "FIXED";
+
 export interface Discount {
   id: string;
   code: string;
-  percentOff: number;
+  /**
+   * Absent on every server that predates module 05's `discountOut` fix. Read it
+   * as PERCENT only when it is genuinely absent — never infer FIXED from a zero
+   * `percentOff`, because that is exactly the bug module 05 fixed: the old
+   * serializer read every FIXED coupon back as `percentOff: 0`, which is
+   * indistinguishable from a percent coupon somebody set to nothing.
+   */
+  type?: DiscountKind;
+  /**
+   * `null` on a FIXED coupon — never 0. A ৳100-off coupon is not a 0% coupon,
+   * and `percentOff: 0` is precisely what made every FIXED coupon read back as
+   * "no discount" to a caller that only looked at this field. Null forces the
+   * reader to branch on `type`.
+   */
+  percentOff: number | null;
+  /**
+   * The raw `Coupon.amount` column: the whole-percent figure on a PERCENT
+   * coupon, WHOLE TAKA off on a FIXED one. `Coupon.amount` is numeric(65,30) in
+   * taka — 100 here is one hundred taka, not one hundred poisha. There is no
+   * minor-unit money anywhere on this wire.
+   */
+  amount?: number | null;
+  /** WHOLE TAKA. The cart subtotal this code needs before it applies. */
+  minOrder?: number | null;
+  /** Total redemptions allowed across all customers. Null = unlimited. */
+  maxUses?: number | null;
+  /** Redemptions so far. Compared against `maxUses` at checkout, server-side. */
+  usedCount?: number;
+  /** by:nova attribution — names the receipt that explains this coupon. */
+  novaActionId?: string | null;
   scope: "order" | "product";
   productIds: string[];
   /** Customer this code was issued to, if targeted. */
@@ -171,6 +217,53 @@ export interface Discount {
   expiresAt: string;
   active: boolean;
   createdAt: string;
+}
+
+/**
+ * The body of `POST /api/v1/store/discounts` (Stage 10 module 05 extends it).
+ *
+ * A named input type rather than `Omit<Discount, …>` because the two shapes
+ * genuinely differ now: `percentOff` is required on a PERCENT coupon and
+ * meaningless on a FIXED one, and `usedCount`/`novaActionId` are written by the
+ * server, never by a caller's `Omit`.
+ *
+ * ONE OF `customerId` / `conversationId` IS REQUIRED whenever `novaActionId` is
+ * set, and the route 422s without it. `Coupon` has NO `customerId` column, so
+ * the only record of who a Nova coupon was issued to is inside
+ * `NovaAction.payload` — omit the recipient and the once-per-N-days frequency
+ * guard has nothing to match on and silently passes every time. A rule that
+ * reads as enforced and is enforced against nobody is the worst of the three
+ * states, which is why the server refuses rather than defaults.
+ *
+ * `scope`, `productIds` and `customerId` are accepted and IGNORED server-side —
+ * Dakio coupons are order-level only and `discountOut` hardcodes all three on
+ * the way back. They stay on the type because the founder-plane `create_discount`
+ * verb has always sent them; they are not a capability.
+ */
+export interface CreateDiscountInput {
+  code: string;
+  /** Required for `type: "PERCENT"`; the route rejects anything outside 1–100. */
+  percentOff?: number;
+  /** Inferred as PERCENT when absent, so pre-module-05 callers are unchanged. */
+  type?: DiscountKind;
+  /** WHOLE TAKA. Required for `type: "FIXED"` and must be positive. */
+  amount?: number | null;
+  minOrder?: number | null;
+  maxUses?: number | null;
+  scope?: "order" | "product";
+  productIds?: string[];
+  customerId?: string | null;
+  expiresAt: string;
+  active: boolean;
+  /** Set on a Nova-issued coupon; turns on the frequency guard below. */
+  novaActionId?: string;
+  /**
+   * The thread the code was negotiated in. Accepted as the frequency guard's
+   * identity key when `customerId` is absent, because a thread is a person even
+   * before the identity join has earned them a `Customer` row — and Nova
+   * negotiates with plenty of buyers it has not linked yet.
+   */
+  conversationId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +503,7 @@ export interface Guardrails {
   /**
    * Stage 10 Front Office platform keys (canonical C-16), a FLAT `inbox.*`
    * namespace stored as JSON on the guardrail row — e.g. `inbox.autoIntents`,
-   * `inbox.maxAutoOrderMinor`, `inbox.persona`. Typed as `unknown` on purpose:
+   * `inbox.maxAutoOrder`, `inbox.persona`. Typed as `unknown` on purpose:
    * every reader must narrow it, and a MISSING key reads as absent ⇒ the
    * guardrail branch fails closed (`needs_approval`), never open. Module 08
    * owns the key registry and seeds the defaults.
@@ -576,6 +669,54 @@ export type ActionType =
    * it schedules is a customer touch, so it is not bookkeeping.
    */
   | "schedule_follow_up"
+  /**
+   * Stage 10 Front Office (module 05) — the three selling verbs.
+   *
+   * `create_order_from_chat` is the first verb in the phase that writes a
+   * FINANCIAL record from a conversation. It is `low` risk deliberately (C-2):
+   * `medium` would pin every chat order to draft until the whole store reached
+   * L4, coupling the inbox dial to the dashboard's. The control is not the risk
+   * class, it is the fail-closed guardrail branch plus `inbox.orderAuto`, which
+   * ships FALSE and stays false until module 11 (FD-3).
+   *
+   * `offer_chat_discount` is the ONLY way Nova may sell below list. It mints a
+   * Coupon row; it never touches a price. `update_price` exists and is a
+   * store-wide act with its own margin guardrail — answering one customer's
+   * haggle by repricing the product discounts every other customer that day.
+   *
+   * `verify_payment_slip` VERIFIES NOTHING, and the name is the one place that
+   * could mislead. Dakio has no payment-gateway API, so it files the customer's
+   * CLAIM for the owner to judge and never writes `Order.paid`. It is `high`
+   * risk AND in `ALWAYS_DRAFT` (`authority.ts`), because risk alone does not
+   * mean "always ask": `verdictForLevel` executes every risk class at level 4,
+   * and a trusted store would otherwise auto-"verify" money nobody read.
+   *
+   * THE INVERSES ARE NOT MEMBERS OF THIS UNION, and that is deliberate — same
+   * as `cancel_followup` (module 04) and `unlink_customer` (module 03). An undo
+   * is dispatched by dakio-api's `UNDO[undoData.kind]`, keyed by the STRING the
+   * executor returns in `undoData.kind`, while nova-ai's `undoers` map is keyed
+   * by the VERB name. Two maps, two keying schemes, both correct; the `kind`
+   * string is the only bridge, and omitting it is what made a founder tapping
+   * Undo see "No inverse is defined for undefined" twice already. The slugs
+   * module 05 owns, fixed here so the two repos cannot each invent one:
+   *
+   *   create_order_from_chat → undoData.kind `cancel_chat_order`
+   *                            (cancels a PENDING order only — a parcel already
+   *                            with the courier is not undoable by software)
+   *   offer_chat_discount    → undoData.kind `deactivate_chat_discount`
+   *                            (flips the Coupon inactive; a code already
+   *                            redeemed stays redeemed)
+   *   verify_payment_slip    → no inverse. Filing a claim moves no money, so
+   *                            there is nothing to reverse.
+   *
+   * Adding them to this union instead would force a RISK_CLASS row, a
+   * MINUTES_BY_ACTION row and an executor for a verb nothing dispatches —
+   * coverage-shaped, which is the failure `FOUNDER_ONLY`'s note in authority.ts
+   * already had to write down once.
+   */
+  | "create_order_from_chat"
+  | "offer_chat_discount"
+  | "verify_payment_slip"
   /** Founder-only (PRD 5.4): Nova may propose, never execute. */
   | "bulk_refund";
 
@@ -1281,6 +1422,264 @@ export interface IntentObservedResult {
     reason: string | null;
     occurredAt: string;
   }[];
+}
+
+/* ── Front Office — selling & conversion (Stage 10 module 05) ───────────────
+ *
+ * The wire shapes behind `/api/v1/store/*`'s selling surface. Two rules bind
+ * every one of them and both are rules about what is ABSENT:
+ *
+ * 1. **NO MINOR UNITS.** dakio-api holds money in WHOLE TAKA — `Order.total`,
+ *    `OrderItem.unitPrice` and `Coupon.amount` are Decimals in taka, and
+ *    `Tenant.deliveryInsideDhaka = 60` is sixty taka. Only the guardrail
+ *    REGISTRY is denominated in poisha (`inbox.highValueMinor`,
+ *    `dailySpendCapMinor`). A field here named `…Minor` would be a lying name
+ *    on a wire that carries taka, and the first reader to trust it ships a 100×
+ *    error at a real customer's door.
+ * 2. **NO PRICE LEVER.** {@link ChatOrderRequest} carries no `discount`, no
+ *    `paid`, no `unitPrice` and no `total`. The server prices the order from
+ *    the catalogue; the only honest way to sell below list is a Coupon row.
+ *    The merchant order route accepts a raw client `discount` that flows
+ *    unvalidated into the total — that is precisely the lever this shape exists
+ *    not to hand a model.
+ */
+
+/** One line of a chat order on the wire. No price field, by rule 2 above. */
+export interface ChatOrderItemInput {
+  productId: string;
+  /**
+   * The variant the customer actually confirmed. It reaches `OrderItem.variantId`
+   * — a plain string column with NO foreign key, deliberately, because the
+   * merchant product editor deletes variants by name diff and a rename must not
+   * erase the record of which size was sold. Consequence for readers: the value
+   * may be dangling, so resolve it with an explicit lookup and tolerate a miss.
+   */
+  variantId?: string;
+  qty: number;
+}
+
+/**
+ * Body of `POST /api/v1/store/orders` (module 05 D4).
+ *
+ * `novaActionId` is BOTH the receipt correlation id and the route's `w()`
+ * idempotency key (sent as the `Idempotency-Key` HEADER, since that is what
+ * `novaIdempotency.js` reads — a body field of the same name would key
+ * nothing). It matters more here than anywhere else on this router: `w()` is
+ * NOT a mutex, so the route's own at-most-once guarantee is a conditional
+ * read-back on `Order.novaActionId` before insert, and that column is indexed
+ * for exactly this call.
+ *
+ * The buyer's details are on the payload rather than looked up because the
+ * customer-360 deliberately shows the model a MASKED phone and no street
+ * address. Everything a parcel needs therefore comes from what the customer
+ * typed in this thread — every time, by design, not as a fallback.
+ */
+export interface ChatOrderRequest {
+  /**
+   * The thread this was agreed in. Named for the COLUMN it lands on
+   * (`Order.sourceConversationId`) rather than `conversationId`, because that
+   * column is a plain string with NO foreign key: Meta's data-deletion callback
+   * hard-deletes `InboxConversation` rows, so a reader must tolerate an id that
+   * resolves to no conversation. It is also what the route derives the identity
+   * join and `sourceChannel` from.
+   */
+  sourceConversationId: string;
+  customerName: string;
+  /** As the customer typed it. The SERVER normalizes and validates. */
+  customerPhone: string;
+  customerCity: string;
+  /** Decides the shipping charge server-side (inside vs outside Dhaka). */
+  customerDistrict: string;
+  customerAddress?: string;
+  items: ChatOrderItemInput[];
+  /** Re-validated server-side (active, expiry, maxUses, minOrder) or refused. */
+  couponCode?: string;
+  /** Free-text order note. Never a price instruction — there is no such lever. */
+  note?: string;
+  novaActionId: string;
+  // NO `sourceChannel`, deliberately, even though the route accepts one. It is
+  // RESOLVED from the thread's own platform whenever `sourceConversationId` is
+  // present, and it is the one provenance column that OUTLIVES the conversation
+  // — so the durable answer to "where did this sale come from" must not be a
+  // field a caller can set to disagree with the thread it names.
+}
+
+/**
+ * What `POST /api/v1/store/orders` answers with (module 05 D4).
+ *
+ * Every money field is WHOLE TAKA. There is no `subtotal` and no `discount`:
+ * `chatOrderOut` is its own serializer with its own contract, and it returns
+ * what the next sentence to the customer is built from — what the parcel costs,
+ * what the courier collects, and where they can watch it.
+ *
+ * `codAmount` is read from `Order.due`, NOT from `total`. The two diverge the
+ * moment an advance is ever recorded, and the courier consignment is built from
+ * `due` — quoting the total at the door would be quoting a number nobody owes.
+ *
+ * `trackingUrl` is `string | null` and the null is real: it needs
+ * `DAKIO_STOREFRONT_URL` plus a slug, and a path-based store gets the shop's
+ * tracking FORM rather than a per-order deep link (only the custom-domain
+ * storefront tree has `track/[code]`). Never render this without checking it —
+ * a dead tap after a COD confirmation is worse than no link.
+ */
+export interface ChatOrderResult {
+  id: string;
+  orderNumber: string;
+  total: number;
+  shippingCharge: number;
+  /** What the courier collects at the door, from `Order.due`. WHOLE TAKA. */
+  codAmount: number;
+  status: string;
+  /** The customer row the order created or matched, once identity resolved. */
+  customerId: string | null;
+  trackingUrl: string | null;
+}
+
+/**
+ * The discount arms a chat may offer (module 05 D6).
+ *
+ * Byte-equal to `CHAT_DISCOUNT_MECHANISMS` in `nova/schemas.ts`, which is the
+ * MODEL-facing copy, exactly as {@link FollowupDelay} pairs with
+ * `FOLLOWUP_DELAYS`. Two copies of one taxonomy on purpose: this file is the
+ * wire, that one is the tool schema, and `lib/types.ts` importing from
+ * `lib/nova/schemas.ts` would invert the dependency the whole `store/` layer
+ * rests on. A value present in only one of them is a mechanism the model can
+ * name and the client cannot send, or the reverse.
+ */
+export type ChatDiscountMechanism = "percent" | "fixed" | "free_delivery";
+
+/**
+ * Body of `POST /api/v1/store/discounts/validate` (module 05 D6).
+ *
+ * `subtotal` is WHOLE TAKA and is REQUIRED. The merchant-plane validate route
+ * (`coupons.js`) guards its `minOrder` test with `if (subtotal && …)`, so a
+ * caller that omits it gets `valid: true` on a coupon whose floor it is nowhere
+ * near — and for a FIXED coupon, the full discount back with it. That guard is
+ * the one piece of those semantics module 05 deliberately does not port.
+ */
+export interface CouponValidationRequest {
+  code: string;
+  subtotal: number;
+}
+
+/**
+ * Why a coupon does not hold. Closed set, server-authored, MACHINE-facing —
+ * the customer never hears a slug; the shopkeeper script turns it into a
+ * sentence, and only one of the five is a fact the buyer can act on.
+ */
+export type CouponRefusal =
+  | "not_found"
+  | "inactive"
+  | "expired"
+  | "max_uses_reached"
+  | "below_min_order";
+
+/**
+ * What the coupon check answers (module 05 D6).
+ *
+ * A refusal is a 200 with `valid: false`, not a 4xx: "is this code good?"
+ * answered "no" is a successful query. `discount` is WHOLE TAKA and is what
+ * THIS subtotal would actually get — already resolved from percent or fixed and
+ * already clamped to the cart — so nobody recomputes a percentage model-side.
+ *
+ * `minOrder` comes back on `below_min_order` and on no other reason, because it
+ * is the only one where the number helps the buyer ("৳২০০ এর অর্ডার হলে কুপনটা
+ * কাজ করবে"). Naming an expiry date or a usage counter would be telling a
+ * customer about the shop's bookkeeping.
+ */
+export interface CouponValidation {
+  valid: boolean;
+  /** Echoed back upper-cased, as the server stores and matches it. */
+  code: string;
+  discount: number;
+  reason?: CouponRefusal;
+  /** Present only on `below_min_order`. WHOLE TAKA. */
+  minOrder?: number;
+  /** Present only on a valid code. */
+  type?: DiscountKind;
+}
+
+/**
+ * One configured shop policy (module 05 D2), keyed by an OPEN string —
+ * `exchange`, `warranty`, `wholesale`, whatever the shop actually wrote down.
+ *
+ * The absence of a row is the product's answer, not a gap in the read: it means
+ * the merchant has never told Nova this rule, which is precisely what the
+ * `policy_gap` escalation reason reports. `textEn` is optional because a
+ * Bangladeshi merchant writing one version writes the Bangla one.
+ */
+export interface TenantPolicyView {
+  key: string;
+  textBn: string;
+  textEn?: string | null;
+}
+
+/**
+ * `GET /api/v1/store/settings` (module 05 D2).
+ *
+ * `deliveryInsideDhaka` / `deliveryOutsideDhaka` are Int columns in WHOLE TAKA
+ * — 60 and 120 mean sixty and one hundred twenty taka. They are named without a
+ * unit suffix for the same reason nothing else here carries one: the module doc
+ * called them `…Minor`, and following that name literally ships a 100× shipping
+ * charge.
+ *
+ * `Tenant.deliveryRates Json?` is deliberately NOT here. It exists and the
+ * merchant can edit it, but NO dakio-api shipping path reads it — both order
+ * paths use only the two Int columns. Exposing it would hand Nova a rate table
+ * the server will not honour, so Nova would quote a delivery charge the order
+ * then contradicts.
+ */
+export interface StoreSettings {
+  storeName: string;
+  /**
+   * The shop's own storefront root, or null when neither a verified custom
+   * domain nor `DAKIO_STOREFRONT_URL` is configured. Null is common, not
+   * exceptional — never build a link out of it without checking.
+   */
+  storefrontUrl: string | null;
+  deliveryInsideDhaka: number;
+  deliveryOutsideDhaka: number;
+  /**
+   * A constant `true`, not a column: the storefront checkout has exactly one
+   * payment method. It is stated rather than omitted so Nova can say it out
+   * loud, which in BD DM commerce is the most reassuring sentence there is.
+   */
+  codAvailable: boolean;
+  /** Empty until the merchant configures one. Empty is an ANSWER — see above. */
+  policies: TenantPolicyView[];
+}
+
+/**
+ * `GET /api/v1/store/customers/risk?phone=` (module 05 D4.2).
+ *
+ * These are `calculateCustomerRisk`'s REAL keys plus one. The module doc
+ * promised `{riskLevel, rtoCount, ordersCount, cancelledCount}` and not one of
+ * those four is a key that function produces — it returns `level`, not
+ * `riskLevel`, and no `rtoCount` at all.
+ *
+ * `cancelledOrders` LUMPS RETURNED IN WITH CANCELLED, by design: for risk
+ * scoring an RTO and a cancellation are the same failed outcome, and
+ * `customerRisk.js` says so in its own comment. That is why `rtoCount` is a
+ * SEPARATE field the route computes with its own status groupBy — reading an
+ * RTO count off `cancelledOrders` would double-count a customer who cancelled
+ * twice and never refused a parcel.
+ */
+export interface CustomerRiskView {
+  /** The normalized form the server matched on, never the raw input. */
+  phone: string;
+  level: "NEW" | "POSITIVE" | "MEDIUM" | "RISK";
+  totalOrders: number;
+  deliveredOrders: number;
+  /** CANCELLED **and** RETURNED together — see the note above. */
+  cancelledOrders: number;
+  activeOrders: number;
+  /** RETURNED only. The number `inbox.rtoShadowThreshold` is compared against. */
+  rtoCount: number;
+  /** CANCELLED only, so the split can be reconstructed without subtracting. */
+  cancelledOnlyCount: number;
+  successRate: number;
+  returnRate: number;
+  message: string;
 }
 
 // ---------------------------------------------------------------------------

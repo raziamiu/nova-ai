@@ -148,8 +148,32 @@ export const NEVER_GATED: ReadonlySet<string> = new Set([
  * Checked immediately after NEVER_GATED, so it sits below the founder's own
  * rules (founder-only, no-touch, duty) and above the dial: a paused duty still
  * wins, and raising autonomy to Acting CEO still does not auto-merge.
+ *
+ * **Module 05 adds `verify_payment_slip`, and it is here rather than relying on
+ * `riskClass: "high"` because high is not a promise.** The module doc asserts
+ * that high "always drafts, at every tier, forever"; `verdictForLevel`'s last
+ * line returns `{verdict:"execute"}` for every risk class at level 4, and level
+ * 4 is genuinely reachable — `effectiveLevel` is min(level, earnedLevel,
+ * MODE_CEILING), an autonomous door ceilings at 4, and dakio-api's `novaTrust`
+ * promotes `earnedLevel` to 4 on a good record. So on the doc's mechanism a
+ * well-behaved store would auto-"verify" a payment.
+ *
+ * What makes that unacceptable is the verb's own honesty: Dakio has no
+ * payment-gateway API and Meta attachments are lossy, so NOTHING in this system
+ * can read a bKash screenshot and know money moved. The verb files a CLAIM. A
+ * claim that auto-resolves is a shop telling a customer their money arrived on
+ * the strength of a picture — and in a COD market the correction lands at the
+ * door, with a courier holding a parcel nobody will pay for.
+ *
+ * The dakio-api mirror (`src/lib/novaAuthority.js`) is not optional. This copy
+ * is the agent judging itself; that one is read at `POST /actions` and 403s an
+ * always-draft verb recorded as `executed`, which is the only layer that can
+ * stop a direct ledger write.
  */
-export const ALWAYS_DRAFT: ReadonlySet<string> = new Set(["merge_customer_records"]);
+export const ALWAYS_DRAFT: ReadonlySet<string> = new Set([
+  "merge_customer_records",
+  "verify_payment_slip",
+]);
 
 /**
  * Per-verb extractor for the text a no-touch lock is matched against.
@@ -236,7 +260,98 @@ export const TARGET_TEXT: Partial<Record<ActionType | string, Extractor>> = {
    */
   schedule_follow_up: (p) =>
     [str(p.conversationId), str(p.reason), str(p.plannedIntent), "follow", "up", "reminder"].join(" "),
+  /**
+   * Module 05. The PRODUCT NAMES are the load-bearing half, which is why
+   * `createOrderFromChatPayload` makes `items[].productName` required rather
+   * than settling for ids. A founder's lock is a phrase they would type —
+   * "শাড়ি", "SAREE PRICING", "bridal" — and an id matches none of them. With
+   * ids alone this extractor would return a string no lock could ever hit, so
+   * every lock would fail open on the one verb in the phase that spends the
+   * customer's money.
+   *
+   * WHERE THE NFC FOLD ACTUALLY HAPPENS: `lockMatches` → `normalizeForMatch`,
+   * applied to BOTH the lock and this haystack, so a Bangla product name typed
+   * with composed matras in the founder's lock matches the decomposed form Nova
+   * copied out of the catalogue. It is not done here — normalizing a fragment
+   * before joining and then normalizing the join again is the same string, and
+   * a second `.normalize("NFC")` in this file would read as though the fold were
+   * per-extractor and let the next verb ship without one.
+   *
+   * The district is in because "no Chittagong orders" is a lock a Dhaka-only
+   * shop really sets. The phone and the address line are NOT, for the same
+   * reason module 03's extractors leave them out: a full number in a haystack is
+   * a full number in a code path with no business holding one, and nobody locks
+   * on a house number.
+   */
+  create_order_from_chat: (p) =>
+    [
+      chatOrderItemsText(p.items),
+      str(p.customerDistrict),
+      str(p.customerCity),
+      str(p.couponCode),
+      "order",
+      "sell",
+      "cod",
+    ].join(" "),
+  /**
+   * Module 05. `reason` carries the product and the negotiation in the model's
+   * own words, so a founder who locked "SAREE PRICING" stops a saree discount
+   * exactly as the same lock stops a dashboard reprice — which is the whole
+   * point of the lock existing at two doors. The mechanism and the amount are in
+   * so that "free delivery" and "discount" are lockable phrases in their own
+   * right; a shop that has decided never to give delivery away can say so once.
+   */
+  offer_chat_discount: (p) =>
+    [
+      str(p.reason),
+      str(p.mechanism),
+      str(p.percentOff),
+      str(p.amount),
+      "discount",
+      "coupon",
+      "price",
+      "pricing",
+    ].join(" "),
+  /**
+   * Module 05. Ids, the method and the customer's own sentence — never the trx
+   * id padded out into something that looks verified, and never an amount this
+   * verb has confirmed, because it confirms nothing. "REFUND" and "PAYMENT" are
+   * both locks a founder plausibly sets on money threads, and
+   * `customerStatement` is where a customer's own "টাকা ফেরত দেন" would live.
+   */
+  verify_payment_slip: (p) =>
+    [
+      str(p.conversationId),
+      str(p.orderId),
+      str(p.method),
+      str(p.customerStatement),
+      "payment",
+      "slip",
+      "claim",
+    ].join(" "),
 };
+
+/**
+ * Flatten `items: [{productId, variantId?, productName, qty}]` into matchable
+ * text (module 05 D5).
+ *
+ * The NAME first, because that is what a founder locks on. `qty` is included so
+ * a lock like "BULK" has something to bite; `productId` is included because the
+ * founder-facing surfaces sometimes show it and a lock pasted from there must
+ * still work. `variantId` is deliberately absent — it is an opaque cuid that
+ * appears in no founder-facing text, and adding ids nobody types only dilutes
+ * the haystack.
+ */
+function chatOrderItemsText(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return str(item);
+      const i = item as Record<string, unknown>;
+      return [str(i.productName), str(i.productId), str(i.qty)].join(" ");
+    })
+    .join(" ");
+}
 
 /**
  * Flatten a declared `promise: {text, kind, dueAtISO}` into matchable text

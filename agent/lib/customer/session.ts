@@ -50,6 +50,30 @@ import { isCustomerSession, type CustomerSessionContext } from "./principal";
  * as trusted shop fact in every later session, so customer memory is written by
  * the server-side `conversation_distill` job instead of by anything the model
  * can be talked into calling. See `SLIM_TOOLS_WITHHELD`.
+ *
+ * MODULE 05 ADDS FOUR, and they are the first ones on this list that can move
+ * money. The argument for putting them on the customer plane is the same one
+ * that put `link_customer` here and it is stronger, not weaker: closing a sale
+ * is what this conversation is FOR, and a selling tool that refused a customer
+ * session would be unreachable from the only thread it belongs in. What makes
+ * that safe is not the plane, it is the shape of the payloads — none of the
+ * three write verbs carries a price. The model names products, quantities, a
+ * district and a mechanism; the SERVER prices every line from the catalogue,
+ * refuses anything off the listed price, resolves the delivery charge and
+ * re-validates the coupon. And all three are gated: `inbox.orderAuto` and
+ * `inbox.discountAuto` ship FALSE so every order and every discount is a
+ * Decision the owner approves, and `verify_payment_slip` is in `ALWAYS_DRAFT`
+ * in both repos, forever, because nothing in this system can read a payment
+ * slip.
+ *
+ * `validate_coupon` is the odd one out and deliberately included: it is a READ
+ * that performs no action, and it is what lets Nova find out a code is dead
+ * BEFORE the order rather than let the storefront charge full price and say
+ * nothing, which is what it does today.
+ *
+ * `get_product` and `get_order_status` stay in `SLIM_TOOLS_PENDING` — module 05
+ * built neither. `get_products` already answers every catalogue question this
+ * register asks for, and order lookup is module 06's.
  */
 export const CUSTOMER_SLIM_TOOLS: readonly string[] = [
   "get_conversation",
@@ -58,6 +82,10 @@ export const CUSTOMER_SLIM_TOOLS: readonly string[] = [
   "get_products",
   "link_customer",
   "schedule_follow_up",
+  "validate_coupon",
+  "create_order_from_chat",
+  "offer_chat_discount",
+  "verify_payment_slip",
 ];
 
 /**

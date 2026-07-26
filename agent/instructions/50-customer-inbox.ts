@@ -200,12 +200,27 @@ export const SLIM_TOOLS_SHIPPED: readonly string[] = CUSTOMER_SLIM_TOOLS;
 
 /** Named in D11's slim set, owned by a later module. Never advertised. */
 export const SLIM_TOOLS_PENDING: Readonly<Record<string, string>> = {
-  get_product: "module 05 (selling)",
-  get_order_status: "module 05 (selling)",
-  validate_coupon: "module 05 (selling)",
-  // `schedule_follow_up` left this list in module 04: its tool file landed, so
-  // it moved up into `CUSTOMER_SLIM_TOOLS` and is advertised. The eval asserts
-  // both directions, so a name staying here after its file exists is red.
+  // `get_product` (singular) is a per-id read D11 named beside `get_products`.
+  // Module 05 examined it and built NOTHING: `get_products` already answers
+  // every price, stock and variant question this register asks for, in one
+  // call, and a second catalogue tool on a latency-critical prompt buys the
+  // model a choice rather than an answer. It stays here rather than being
+  // deleted because D11 named it and the next module to want it should find
+  // this note instead of re-deriving the question.
+  get_product: "module 06 (delivery & RTO) — module 05 examined it and built nothing; get_products covers the catalogue",
+  // Order lookup is module 06's, and the attribution here was wrong: module 05
+  // never had it in scope (see its own Scope section), and `AS-BUILT-04` and
+  // `AS-BUILT-08` both told the module-05 builder otherwise. Handing the row on
+  // explicitly is the alternative to leaving a name pointed at a module that
+  // has shipped without it.
+  get_order_status: "module 06 (delivery & RTO)",
+  // `validate_coupon` left this list in module 05: its tool file landed, so it
+  // moved up into `CUSTOMER_SLIM_TOOLS` and is advertised — along with
+  // `create_order_from_chat`, `offer_chat_discount` and `verify_payment_slip`.
+  //
+  // `schedule_follow_up` left it in module 04. The eval asserts BOTH directions
+  // for every name here, so a name staying on this list after its file exists
+  // is red, and a name leaving it without a file is red the other way.
 };
 
 /**

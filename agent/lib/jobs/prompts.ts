@@ -7,6 +7,11 @@
  * file). `reflection` gained one new step: Phase 04's `attribution.ts` was
  * built and tested but never invoked outside the eval harness — wiring the
  * `run_attribution` tool in here is Phase 05's fix for that gap.
+ *
+ * Stage 10 module 05 (D8) adds `cartRecoveryTurnPrompt` at the bottom — NOT a
+ * `TEMPLATES` entry, because the in-window cart nudge is a threaded `followup`
+ * and `dispatchJobToChannel` builds those instructions itself; `renderJobPrompt`
+ * is never reached for a job that carries a conversationId.
  */
 
 import type { NovaJob } from "../types";
@@ -133,12 +138,30 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
     'with file_report (kind "pulse") listing each finding, the evidence, and ' +
     "what was done or prepared.",
 
+  // Stage 10 module 05 (D8) added the second sentence, and it is a DIVISION OF
+  // LABOUR, not a caveat. This lane is founder-plane: it prepares email/SMS
+  // recovery through `send_customer_message`, which opens with
+  // `requireFounderSession`. It has no way to reach a Messenger or Instagram
+  // thread, and the in-window chat nudge is not its work — dakio-api's
+  // `cart_sweep` branch (`runCartRecoveryMatch`, src/routes/novaJobs.js) matches
+  // each open cart to its live conversation and books a `followup` row, so the
+  // nudge inherits the fire-time re-checks, the proactive marker and the weekly
+  // touch cap. A nudge this turn tried to send would inherit none of them.
+  //
+  // The `conversationId` on each cart is what makes the split visible from here:
+  // it is stamped by module 03's identity join and is the same column the server
+  // branch resolves on, so "has a thread" means the same thing on both sides. A
+  // cart contacted by BOTH lanes is one customer hearing about one basket twice,
+  // in two channels, which is the failure this sentence exists to prevent.
   cart_sweep:
     "Abandoned cart sweep. Load the cart-recovery skill and follow it: find " +
     "untouched carts, write personalized recovery messages in the brand " +
     "voice, send them via send_customer_message (autonomy-gated), and finish " +
     "with one consolidated summary of carts contacted, value at stake, and " +
-    "expected recoveries.",
+    "expected recoveries. SKIP any cart that already has a conversationId: " +
+    "that customer has a live chat thread and the server has already booked " +
+    "the in-thread nudge for it, so contacting them here is the same basket " +
+    "raised twice. Report those separately as handled in chat.",
 
   night_ops:
     "Night operations. Do the deep work now so the morning is ready:\n" +
@@ -192,4 +215,125 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
 export function renderJobPrompt(job: NovaJob): string {
   const base = TEMPLATES[job.kind];
   return FILES_REPORT.has(job.kind) ? base + dedupeInstruction(job) : base;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 10 module 05 (D8) — the in-window cart nudge
+// ---------------------------------------------------------------------------
+
+/** `payload.triggeredBy` on the `followup` row dakio-api's cart branch books. */
+export const CART_RECOVERY_TRIGGER = "cart_recovery";
+
+/** One `{name, qty}` pair off the booked snapshot. Names only — see below. */
+interface CartNudgeItem {
+  name: string;
+  qty: number;
+}
+
+/**
+ * True for the `followup` rows `runCartRecoveryMatch` (dakio-api
+ * src/routes/novaJobs.js) books off an abandoned cart.
+ *
+ * Keyed on `triggeredBy` and NOT on `plannedIntent`: the intent slug is the
+ * canonical `cart_recovery` and the model can book a follow-up carrying it
+ * through `POST /followups` too. `triggeredBy` says who MINTED the row, which is
+ * the actual question here — a model-booked cart follow-up already knows what it
+ * meant by it and needs no snapshot handed back.
+ */
+export function isCartRecoveryJob(job: NovaJob): boolean {
+  return job.kind === "followup" && job.payload?.triggeredBy === CART_RECOVERY_TRIGGER;
+}
+
+function cartNudgeItems(payload: Record<string, unknown>): CartNudgeItem[] {
+  const raw = payload?.cartItems;
+  if (!Array.isArray(raw)) return [];
+  const items: CartNudgeItem[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const name = (entry as { name?: unknown }).name;
+    if (typeof name !== "string" || name.trim().length === 0) continue;
+    const qty = Number((entry as { qty?: unknown }).qty);
+    items.push({ name: name.trim(), qty: Number.isFinite(qty) && qty > 0 ? Math.trunc(qty) : 1 });
+  }
+  return items;
+}
+
+/**
+ * THE NUDGE COPY CONTRACT (D8.3). One personal message about one basket, in the
+ * customer's own thread — never a campaign line with an audience of one.
+ *
+ * WHY THE ITEM NAMES RIDE THE JOB BUS when every other lane here carries ids
+ * only. The ids-only rule exists so the turn re-reads what can have CHANGED
+ * (a promise may have been kept, a thread may have been taken) and so no
+ * free text passes a second redaction point. Neither applies to a basket: this
+ * is a customer-plane turn and the customer-360 the turn loads is masked by
+ * construction — it gives Nova a masked phone and no street address — while a
+ * cart read tool is not on `CUSTOMER_SLIM_TOOLS`. Ids-only here would mean the
+ * one sentence the nudge exists to say ("the Jamdani sharee") could not be said
+ * at all, and "you left something in your cart" is the blast D8 forbids.
+ *
+ * WHAT IS DELIBERATELY NOT CARRIED, and what the instruction therefore refuses
+ * to let the model claim: no price, no cart total, and no stock. The payload is
+ * a SNAPSHOT of what the basket held when it was abandoned — dakio-api's
+ * `cartNudgeItems` strips prices for exactly this reason, because a price read
+ * out of an hours-old copy is a number the store may no longer honour and one a
+ * customer will hold Nova to. The Bangla example below says "এখনো আছে", which
+ * reads as "it is still there"; it is only sayable about the CART. Availability
+ * is a stock claim and needs `get_product`.
+ *
+ * THE ADDRESS FORM IS THE STORE'S, NOT THIS EXAMPLE'S. The sample is written in
+ * the আপনি register because the module doc's is; the persona layer
+ * (`inbox.persona.addressForm`) decides apni/tumi and the brand voice decides
+ * the rest. This function fixes the SHAPE — name the thing, ask once, open a
+ * door — not the words.
+ *
+ * Rendered for the follow-up turn that rejoins `customer:inbox:<conversationId>`.
+ * Every timing rule has already bound by the time this text is built: dakio-api
+ * booked the row as a `followup` precisely so `recheckBeforeFire` could judge it
+ * (window, quiet hours, weekly touch cap, unanswered streak, consent, thread
+ * ownership) and so the send is marked proactive and billed to the touch ledger.
+ * Nothing in this instruction may re-decide any of that — but the LAST word is
+ * still the model's, and it is a refusal: if the thread has moved on, saying
+ * nothing is the right answer.
+ */
+export function cartRecoveryTurnPrompt(job: NovaJob): string {
+  const items = cartNudgeItems(job.payload ?? {});
+  // A booked row always carries at least one item — dakio-api refuses to book a
+  // nameless cart — so this branch means the payload was malformed in transit.
+  // It asks for nothing rather than inviting a generic "something in your cart".
+  const named =
+    items.length === 0
+      ? null
+      : items.map((it) => (it.qty > 1 ? `${it.name} ×${it.qty}` : it.name)).join(", ");
+
+  if (!named) {
+    return (
+      `Cart-recovery follow-up ${job.id} arrived with no item names in its payload, which should ` +
+      "not happen — the server does not book a nameless cart. Do not improvise a generic cart " +
+      "reminder: a nudge that cannot say what the basket held is a blast. Say nothing to the " +
+      "customer and report the malformed payload."
+    );
+  }
+
+  return (
+    `This customer left these in their cart and did not check out: ${named}. ` +
+    "Their conversation window is still open, so you may write ONE short, personal message about " +
+    "it — read the thread first, because the world moved since the basket was left. Name the " +
+    "actual item(s) above; that is the entire licence for this message. Ask once whether they " +
+    "still want it and open a door for the obvious objection (size, delivery charge, delivery " +
+    "time) — do not stack a second ask, do not send a follow-up to your own follow-up, and never " +
+    "write anything that would read the same to a hundred people.\n\n" +
+    "Shape to match (the store's own address form and brand voice decide the words):\n" +
+    "  আপু, জামদানি শাড়িটা কার্টে রেখে গিয়েছিলেন 🙂 এখনো আছে — নিয়ে নিবেন? " +
+    "সাইজ বা ডেলিভারি নিয়ে কোনো প্রশ্ন থাকলে বলুন।\n" +
+    "  (Apu, Jamdani sharee ta cart e rekhe giyechhilen — ekhono ache. Niye niben? " +
+    "Size ba delivery niye kono proshno thakle bolun.)\n\n" +
+    "The item list above is a SNAPSHOT of the basket as it was left. It is not a stock check and " +
+    "carries no prices: \"still there\" is true of their cart, never of your warehouse. Do not " +
+    "quote a price, a total or a discount you have not just looked up, and if they ask whether it " +
+    "is in stock, check before you answer. " +
+    "If the thread has moved on — they already bought, they said no, the owner stepped in, or " +
+    "there is simply nothing worth saying — send nothing. Silence is a real answer here, and a " +
+    "nudge nobody asked for is worse than a late one."
+  );
 }

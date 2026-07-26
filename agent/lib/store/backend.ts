@@ -22,10 +22,17 @@ import type {
   AutonomyConfig,
   Campaign,
   CartRecoveryState,
+  ChatOrderRequest,
+  ChatOrderResult,
   Courier,
+  CouponRefusal,
+  CouponValidation,
+  CreateDiscountInput,
+  DiscountKind,
   BrandProfile,
   Customer,
   CustomerMessage,
+  CustomerRiskView,
   ContentDraftInput,
   ContentItem,
   DecisionRecord,
@@ -72,6 +79,7 @@ import type {
   ScheduleFollowupResult,
   SocialPost,
   StoreSeed,
+  StoreSettings,
   Supplier,
   SupportTicket,
   TicketStatus,
@@ -293,6 +301,14 @@ export class DemoStore implements StoreClient {
   private readonly followups: DemoFollowup[] = [];
   /** Every `intent-observed` callback this store received, in order. */
   private readonly intentObservations: DemoIntentObservation[] = [];
+  /**
+   * Chat orders by `novaActionId` (module 05 D4) — the demo's stand-in for the
+   * route's conditional read-back on `Order.novaActionId`. Deliberately NOT the
+   * `w()` idempotency cache: `w()` is not a mutex and is not what makes "one
+   * order, ever" true, so a demo that modelled the cache instead of the
+   * read-back would be modelling the layer that does not hold.
+   */
+  private readonly chatOrders = new Map<string, ChatOrderResult>();
 
   constructor(seed?: StoreSeed) {
     this.data = seed ?? createSeed(Date.now());
@@ -477,14 +493,130 @@ export class DemoStore implements StoreClient {
     return this.data.discounts.filter((d) => !activeOnly || d.active);
   }
 
-  async createDiscount(discount: Omit<Discount, "id" | "createdAt">): Promise<Discount> {
+  async createDiscount(discount: CreateDiscountInput): Promise<Discount> {
+    const code = discount.code.trim().toUpperCase();
+    // `type` is INFERRED when absent, exactly as the route infers it, so every
+    // pre-module-05 caller — which sends only `{code, percentOff}` — keeps
+    // working unchanged.
+    const type: DiscountKind =
+      discount.type === "FIXED" || discount.type === "PERCENT"
+        ? discount.type
+        : discount.percentOff !== undefined
+          ? "PERCENT"
+          : "FIXED";
+    // One column, two meanings, mirroring `Coupon.amount`: the whole-percent
+    // figure on a PERCENT coupon, WHOLE TAKA off on a FIXED one.
+    const amount = type === "PERCENT" ? (discount.percentOff ?? 0) : Number(discount.amount ?? 0);
+    if (!(amount > 0)) {
+      throw new Error(
+        type === "PERCENT"
+          ? "percentOff must be a number between 1 and 100"
+          : "amount must be a positive number of taka",
+      );
+    }
+    // The frequency guard's identity key. The route 422s without one whenever
+    // `novaActionId` is set, because `Coupon` has NO customerId column and the
+    // only record of a Nova coupon's recipient is the NovaAction payload —
+    // omit it and the rule reads as enforced while being enforced against
+    // nobody. This backend refuses for the same reason rather than accepting
+    // what production would reject.
+    if (discount.novaActionId && !discount.customerId && !discount.conversationId) {
+      throw new Error(
+        "customerId or conversationId is required on a Nova-attributed discount — the per-customer frequency guard has nothing to match on without one",
+      );
+    }
+    if (this.data.discounts.some((d) => d.code.trim().toUpperCase() === code)) {
+      // The demo's stand-in for `@@unique([tenantId, code])` → P2002 → 409. It
+      // is what makes a minted-code collision a failed action rather than a
+      // second customer quietly sharing the first one's single-use coupon.
+      throw new Error(`Coupon code "${code}" already exists`);
+    }
     const created: Discount = {
-      ...discount,
       id: this.nextId("disc"),
+      // Upper-cased here as well as in `DakioStoreClient.createDiscount`,
+      // because both redemption paths in this file compare against the folded
+      // form: a demo that stored a lower-case code would mint one no eval could
+      // then redeem, and the failure would read as the coupon logic being wrong.
+      code,
+      type,
+      // `null` on FIXED, never 0 — see the note on `Discount.percentOff`.
+      percentOff: type === "PERCENT" ? amount : null,
+      amount,
+      minOrder: discount.minOrder ?? 0,
+      maxUses: discount.maxUses ?? null,
+      usedCount: 0,
+      novaActionId: discount.novaActionId ?? null,
+      // Accepted and ignored by the route — Dakio coupons are order-level only
+      // and `discountOut` hardcodes all three. Echoed rather than dropped so a
+      // founder-plane caller reads back what it sent.
+      scope: discount.scope ?? "order",
+      productIds: discount.productIds ?? [],
+      customerId: discount.customerId ?? null,
+      expiresAt: discount.expiresAt,
+      active: discount.active,
       createdAt: this.now(),
     };
     this.data.discounts.push(created);
     return created;
+  }
+
+  /**
+   * The one place this backend decides what a coupon is worth (module 05 D6).
+   *
+   * Shared by {@link validateCoupon} and {@link createChatOrder} on purpose:
+   * the storefront's real failure today is that the pre-transaction check and
+   * the in-transaction re-check test DIFFERENT things (neither reads
+   * `minOrder`), so a code can pass the advisory check and still be applied
+   * below its floor. One function means the answer Nova quotes in the thread
+   * and the answer the order gets cannot disagree.
+   *
+   * A missing `type` reads as PERCENT — never as FIXED-with-zero-amount. See
+   * the note on {@link Discount.type}.
+   */
+  private judgeCoupon(code: string, subtotal: number): CouponValidation {
+    const wanted = code.trim().toUpperCase();
+    const coupon = this.data.discounts.find((d) => d.code.trim().toUpperCase() === wanted);
+    const minOrder = Number(coupon?.minOrder ?? 0);
+    const reason: CouponRefusal | null = !coupon
+      ? "not_found"
+      : !coupon.active
+        ? "inactive"
+        : coupon.expiresAt && Date.parse(coupon.expiresAt) < Date.parse(this.now())
+          ? "expired"
+          : coupon.maxUses != null && (coupon.usedCount ?? 0) >= coupon.maxUses
+            ? "max_uses_reached"
+            : // Unconditional, unlike `coupons.js:148`'s `if (subtotal && …)`.
+              // That guard means a caller who omits the subtotal skips the floor
+              // entirely and is handed the full discount; module 05 ports the
+              // semantics and not the hole.
+              subtotal < minOrder
+              ? "below_min_order"
+              : null;
+    if (reason) {
+      return {
+        valid: false,
+        code: wanted,
+        discount: 0,
+        reason,
+        // Only on the one reason the buyer can act on. Naming an expiry date or
+        // a usage counter is telling a customer about the shop's bookkeeping.
+        ...(reason === "below_min_order" ? { minOrder } : {}),
+      };
+    }
+    const type: DiscountKind = coupon!.type ?? "PERCENT";
+    const discount =
+      type === "PERCENT"
+        ? Math.round((subtotal * Number(coupon!.amount ?? coupon!.percentOff ?? 0)) / 100)
+        : // Clamped to the cart. `store.js:599`/`:745` do NOT clamp, so a FIXED
+          // coupon larger than the cart writes a negative `total` and a negative
+          // `due` — the number the courier's COD amount is computed from. An
+          // eval that could produce a negative COD would be pinning that bug.
+          Math.min(Number(coupon!.amount ?? 0), subtotal);
+    return { valid: true, code: wanted, discount, type };
+  }
+
+  async validateCoupon(code: string, subtotal: number): Promise<CouponValidation> {
+    return this.judgeCoupon(code, subtotal);
   }
 
   /**
@@ -1674,6 +1806,234 @@ export class DemoStore implements StoreClient {
     return this.intentObservations
       .filter((o) => journeyId === undefined || o.journeyId === journeyId)
       .map((o) => ({ ...o }));
+  }
+
+  // ---- Front Office — selling & conversion (Stage 10 module 05) ----
+  //
+  // What this backend PLAYS: catalogue pricing, the stock check and the stock
+  // decrement, the coupon judgement, the district's shipping charge, the
+  // one-order-per-novaActionId read-back, and the identity join when the phone
+  // is in the demo phone book. Those are the rules an eval has to be able to
+  // watch break.
+  //
+  // What it deliberately does NOT play, and says so here rather than faking it:
+  // the fake-order guard (four rules keyed on a tenant config this backend has
+  // no column for), the free-plan daily order cap (gated on an env var that is
+  // inert unless set), VARIANTS (`Product` here has no variants array at all,
+  // so `variantId` is carried onto the row and priced at the product's own
+  // price — dakio-api applies the variant price override and decrements
+  // `ProductVariant.stock`), and the customer-facing tracking page (there is no
+  // storefront here, so `trackingUrl` is honestly null rather than a plausible
+  // string an eval would read as proof the link works).
+
+  async getStoreSettings(): Promise<StoreSettings> {
+    return {
+      storeName: "Demo Store",
+      // Null, honestly: there is no storefront in this process. A plausible URL
+      // here would be read as proof the tracking link works, and null is the
+      // COMMON production answer too — it needs a verified custom domain or
+      // `DAKIO_STOREFRONT_URL`, and neither is guaranteed.
+      storefrontUrl: null,
+      // WHOLE TAKA, and these are dakio-api's own column defaults
+      // (`Tenant.deliveryInsideDhaka Int @default(60)` / `@default(120)`) rather
+      // than round numbers picked here — a demo that invented its own delivery
+      // charges would let a cap test pass at a figure production never uses.
+      deliveryInsideDhaka: 60,
+      deliveryOutsideDhaka: 120,
+      codAvailable: true,
+      // Empty is the ANSWER, not a stub: an absent policy row is how the
+      // product says "the merchant has never told me this rule", which is
+      // exactly what the `policy_gap` escalation reason reports. There is no
+      // `TenantPolicy` seed and there should not be one.
+      policies: [],
+    };
+  }
+
+  /**
+   * The demo's inside/outside-Dhaka test. dakio-api owns the real one — this is
+   * a stand-in named for what it is, so nobody reads a district rule off this
+   * file. It exists because a chat order has to be charged SOMETHING for
+   * delivery and quoting the wrong side of the split is the visible failure.
+   */
+  private demoShippingCharge(district: string, settings: StoreSettings): number {
+    return /dhaka/i.test(district) ? settings.deliveryInsideDhaka : settings.deliveryOutsideDhaka;
+  }
+
+  async getCustomerRisk(phone: string): Promise<CustomerRiskView> {
+    const normalized = demoNormalizePhone(phone);
+    // An input that normalizes to nothing cannot be matched against anything,
+    // and answering `level: "NEW"` for it would report "no history" for what is
+    // really "unreadable input". The route 422s here; this throws, and the
+    // guardrail's catch turns either into a draft.
+    if (!normalized) throw new Error(`phone "${phone}" is not a usable number`);
+    const customerIds = new Set(
+      this.customerPhones.filter((p) => p.phone === normalized).map((p) => p.customerId),
+    );
+    // An unmatched phone answers zero-history NEW, exactly as
+    // `calculateCustomerRisk` does. That is an ANSWER; only a throw means the
+    // read failed, and conflating the two would turn a fail-closed guardrail
+    // into a fail-open one.
+    const orders = this.data.orders.filter((o) => customerIds.has(o.customerId));
+
+    // The status folds mirror `customerRisk.js`'s three constants, mapped onto
+    // this repo's own `OrderStatus` names. `rto` is dakio-api's `RETURNED`, and
+    // it counts BOTH ways on purpose: into `cancelledOrders`, because for risk
+    // scoring an RTO and a cancellation are the same failed outcome, and again
+    // into `rtoCount`, which is the separate RETURNED-only figure the auto-order
+    // guardrail compares against `inbox.rtoShadowThreshold`.
+    const deliveredOrders = orders.filter((o) => o.status === "delivered").length;
+    const rtoCount = orders.filter((o) => o.status === "rto").length;
+    const cancelledOrders = orders.filter((o) => o.status === "cancelled" || o.status === "rto").length;
+    const activeOrders = orders.filter(
+      (o) => !["delivered", "cancelled", "rto"].includes(o.status),
+    ).length;
+
+    const settled = deliveredOrders + cancelledOrders;
+    const successRate = settled > 0 ? deliveredOrders / settled : 0;
+    const returnRate = settled > 0 ? cancelledOrders / settled : 0;
+    const level: CustomerRiskView["level"] =
+      settled === 0
+        ? "NEW"
+        : (settled >= 2 && returnRate >= 0.5) || cancelledOrders >= 3
+          ? "RISK"
+          : settled >= 2 && successRate >= 0.75
+            ? "POSITIVE"
+            : "MEDIUM";
+
+    const parts: string[] = [];
+    if (deliveredOrders > 0) parts.push(`${deliveredOrders} delivered`);
+    if (cancelledOrders > 0) parts.push(`${cancelledOrders} cancelled/returned`);
+    if (activeOrders > 0) parts.push(`${activeOrders} active`);
+    return {
+      phone: normalized,
+      level,
+      totalOrders: orders.length,
+      deliveredOrders,
+      cancelledOrders,
+      activeOrders,
+      rtoCount,
+      cancelledOnlyCount: orders.filter((o) => o.status === "cancelled").length,
+      successRate: Math.round(successRate * 100) / 100,
+      returnRate: Math.round(returnRate * 100) / 100,
+      message: parts.length > 0 ? parts.join(", ") : "New customer — no order history",
+    };
+  }
+
+  async createChatOrder(input: ChatOrderRequest): Promise<ChatOrderResult> {
+    const thread = this.inbox.get(input.sourceConversationId);
+    if (!thread) throw new Error(`Conversation not found: ${input.sourceConversationId}`);
+
+    // ONE ORDER, EVER, per novaActionId — the read-back, before anything is
+    // priced. Replaying a decision must return the SAME order, not a second
+    // parcel: the customer is holding an order number from the first attempt.
+    const replay = this.chatOrders.get(input.novaActionId);
+    if (replay) return replay;
+
+    // Price and stock, both from the catalogue and neither from the caller.
+    // There is no `unitPrice` on the request and there must never be — that is
+    // rule 2 of module 05's payload header, and it is the difference between a
+    // model that can sell and a model that can set prices.
+    let subtotal = 0;
+    const picked: { product: Product; qty: number }[] = [];
+    for (const line of input.items) {
+      const product = this.data.products.find((p) => p.id === line.productId || p.sku === line.productId);
+      if (!product) {
+        // A refusal, not an Error: "that product is not in the catalogue" is an
+        // ANSWER the model has to tell the customer, and the route answers 409.
+        throw new InboxSendRefused("PRODUCT_NOT_FOUND", `No such product: ${line.productId}`);
+      }
+      if (product.stock < line.qty) {
+        throw new InboxSendRefused(
+          "OUT_OF_STOCK",
+          `"${product.name}" has ${product.stock} left; the order asked for ${line.qty}.`,
+        );
+      }
+      subtotal += product.price * line.qty;
+      picked.push({ product, qty: line.qty });
+    }
+
+    const settings = await this.getStoreSettings();
+    const shippingCharge = this.demoShippingCharge(input.customerDistrict, settings);
+
+    // The coupon is judged against the SUBTOTAL, not the total: `minOrder` is a
+    // floor on what was bought, and folding delivery into it would let a ৳900
+    // cart clear a ৳1,000 floor because the parcel is going to Chittagong.
+    let discount = 0;
+    if (input.couponCode) {
+      const verdict = this.judgeCoupon(input.couponCode, subtotal);
+      if (!verdict.valid) {
+        throw new InboxSendRefused(
+          "COUPON_INVALID",
+          `Coupon ${verdict.code} does not hold (${verdict.reason}) — the order was not placed.`,
+        );
+      }
+      discount = verdict.discount;
+      const coupon = this.data.discounts.find((d) => d.code === verdict.code);
+      if (coupon) coupon.usedCount = (coupon.usedCount ?? 0) + 1;
+    }
+
+    // Everything above could refuse; nothing above has written. From here on
+    // the writes happen together, which is what dakio-api's single transaction
+    // buys and what this ordering imitates — a stock decrement that survived a
+    // coupon refusal would sell inventory to nobody.
+    for (const { product, qty } of picked) product.stock -= qty;
+
+    // Identity. The real path calls `linkConversationToCustomer(…, 'order_created', tx)`,
+    // which does FIVE writes in one transaction: the conditional conversation
+    // claim, the CustomerChannel spoke upsert, the PSID memory fold, the
+    // StorefrontLead stamp and the NovaPromise backfill. This plays the first
+    // one only, and says so — a demo that hand-rolled the other four would be
+    // hand-rolling exactly what module 03 shipped to stop anyone hand-rolling.
+    const normalized = demoNormalizePhone(input.customerPhone);
+    const matched = this.customerPhones.find((p) => p.phone === normalized)?.customerId ?? null;
+    const customerId = thread.conversation.customerId ?? matched;
+    if (thread.conversation.customerId === null && matched !== null) {
+      thread.conversation.customerId = matched;
+      thread.customerLinkSource = "order_created";
+    }
+
+    this.idCounter += 1;
+    const orderNumber = `#${String(this.idCounter).padStart(5, "0")}`;
+    const total = subtotal + shippingCharge - discount;
+    const order: Order = {
+      id: this.nextId("ord"),
+      customerId: customerId ?? "",
+      items: picked.map(({ product, qty }) => ({
+        productId: product.id,
+        productName: product.name,
+        quantity: qty,
+        unitPrice: product.price,
+      })),
+      subtotal,
+      discount,
+      shipping: shippingCharge,
+      total,
+      status: "placed",
+      courierId: null,
+      placedAt: this.now(),
+      deliveredAt: null,
+      region: input.customerDistrict,
+    };
+    this.data.orders.push(order);
+
+    const result: ChatOrderResult = {
+      id: order.id,
+      orderNumber,
+      total,
+      shippingCharge,
+      // A chat order is COD with nothing paid, so the whole total is what the
+      // courier collects. dakio-api reads this from `Order.due` rather than
+      // `total` because the two diverge the moment an advance is recorded.
+      codAmount: total,
+      status: order.status,
+      customerId,
+      // Honestly null — `getStoreSettings().storefrontUrl` is null here, and
+      // `orderTrackingUrl` returns null without a base. A plausible URL would
+      // be read as proof the tracking link works.
+      trackingUrl: null,
+    };
+    this.chatOrders.set(input.novaActionId, result);
+    return result;
   }
 
   // ---- Proactive job queue (Phase 05) ----

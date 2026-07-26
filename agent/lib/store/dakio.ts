@@ -38,11 +38,16 @@ import type {
   BrandProfile,
   Campaign,
   CartRecoveryState,
+  ChatOrderRequest,
+  ChatOrderResult,
   ContentDraftInput,
   ContentItem,
   Courier,
+  CouponValidation,
+  CreateDiscountInput,
   Customer,
   CustomerMessage,
+  CustomerRiskView,
   DecisionRecord,
   DepartmentGrade,
   Discount,
@@ -83,6 +88,7 @@ import type {
   ScheduleFollowupRequest,
   ScheduleFollowupResult,
   SocialPost,
+  StoreSettings,
   Supplier,
   SupportTicket,
   TicketStatus,
@@ -371,8 +377,38 @@ export class DakioStoreClient implements StoreClient {
     return discounts;
   }
 
-  async createDiscount(discount: Omit<Discount, "id" | "createdAt">): Promise<Discount> {
-    return this.request<Discount>("/api/v1/store/discounts", { method: "POST", body: discount });
+  async createDiscount(discount: CreateDiscountInput): Promise<Discount> {
+    // The code is upper-cased HERE as well as server-side, and the redundancy
+    // is deliberate: `@@unique([tenantId, code])` is case-sensitive in
+    // Postgres, so "save10" and "SAVE10" coexist as two rows and the route's
+    // P2002 collision handler never fires on the pair. Folding on the way out
+    // means a caller cannot mint the second row by accident even against a
+    // server that has not shipped module 05's fold yet.
+    return this.request<Discount>("/api/v1/store/discounts", {
+      method: "POST",
+      body: { ...discount, code: discount.code.trim().toUpperCase() },
+    });
+  }
+
+  async validateCoupon(code: string, subtotal: number): Promise<CouponValidation> {
+    // POST, not GET, and a route of its own rather than `coupons.js`'s: that one
+    // resolves the tenant by storefront SLUG, and this router is authenticated
+    // by the per-tenant service token. Same discount math, different doorway.
+    //
+    // `subtotal` always rides the body, even when it is 0. Sending it
+    // conditionally would reproduce the exact hole module 05 declined to port —
+    // an absent subtotal skips the `minOrder` check and answers `valid: true`.
+    //
+    // No `idempotencyKey`, on purpose, even though `request()` treats any POST
+    // as a write and stamps one: the default is a FRESH uuid per call, which is
+    // what a check whose answer depends on the subtotal needs. `NovaIdempotency`
+    // has no TTL and no sweeper, so a stable key here would pin one verdict for
+    // this code forever — the customer removes an item, drops below `minOrder`,
+    // and is still told the coupon holds.
+    return this.request<CouponValidation>("/api/v1/store/discounts/validate", {
+      method: "POST",
+      body: { code: code.trim().toUpperCase(), subtotal },
+    });
   }
 
   async updateDiscount(id: string, patch: { active: boolean }): Promise<Discount> {
@@ -972,6 +1008,47 @@ export class DakioStoreClient implements StoreClient {
         idempotencyKey: `${journeyId}:${input.messageId}`,
       },
     );
+  }
+
+  // ==========================================================================
+  // Front Office — selling & conversion (Stage 10 module 05, `/api/v1/store/*`)
+  //
+  // Back on the STORE router, not the inbox one, and that is the right seam:
+  // an order is a commerce record that happens to have been agreed in a chat.
+  // The conversation id rides the body so the server can join the two, but the
+  // Order, the Coupon and the stock decrement all belong to the store.
+  // ==========================================================================
+
+  async createChatOrder(input: ChatOrderRequest): Promise<ChatOrderResult> {
+    return this.request<ChatOrderResult>("/api/v1/store/orders", {
+      method: "POST",
+      body: input,
+      // The caller's own stable id, for the reason the reply and the follow-up
+      // pass theirs: a retry after a network timeout must not place a second
+      // COD parcel. It matters more here than on either of those, because the
+      // failure is not a duplicate message — it is two couriers at one door and
+      // a shop paying two returns.
+      idempotencyKey: input.novaActionId,
+      // 409 is the route saying what is LEGAL: out of stock, the fake-order
+      // guard, the free-plan daily cap, a coupon that does not hold. Every one
+      // of those is an answer the model must read and tell the customer about,
+      // and retrying any of them would be arguing with a rule. 422 joins them
+      // because that is the coupon refusal's status.
+      refusalOn: [409, 422],
+    });
+  }
+
+  async getStoreSettings(): Promise<StoreSettings> {
+    return this.get<StoreSettings>("/api/v1/store/settings");
+  }
+
+  async getCustomerRisk(phone: string): Promise<CustomerRiskView> {
+    // No `nullOn404`, deliberately. An unknown phone answers 200 with
+    // `level: "NEW"` and zero counts, because "no history" is a real risk
+    // answer; a 404 or a 422 means the read could not be made, and swallowing
+    // either into `null` would hand the auto-order guardrail something that
+    // reads exactly like a clean customer.
+    return this.get<CustomerRiskView>("/api/v1/store/customers/risk", { phone });
   }
 
   // ==========================================================================

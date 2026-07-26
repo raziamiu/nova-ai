@@ -170,6 +170,14 @@ import { runPrivacySuite } from "./privacy";
 // halves into a suite that is already running.
 import { runNbaSuite } from "./nba";
 
+// --- module 05: the selling-guardrail corpus, wired the same way -------------
+// Same one reason as the five above: a corpus outside this runner is a file,
+// not a gate. It is built as a DELTA table over a baseline that ALLOWS, because
+// an empty-platform test cannot catch a wrong guardrail key name — the first
+// check fails and the later ones never run. Folding it in here is what makes
+// `npm run test:inbox` the single number for the whole channel again.
+import { runSellingGuardrailSuite } from "./selling";
+
 const AURORA = "store-aurora";
 const BEACON = "store-beacon";
 const SECRET = "inbox-suite-secret";
@@ -419,6 +427,20 @@ function estimateTokens(text: string): number {
  *
  * The remaining ~40 is for edits, NOT for reserved rule 15: module 11 must raise
  * this number in the same commit that adds its rule, on the same terms.
+ *
+ * Module 05 did NOT raise it, and the number is recorded here so the next module
+ * does not have to re-measure to find that out. It added no hard rule — it spent
+ * ~24 tokens advertising four new slim tools (`create_order_from_chat`,
+ * `offer_chat_discount`, `verify_payment_slip`, `validate_coupon`) and rewriting
+ * the `SLIM_TOOLS_PENDING` notes. Measured render after module 05: **3507**, so
+ * the real headroom is 18 tokens, not the ~40 the paragraph above describes.
+ *
+ * That is inside the "for edits" allowance, which is why it was left alone — but
+ * 18 tokens is not room for a sentence, let alone a rule. The next module to
+ * touch this register raises the constant in its own diff, whether or not it
+ * thinks it is adding a rule, and re-states the measured number here. And note
+ * the estimator understates Bangla badly (~4 chars/token against a script that
+ * costs far more), so 18 is the optimistic reading.
  */
 const CUSTOMER_PROMPT_BUDGET = 3525;
 
@@ -873,9 +895,22 @@ async function main(): Promise<void> {
       "the playbook does NOT load for a founder session",
       (await resolveLayer(inboxSkill, "turn.started", founderCtx)) === null,
     );
+    // Stage 10 module 05 turned this assertion over, deliberately, and the shape
+    // is the point. It used to pin the ABSENCE of an order verb by requiring the
+    // literal "You cannot place the order in Dakio". `create_order_from_chat`
+    // now ships, so that sentence became a false behavioural instruction sitting
+    // in front of the model on every customer turn — far worse than a red check,
+    // and it was deleted rather than kept alive to keep this green.
+    //
+    // The replacement keeps the tripwire pointing the same way: the playbook must
+    // name the verb it DOES ship AND must still refuse the one it does not. Order
+    // LOOKUP is module 06's (`get_order_status` is still in SLIM_TOOLS_PENDING),
+    // so a playbook that quietly started promising order status would go red here
+    // rather than in front of a customer who was told their parcel was on the way.
     check(
-      "the playbook never claims an order verb this module has not shipped",
-      (customerSkill?.markdown ?? "").includes("You cannot place the order in Dakio"),
+      "the playbook names the order verb it now ships, and still refuses the one it does not",
+      (customerSkill?.markdown ?? "").includes("`create_order_from_chat`") &&
+        (customerSkill?.markdown ?? "").includes("There is no order-lookup verb"),
     );
 
     // --- the assembled prompt ------------------------------------------------
@@ -2459,6 +2494,7 @@ async function main(): Promise<void> {
     ["undeclared-promise", runPromisesSuite],
     ["privacy", runPrivacySuite],
     ["nba", runNbaSuite],
+    ["selling-guardrails", runSellingGuardrailSuite],
   ] as const) {
     console.log(`\n─── inbox corpus: ${label} ${"─".repeat(Math.max(0, 34 - label.length))}`);
     const result = await runSuite();

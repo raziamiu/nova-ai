@@ -80,8 +80,16 @@ export interface DutySpec {
 }
 
 /**
- * The duty roster — 65 mined duties plus the two Front Office duties added in
- * Stage 10 module 02 (`support.inbox_replies`, `support.inbox_escalations`).
+ * The duty roster — 65 mined duties plus the Front Office additions: two in
+ * Stage 10 module 02 (`support.inbox_replies`, `support.inbox_escalations`) and
+ * three in module 05 (`sales.inbox_orders`, `sales.inbox_discounts`,
+ * `sales.inbox_cart_recovery`). 70 rows.
+ *
+ * `evals/duties/run.ts` records each phase's addition against the mined 65, so
+ * the total is never a mystery; adding a duty here without updating that count
+ * fails `npm run test:duties`, and without re-running
+ * `scripts/export-duty-seed.ts` it fails `npm run check:duty-seed` — which sits
+ * THIRD in the `&&`-chained `npm test`, so everything after it stops running.
  *
  * Mined from the merchant prototype's `DEPT_ROOMS` roster (which totals exactly
  * 65) and the PRD §6 charters, with four deliberate curation edits — recorded
@@ -133,6 +141,28 @@ export const DUTIES: DutySpec[] = [
   { key: "sales.sms_cart_recovery", department: "sales", name: "SMS cart recovery", nameBn: "এসএমএসে কার্ট রিকভারি", door: "Broadcast", minLevel: 3 },
   { key: "sales.abandoned_checkout_emails", department: "sales", name: "Abandoned-checkout emails", nameBn: "অসমাপ্ত চেকআউট ইমেইল", door: "Broadcast", minLevel: 3 },
   { key: "sales.winback_campaigns", department: "sales", name: "Win-back campaigns", nameBn: "উইন-ব্যাক ক্যাম্পেইন", door: "Broadcast", minLevel: 3 },
+  // ADDED (Stage 10 module 05): the three selling verbs answer to duties of
+  // their own, so a founder can stop Nova taking orders in chat without also
+  // silencing its replies. Registering them is not bookkeeping — an off-roster
+  // `dutyRef` is not a soft failure: `evaluateAuthority` returns `refuse` with
+  // rule `duty:unknown` PLUS an escalation, 100% of the time, at every tier,
+  // BEFORE the never-gated and always-draft branches. Ship the verbs against
+  // these keys before the keys exist and every chat order is refused, with a
+  // receipt telling the founder the duty is not on Nova's roster.
+  //
+  // All three `minLevel: 2`, matching the two module-02 inbox duties above and
+  // for the same reason: Shadow (assisted mode, effective level 2) must be able
+  // to DRAFT a chat order, because watching Nova draft orders it cannot send is
+  // the entire content of the shadow week. A minLevel of 3 would make the
+  // shadow week show nothing.
+  //
+  // Door "Inbox" for all three, including cart recovery — the founder answers
+  // these where the conversation is. `sales.whatsapp_cart_recovery` above is a
+  // DIFFERENT duty (a Broadcast/WhatsApp blast at minLevel 3); this one is the
+  // in-thread nudge module 05 D8 books as a follow-up.
+  { key: "sales.inbox_orders", department: "sales", name: "Orders taken in chat", nameBn: "চ্যাটে অর্ডার নেওয়া", door: "Inbox", minLevel: 2 },
+  { key: "sales.inbox_discounts", department: "sales", name: "Discounts offered in chat", nameBn: "চ্যাটে ছাড় দেওয়া", door: "Inbox", minLevel: 2 },
+  { key: "sales.inbox_cart_recovery", department: "sales", name: "Abandoned-cart nudges in chat", nameBn: "চ্যাটে অসমাপ্ত কার্টের তাগাদা", door: "Inbox", minLevel: 2 },
 
   // ── Support (6) ──────────────────────────────────────────────────────────
   { key: "support.customer_replies", department: "support", name: "Customer replies", nameBn: "ক্রেতার উত্তর", door: "Inbox", minLevel: 2 },

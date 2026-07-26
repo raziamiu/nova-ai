@@ -37,6 +37,24 @@ export const MINUTES_BY_ACTION: Record<ActionType, number> = {
   // on a large share of unresolved threads, so anything bigger would inflate
   // the hours-saved headline on the strength of a reminder.
   schedule_follow_up: 1,
+  // Module 05 (canonical D5/D6/D7). The biggest entries in the Front Office
+  // block, and they are the only ones that deserve to be: taking a COD order in
+  // a DM by hand is the founder's evening — reading the thread, checking stock
+  // and the size, asking for name/phone/address/district one message at a time,
+  // reading the total back, waiting for the yes, then typing all of it into the
+  // orders screen. Twelve minutes is the shopkeeper's own estimate and it is
+  // the LOW end of what the typing alone costs.
+  create_order_from_chat: 12,
+  // Haggling is slower than it looks: declining once, framing the value,
+  // deciding what to give up, then creating a coupon in another screen and
+  // coming back to the thread with the code.
+  offer_chat_discount: 10,
+  // Deliberately small, because the honest work here is small. Nova files the
+  // claim; it does not verify it. The founder still opens their bKash statement
+  // and matches the trxId by eye — that minute is NOT saved and this number
+  // must not pretend it is. What is saved is reading the thread, pulling the
+  // trxId and amount out of it and attaching the right order.
+  verify_payment_slip: 4,
   resolve_ticket: 12,
   publish_social_post: 35,
   update_campaign: 20,

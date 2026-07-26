@@ -30,11 +30,16 @@ import type {
   BrandProfile,
   Campaign,
   CartRecoveryState,
+  ChatOrderRequest,
+  ChatOrderResult,
   ContentDraftInput,
   ContentItem,
   Courier,
+  CouponValidation,
+  CreateDiscountInput,
   Customer,
   CustomerMessage,
+  CustomerRiskView,
   DecisionRecord,
   DepartmentGrade,
   Discount,
@@ -75,6 +80,7 @@ import type {
   ScheduleFollowupRequest,
   ScheduleFollowupResult,
   SocialPost,
+  StoreSettings,
   Supplier,
   SupportTicket,
   TicketStatus,
@@ -143,6 +149,16 @@ export interface StoreClient {
 
   // Abandoned carts
   listAbandonedCarts(state?: CartRecoveryState): Promise<AbandonedCart[]>;
+  /**
+   * Patch a cart's recovery state and/or the message prepared for it.
+   *
+   * `recoveryMessage` was accepted and DROPPED until module 05: the PATCH
+   * handler never referenced the field and the read serializer hardcoded null,
+   * so a prepared nudge round-tripped as nothing. It is persisted now (module
+   * 05 D8, dakio-api `routes/novaStore.js`), which means a caller that writes
+   * `recoveryState: "message_prepared"` without a `recoveryMessage` is now
+   * recording a prepared message that does not exist — write both or neither.
+   */
   updateCart(
     id: string,
     patch: { recoveryState?: CartRecoveryState; recoveryMessage?: string | null },
@@ -163,8 +179,33 @@ export interface StoreClient {
     patch: Partial<Pick<SocialPost, "status" | "scheduledFor" | "publishedAt">>,
   ): Promise<SocialPost>;
   listDiscounts(activeOnly?: boolean): Promise<Discount[]>;
-  createDiscount(discount: Omit<Discount, "id" | "createdAt">): Promise<Discount>;
+  /**
+   * Mint a coupon. Extended in module 05 from PERCENT-only to the FIXED arm
+   * plus `minOrder`/`maxUses`/`mechanism` — one method for one route, because
+   * two client methods pointing at `POST /api/v1/store/discounts` is how two
+   * callers drift about what that route accepts.
+   *
+   * THE CODE MUST BE UPPER-CASE. Every redemption path uppercases its input
+   * before lookup (`store.js`, `coupons.js`, dakio-api's own `create_coupon`
+   * executor), `@@unique([tenantId, code])` is case-SENSITIVE in Postgres, and
+   * the route stored `code.trim()` with no fold until module 05 — so a
+   * lower-case code was silently unredeemable at checkout AND could coexist
+   * with its upper-case twin as a second row the P2002 handler never saw.
+   */
+  createDiscount(discount: CreateDiscountInput): Promise<Discount>;
   updateDiscount(id: string, patch: { active: boolean }): Promise<Discount>;
+  /**
+   * Check a coupon against a cart subtotal, WITHOUT redeeming it (module 05 D6).
+   *
+   * A read, so it may be called from a customer turn before anything is
+   * committed — which is the point: an invalid coupon at checkout is SILENT on
+   * the storefront path today (unknown, inactive, expired and exhausted codes
+   * all leave the buyer paying full price with no error), and the shopkeeper
+   * script's whole job is to say so in the thread instead.
+   *
+   * `subtotal` is WHOLE TAKA and required. See {@link CouponValidationRequest}.
+   */
+  validateCoupon(code: string, subtotal: number): Promise<CouponValidation>;
 
   // ---- Grow Lab (read-only, Phase 06) ----
   //
@@ -468,6 +509,68 @@ export interface StoreClient {
    * row rather than a turn that looks dropped.
    */
   postIntentObserved(journeyId: string, input: IntentObservedRequest): Promise<IntentObservedResult>;
+
+  // ---- Front Office — selling & conversion (Stage 10, module 05) ----
+  //
+  // Same rule as every layer above: the SERVER decides. It prices the order
+  // from the catalogue, resolves the shipping charge from the district, judges
+  // the coupon and decrements the stock — all inside one transaction. Nova
+  // hands over what the customer said and is told what was written.
+  //
+  // Nothing here carries money the model chose. There is no `discount`, no
+  // `paid`, no `unitPrice` and no `total` on the way IN, and every figure on
+  // the way OUT is in WHOLE TAKA.
+
+  /**
+   * Create a COD order agreed in a chat (module 05 D4).
+   *
+   * ONE ORDER, EVER, per `novaActionId`, and the guarantee is NOT the `w()`
+   * wrapper: `w()` does findUnique → run → create, so two concurrent requests
+   * with the same key both miss the cache and both run the handler. The real
+   * at-most-once control is the route's conditional read-back on
+   * `Order.novaActionId` before insert. Callers must therefore pass an id that
+   * is STABLE across retries — the approved Decision's id on the approve path,
+   * one minted uuid held for the duration of the call on the direct path —
+   * because a fresh id per attempt defeats both layers at once.
+   *
+   * Throws on refusal. A stock-out, a fake-order block, a plan cap or a coupon
+   * the server would not honour are ANSWERS about what is legal, and a chat
+   * order that was refused must never be reported as one Nova placed: the
+   * customer is standing at the other end of the thread being told an order
+   * number.
+   */
+  createChatOrder(input: ChatOrderRequest): Promise<ChatOrderResult>;
+
+  /**
+   * The shop's own configured facts: delivery charges, COD, and the policies
+   * the merchant has written down (module 05 D2).
+   *
+   * ⚠️ RESERVED SURFACE — the only caller today is the auto-order cap inside
+   * `checkGuardrails`, which reads the delivery charge to size an order against
+   * `inbox.maxAutoOrder`. Nothing renders `policies` yet. Saying so is the
+   * alternative to a method that looks wired: the `policy_gap` escalation
+   * reason already exists for the case where a policy row is absent, and the
+   * D2 script that consumes this read lands with the merchant-side CRUD that
+   * writes `TenantPolicy` — which has no route yet, so `policies` is `[]` for
+   * every tenant on the day this ships. Empty is the honest "the merchant has
+   * not told me", not an outage.
+   *
+   * Money is WHOLE TAKA. See {@link StoreSettings}.
+   */
+  getStoreSettings(): Promise<StoreSettings>;
+
+  /**
+   * This phone's order history, scored (module 05 D4.2).
+   *
+   * A customer with no history is `level: "NEW"` with zero counts — an ANSWER,
+   * not an absence. This THROWS instead when the read cannot be made at all (an
+   * unusable phone is a 422; an older server has no such route), and callers
+   * must fail CLOSED on the throw: the auto-order guardrail compares `rtoCount`
+   * against `inbox.rtoShadowThreshold`, and reading `undefined` off a shape
+   * that never arrived compares false with `>=` — which lets every RTO-history
+   * customer auto-order at the top of the dial.
+   */
+  getCustomerRisk(phone: string): Promise<CustomerRiskView>;
 
   // ---- Proactive job queue (Phase 05) ----
 

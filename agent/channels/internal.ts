@@ -43,7 +43,7 @@ import type { ScheduleHandlerArgs } from "eve/schedules";
 import customer, { inboxTurnPrompt } from "./customer";
 import { customerPrincipal } from "../lib/customer/principal";
 import { tenantAppPrincipal } from "../lib/jobs/principal";
-import { renderJobPrompt } from "../lib/jobs/prompts";
+import { cartRecoveryTurnPrompt, isCartRecoveryJob, renderJobPrompt } from "../lib/jobs/prompts";
 import { storeFor } from "../lib/store/resolve";
 import type { NovaJob } from "../lib/types";
 
@@ -226,6 +226,28 @@ export async function dispatchJobToChannel(
           // promise broken because nothing told the ledger it was paid.
           `When the reply you send IS the answer you owed, set promiseId="${String(promiseId)}" on it — ` +
           "that is what pays the debt off. If you cannot answer yet, do not set it.";
+      } else if (isCartRecoveryJob(job)) {
+        // Stage 10 module 05 (D8.3). dakio-api's `cart_sweep` conversation-match
+        // branch books an abandoned basket as a `followup` row — deliberately,
+        // because `recheckBeforeFire` refuses to judge anything whose `kind` is
+        // not `followup` and `wasProactiveFire` only inspects follow-ups, so any
+        // other kind would slip quiet hours, the weekly touch cap and the touch
+        // ledger entirely (module 04's named worst failure, re-entered through a
+        // different door).
+        //
+        // Booking it that way means it arrives HERE, in the threaded branch —
+        // `renderJobPrompt` is never reached for a job carrying a conversationId,
+        // so this `if` is the only seam where the basket can be handed to the
+        // turn. Without it the nudge still fires and every timing check still
+        // binds, but the model gets the generic NBA text below and is told to
+        // find its reason on the `commitments` list, which does NOT carry the
+        // cart. It would then improvise around a basket it was never shown —
+        // i.e. "you left something in your cart", the blast D8 exists to prevent.
+        //
+        // Keyed on `payload.triggeredBy`, not on `plannedIntent`: the model can
+        // book its own follow-up carrying intent `cart_recovery` through
+        // `POST /followups`, and such a row has no snapshot to hand back.
+        message = cartRecoveryTurnPrompt(job);
       } else {
         // An NBA nudge. It owes the customer NOTHING — which is exactly why the
         // instruction has to be different from the one above: this turn earns

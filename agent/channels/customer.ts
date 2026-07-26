@@ -377,7 +377,7 @@ interface PendingCall {
 /**
  * Everything one turn declared, accumulated across its steps.
  *
- * The three verb slots are recorded as they land and RESOLVED at report time by
+ * The four verb slots are recorded as they land and RESOLVED at report time by
  * {@link chosenCandidate}, never folded into a single field as they arrive. A
  * turn commonly replies and books a knock in the same breath, and steps do not
  * arrive in a guaranteed order — collapsing early would make which candidate
@@ -394,6 +394,11 @@ interface TurnObservation {
   reply: { purpose: string | null } | null;
   scheduled: { reason: string | null } | null;
   escalated: { reason: string | null } | null;
+  // Module 05. The fourth slot, and the only one whose verb declares no intent
+  // of its own — `createOrderFromChatPayload` has no `intent` field, because the
+  // order IS the classification. See {@link chosenCandidate} for where it sits in
+  // the precedence and `reportTurnToReducer` for the intent it stands in for.
+  ordered: { actionId: string | null } | null;
   pending: Map<string, PendingCall>;
 }
 
@@ -406,9 +411,22 @@ interface TurnObservation {
  * actually received. `schedule_follow_up` last: booking a return visit is what
  * a turn does IN ADDITION, and it names the turn's choice only when it is the
  * only thing the turn did.
+ *
+ * Module 05 inserts `create_order` SECOND, above the reply, and that placement is
+ * an argument rather than a slot. An order turn almost always replies too — it
+ * has to, someone is owed a confirmation — so leaving it below the reply would
+ * mean this function reported `answer` for every sale Nova ever closed, and the
+ * one candidate the whole module exists to produce would never once appear in
+ * the reducer. The reply on an order turn is the order's receipt, not a separate
+ * choice. It stays below `escalate` because escalation is still terminal: a turn
+ * that took an order and then handed the thread to the owner chose the handover.
  */
 function chosenCandidate(obs: TurnObservation): { action: string | null; reason: string | null } {
   if (obs.escalated) return { action: "escalate", reason: obs.escalated.reason };
+  // `create_order`, never `request_address`: both candidates map to this one verb
+  // (dakio-api's VERB_BY_CANDIDATE), and only a completed order reaches here —
+  // `noteActionResult` records nothing unless the verdict was `execute`.
+  if (obs.ordered) return { action: "create_order", reason: null };
   // A reply with no `purpose` is `answer` in D6's candidate→verb map. A reply
   // WITH one is some other reply-shaped candidate — but `purpose` is a free
   // string whose vocabulary is module 02's slugs (`cart_recovery`, `holding`,
@@ -470,6 +488,7 @@ export function openTurnObservation(data: { turnId: string }, ctx: SessionContex
     reply: null,
     scheduled: null,
     escalated: null,
+    ordered: null,
     pending: new Map(),
   });
 }
@@ -557,6 +576,20 @@ export function noteActionResult(
   }
   if (call.toolName === "flag_handover") {
     obs.escalated = { reason: str(call.input.reason) };
+    return;
+  }
+  // Module 05. Read off the tool RESULT and not the input, unlike the three
+  // above: `create_order_from_chat` goes through the authority gate, so a call
+  // whose arguments were perfect can still have been drafted or refused, and the
+  // order only exists when the verdict was `execute`. `inbox.orderAuto` ships
+  // false, so `prepared` is in fact what EVERY chat order returns in this build.
+  // Recording the sale off the INPUT would tell the reducer an order was placed
+  // every time the model proposed one, and the journey stage would move on a
+  // parcel that does not exist.
+  if (call.toolName === "create_order_from_chat") {
+    const output = (result.output ?? {}) as Record<string, unknown>;
+    if (str(output.status) !== "executed") return;
+    obs.ordered = { actionId: str(output.actionId) };
   }
 }
 
@@ -574,7 +607,15 @@ export async function reportTurnToReducer(data: { turnId: string }): Promise<Tur
   turnObservations.delete(data.turnId);
   if (!obs) return { posted: false, reason: "no_observation" };
 
-  const intent = obs.intent ?? obs.plannedIntent;
+  // Module 05's fallback, and it is LAST on purpose. `create_order_from_chat` is
+  // the only customer-plane verb with no intent field of its own — the order IS
+  // the classification — so a turn whose ONLY act was taking an order used to
+  // reach the honest-arm below and post nothing, which quietly lost the single
+  // most consequential turn type in the channel. `checkout_help` is the closed-set
+  // slug that means it (INBOX_INTENTS, sales). It never overrides a declared one:
+  // if the model classified its own reply, that classification is a judgement and
+  // this is only a stand-in.
+  const intent = obs.intent ?? obs.plannedIntent ?? (obs.ordered ? "checkout_help" : null);
   if (!intent) {
     // The honest arm. This is a turn that ended having declared nothing — most
     // often chosen silence, sometimes a turn that could not act. Which one it

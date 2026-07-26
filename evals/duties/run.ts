@@ -32,17 +32,21 @@ function check(name: string, condition: boolean, detail = ""): void {
  *
  *   65  the curated merchant-prototype roster (Stages 0–9)
  *   +2  Stage 10 module 02: support.inbox_replies, support.inbox_escalations
+ *   +3  Stage 10 module 05: sales.inbox_orders, sales.inbox_discounts,
+ *       sales.inbox_cart_recovery — the selling verbs' duties. They must exist
+ *       before those verbs ship: an off-roster `dutyRef` makes
+ *       `evaluateAuthority` refuse with `duty:unknown` at every tier.
  */
 const MINED_TOTAL = 65;
-const FRONT_OFFICE_DUTIES = 2;
+const FRONT_OFFICE_DUTIES = 5;
 const EXPECTED_TOTAL = MINED_TOTAL + FRONT_OFFICE_DUTIES;
 
 /** The prototype's per-department totals, after the documented curation edits. */
 const EXPECTED_COUNTS: Record<string, number> = {
   ceo: 6,
   marketing: 10,
-  sales: 8,
-  support: 8, // 6 mined + the 2 Front Office inbox duties
+  sales: 11, // 8 mined + the 3 module-05 selling duties
+  support: 8, // 6 mined + the 2 module-02 Front Office inbox duties
   product_research: 7,
   inventory: 5,
   shipping: 5,
