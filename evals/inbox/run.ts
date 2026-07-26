@@ -1640,6 +1640,175 @@ async function main(): Promise<void> {
       { type: "escalate_conversation", payload: validEscalation(), dutyKey: "support.inbox_escalations" },
     );
     check("…but a duty the founder PAUSED still wins over never-gated", pausedDuty.verdict === "refuse" && pausedDuty.rule === "duty:paused", `${pausedDuty.verdict} / ${pausedDuty.rule}`);
+
+    // ── module 08: the T0–T3 dial, run as the matrix it claims to be ────────
+    //
+    // A tier is not a stored enum. It is a PROJECTION of a `door:inbox`
+    // NovaAgentMode row plus three `inbox.*Auto` guardrail keys —
+    // dakio-api's `lib/novaInboxTier.js` does the projecting, this seam does
+    // the judging, and module 08 added no authority machinery to either. What
+    // has to hold HERE is that each of the four founder-facing positions
+    // actually produces the verdicts the dial promises, and that every one of
+    // them fails closed.
+    const TIER_MODES: Record<string, Record<string, NovaMode>> = {
+      T0: { store: "autonomous", "door:inbox": "assisted" },
+      T1: { store: "autonomous", "door:inbox": "autonomous" },
+      T2: { store: "autonomous", "door:inbox": "autonomous" },
+      T3: { store: "autonomous", "door:inbox": "autonomous" },
+    };
+    const TIER_KEYS: Record<string, Record<string, unknown>> = {
+      T0: { "inbox.orderAuto": false, "inbox.discountAuto": false, "inbox.cancelAuto": false },
+      T1: { "inbox.orderAuto": false, "inbox.discountAuto": false, "inbox.cancelAuto": false },
+      T2: { "inbox.orderAuto": true, "inbox.discountAuto": false, "inbox.cancelAuto": false },
+      T3: { "inbox.orderAuto": true, "inbox.discountAuto": true, "inbox.cancelAuto": true },
+    };
+
+    for (const tier of ["T0", "T1", "T2", "T3"] as const) {
+      // Level 3, not 4: the store-wide dial stays at its hire default and the
+      // inbox ladder moves independently. If a position needed L4 to behave as
+      // advertised, the inbox dial would be coupled to the whole store — the
+      // coupling ruling C-2 exists to avoid.
+      const fixture = { level: 3, modes: TIER_MODES[tier], platform: { "inbox.autoIntents": AUTO, ...TIER_KEYS[tier] } };
+
+      const safe = await evaluateAuthority(gateClient(fixture), {
+        type: "send_inbox_reply",
+        payload: validReply(),
+        dutyKey: "support.inbox_replies",
+      });
+      const wanted = tier === "T0" ? "draft" : "execute";
+      check(`${tier}: a safe-intent reply ${wanted}s`, safe.verdict === wanted, `${safe.verdict} / ${safe.rule}`);
+
+      const offListHere = await evaluateAuthority(gateClient(fixture), {
+        type: "send_inbox_reply",
+        payload: validReply({ intent: "complaint" }),
+        dutyKey: "support.inbox_replies",
+      });
+      check(
+        `${tier}: a non-safe intent still drafts — the allowlist binds at every position on the dial`,
+        offListHere.verdict === "draft" && offListHere.rule === "guardrail:inbox_intent_not_auto",
+        `${offListHere.verdict} / ${offListHere.rule}`,
+      );
+
+      const escalationDraftHere = await evaluateAuthority(gateClient(fixture), {
+        type: "send_inbox_reply",
+        payload: validReply({ purpose: "escalation_draft" }),
+        dutyKey: "support.inbox_replies",
+      });
+      check(
+        `${tier}: an escalation draft never auto-sends`,
+        escalationDraftHere.verdict === "draft" && escalationDraftHere.rule === "guardrail:inbox_escalated",
+        `${escalationDraftHere.verdict} / ${escalationDraftHere.rule}`,
+      );
+
+      const escalateHere = await evaluateAuthority(gateClient(fixture), {
+        type: "escalate_conversation",
+        payload: validEscalation(),
+        dutyKey: "support.inbox_escalations",
+      });
+      check(`${tier}: asking for a human executes`, escalateHere.verdict === "execute", `${escalateHere.verdict} / ${escalateHere.rule}`);
+    }
+
+    // T2 and T3 are seeded so modules 05/06 land into a working registry, NOT
+    // because they do anything. As far as anything that can actually run today
+    // is concerned they are the same store as T1, and this is where that stops
+    // being a claim in a doc: same resolved mode, same ceiling, and the three
+    // keys that separate them gate verbs asserted absent below.
+    for (const tier of ["T2", "T3"] as const) {
+      check(
+        `${tier} resolves the same mode as T1 — the extra positions are stored state, not capability`,
+        resolveMode(TIER_MODES[tier], "Inbox") === resolveMode(TIER_MODES.T1, "Inbox"),
+        resolveMode(TIER_MODES[tier], "Inbox"),
+      );
+    }
+
+    // The two carve-outs, read at the tier boundary rather than as registry
+    // membership: T0 Shadow is only livable if bookkeeping still works.
+    const linkAtShadow = await evaluateAuthority(
+      gateClient({ level: 3, modes: TIER_MODES.T0, platform: TIER_KEYS.T0 }),
+      { type: "link_customer_identity", payload: { conversationId: "conv-a-1", customerId: "cus-1" }, dutyKey: "support.inbox_replies" },
+    );
+    check(
+      "T0: recognising a customer still EXECUTES — a thread Nova cannot identify is a thread Nova answers blind",
+      linkAtShadow.verdict === "execute",
+      `${linkAtShadow.verdict} / ${linkAtShadow.rule}`,
+    );
+    const followUpAtShadow = await evaluateAuthority(
+      gateClient({ level: 3, modes: TIER_MODES.T0, platform: TIER_KEYS.T0 }),
+      { type: "schedule_follow_up", payload: { conversationId: "conv-a-1", delay: "4h", reason: "restock check" }, dutyKey: "support.inbox_replies" },
+    );
+    check(
+      "T0: booking a follow-up DRAFTS (OD-6) — the scheduling sends nothing, its consequence does",
+      followUpAtShadow.verdict === "draft",
+      `${followUpAtShadow.verdict} / ${followUpAtShadow.rule}`,
+    );
+    const mergeAtT3 = await evaluateAuthority(
+      gateClient({ level: 4, modes: TIER_MODES.T3, platform: TIER_KEYS.T3 }),
+      { type: "merge_customer_records", payload: { primaryCustomerId: "cus-1", duplicateCustomerId: "cus-2" }, dutyKey: "support.inbox_replies" },
+    );
+    check(
+      "T3: merging two customers STILL drafts — the top of the dial is not a bypass",
+      mergeAtT3.verdict === "draft",
+      `${mergeAtT3.verdict} / ${mergeAtT3.rule}`,
+    );
+
+    // THE FAIL-CLOSED INVARIANT module 08's doc asks for: with an EMPTY
+    // platform, every `inbox.*Auto`-gated verb verdicts needs_approval.
+    //
+    // Stated honestly, that set has ONE member today. The verbs the doc names
+    // — create_order_from_chat, offer_chat_discount, cancel_order_from_chat,
+    // update_order_contact — exist in NO repo (modules 05/06 unshipped), and a
+    // loop over an empty list is a green check for nothing. So the loop is
+    // driven by the REGISTRY: a verb that IS registered must draft on an empty
+    // platform, and a verb that is not is asserted genuinely absent — no
+    // RISK_CLASS entry and no executor — so "blocked on 05/06" is re-verified
+    // on every run instead of aging into a stale comment, and the draft
+    // assertion arms itself in the same commit that registers the verb.
+    const INBOX_AUTO_GATED = [
+      "send_inbox_reply",
+      "create_order_from_chat",
+      "offer_chat_discount",
+      "cancel_order_from_chat",
+      "update_order_contact",
+    ] as const;
+    const emptyPlatformPayload: Record<string, Record<string, unknown>> = {
+      send_inbox_reply: validReply(),
+    };
+    for (const verb of INBOX_AUTO_GATED) {
+      const registered = typeof (RISK_CLASS as Record<string, unknown>)[verb] === "string";
+      if (!registered) {
+        check(
+          `${verb}: not built — no RISK_CLASS entry AND no executor, so its matrix cells are honestly blocked on modules 05/06`,
+          typeof (executors as Record<string, unknown>)[verb] !== "function",
+        );
+        continue;
+      }
+      const verdict = await evaluateAuthority(
+        gateClient({ level: 4, modes: TIER_MODES.T3, platform: {} }),
+        { type: verb, payload: emptyPlatformPayload[verb] ?? { conversationId: "conv-a-1" }, dutyKey: "support.inbox_replies" },
+      );
+      check(
+        `${verb}: an EMPTY platform drafts at the TOP of the dial — a missing key is never permission`,
+        verdict.verdict === "draft",
+        `${verdict.verdict} / ${verdict.rule}`,
+      );
+    }
+
+    // What module 08 did NOT add, pinned as SETS rather than one member each.
+    // Its doc asks for both additions and both would be actively harmful.
+    check(
+      "NEVER_GATED still has exactly two members after module 08 (BOOKKEEPING_VERBS is not a thing; this set is the mechanism)",
+      NEVER_GATED.size === 2 && NEVER_GATED.has("escalate_conversation") && NEVER_GATED.has("link_customer_identity"),
+      [...NEVER_GATED].join(", "),
+    );
+    check(
+      "…and schedule_follow_up is still out of it, re-pinned here at the tier boundary where the doc argues for it",
+      !NEVER_GATED.has("schedule_follow_up"),
+    );
+    check(
+      "FOUNDER_ONLY gains no refund_promise — there is no refund verb in any repo, so a member would be a green assertion for a capability that cannot fire",
+      !FOUNDER_ONLY.has("refund_promise") && (RISK_CLASS as Record<string, unknown>).refund_promise === undefined,
+      [...FOUNDER_ONLY].join(", "),
+    );
   }
 
   // 12. No-touch locks reach customer replies — including Bangla with matras.
