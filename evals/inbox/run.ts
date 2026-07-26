@@ -404,10 +404,23 @@ function estimateTokens(text: string): number {
  * (module 03's precedent), so the growth is one deliberate line in a diff rather
  * than a silent latency regression.
  *
+ * Module 08 raised it from 2950 and accounts for ~533 of the render: hard rules
+ * 19 ESCALATION AND RESUME and 20 NEVER INVENT. That is the largest single
+ * addition since module 02 wrote the register, and deliberately so — 19 is what
+ * stops Nova re-greeting a customer the founder just finished speaking to, and
+ * 20 is the failure-honesty floor that stops it inventing an answer a tool never
+ * gave it. Both are absences a shopkeeper would notice within one conversation.
+ *
+ * Landed by the integrator, not by the stream that wrote the rules: the rules
+ * live in `agent/instructions/50-customer-inbox.ts` (module 08 Stream D) and
+ * this constant lives here (Stream C's file), so the two could not land in one
+ * commit without two parallel streams sharing a file. Stream D measured 3483 and
+ * handed the number over.
+ *
  * The remaining ~40 is for edits, NOT for reserved rule 15: module 11 must raise
  * this number in the same commit that adds its rule, on the same terms.
  */
-const CUSTOMER_PROMPT_BUDGET = 2950;
+const CUSTOMER_PROMPT_BUDGET = 3525;
 
 /** A founder principal — what the customer register must never render for. */
 const FOUNDER: SessionAuthContext = {
