@@ -204,7 +204,18 @@ export function payloadLeaks(serialized: string, candidate: Candidate & { custom
     // The suffix is what the check was ABOUT — quoting it back is the leak the
     // whole server-side-compare design exists to make impossible.
     if (serialized.includes(digitsOnly.slice(-4))) found.push("the last 4 digits");
-    if (serialized.includes(digitsOnly.slice(-2))) found.push("the last 2 digits");
+    // The last TWO digits need a boundary, and this is not a softening of the
+    // rule. A bare two-character substring collides with the random ids and
+    // timestamps that appear in any serialized thread — a cuid like
+    // `cms2h9qe0089x` contains "89" and tripped this check on roughly one run in
+    // four, which is worse than no check at all: an intermittently red leak gate
+    // trains everyone to re-run it until green, including the run where the leak
+    // is real. A suffix is only LEAKED when it is quoted as a token — "…89",
+    // "**89", "শেষ দুইটা 89" — never when it is buried inside an opaque id, which
+    // reveals nothing about the phone. Both forms are covered by the corpus.
+    if (new RegExp(String.raw`(?<![0-9A-Za-z])${digitsOnly.slice(-2)}(?![0-9A-Za-z])`).test(serialized)) {
+      found.push("the last 2 digits");
+    }
   }
   for (const token of nameTokens(candidate.name)) {
     if (serialized.toLowerCase().includes(token.toLowerCase())) found.push(`the name "${token}"`);

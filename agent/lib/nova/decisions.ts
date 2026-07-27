@@ -204,6 +204,53 @@ export function paramsLineFor(type: string, payload: Record<string, unknown>): s
       if (p.trxId) parts.push(`trx ${p.trxId}`);
       else parts.push("no trx id given");
       break;
+    // ── Module 06's verbs, whose cards rendered BLANK until module 07 ────────
+    //
+    // Module 06 added five verbs and zero arms here, so every card it could
+    // produce reached the founder with an empty params line. It went unnoticed
+    // because the verbs had no tools either — no card was ever produced. Both
+    // halves are fixed together.
+
+    // The kind is the whole judgement: it is what picks the room, and
+    // "damaged item" vs "restock wait" is the difference between a replacement
+    // and a wait. The title already carries the order number, so the order id
+    // is not repeated here; `factsNote` is not rendered because it is a
+    // paragraph and this is a scannable line.
+    case "open_case":
+      if (p.kind) parts.push(String(p.kind).replace(/_/g, " "));
+      if (p.orderId) parts.push("on an order");
+      else if (p.productId) parts.push("on a product");
+      else parts.push("thread only — may duplicate");
+      break;
+    // The customer's own words are the entire point of this card: the founder
+    // is being asked to accept that a human said yes to a COD parcel, and a
+    // paraphrase would make that Nova's claim rather than theirs. Quoted, and
+    // clipped rather than dropped, because a long "yes" is still a yes.
+    case "confirm_order_intent":
+      if (p.confirmedText) {
+        const said = String(p.confirmedText).trim();
+        parts.push(`they said "${said.length > 40 ? `${said.slice(0, 40)}…` : said}"`);
+      }
+      break;
+    // WHICH FIELDS MOVED, never the values. This is the card that redirects a
+    // cash-on-delivery parcel, so the founder must open it and read the address
+    // properly — a summary that carried the new address would both invite
+    // approving on a glance and copy a customer's home into every log line that
+    // re-renders this string. District is called out because it re-prices the
+    // order, which is the one consequence that is not obvious from "address".
+    case "update_order_contact": {
+      const moved = ["address", "city", "district", "phone"].filter((f) => p[f]);
+      if (moved.length) parts.push(moved.join(" + "));
+      if (p.district) parts.push("re-prices delivery");
+      break;
+    }
+    // The reason, unabridged. A cancellation is not reversed by this card being
+    // approved — the customer has already been told — so the only thing left to
+    // judge is whether the sale was genuinely lost or whether somebody should
+    // ring them first.
+    case "cancel_order_from_chat":
+      if (p.reason) parts.push(String(p.reason));
+      break;
     default:
       // Unknown verb: say nothing rather than guess at its parameters.
       break;

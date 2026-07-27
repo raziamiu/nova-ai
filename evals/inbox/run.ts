@@ -433,17 +433,34 @@ function estimateTokens(text: string): number {
  * does not have to re-measure to find that out. It added no hard rule — it spent
  * ~24 tokens advertising four new slim tools (`create_order_from_chat`,
  * `offer_chat_discount`, `verify_payment_slip`, `validate_coupon`) and rewriting
- * the `SLIM_TOOLS_PENDING` notes. Measured render after module 05: **3507**, so
- * the real headroom is 18 tokens, not the ~40 the paragraph above describes.
+ * the `SLIM_TOOLS_PENDING` notes. Measured render after module 05: **3507**.
  *
- * That is inside the "for edits" allowance, which is why it was left alone — but
- * 18 tokens is not room for a sentence, let alone a rule. The next module to
- * touch this register raises the constant in its own diff, whether or not it
- * thinks it is adding a rule, and re-states the measured number here. And note
- * the estimator understates Bangla badly (~4 chars/token against a script that
- * costs far more), so 18 is the optimistic reading.
+ * ── THE RUNNING LEDGER (keep this current — the paragraphs above went stale) ─
+ *
+ *   after module 05   3507   budget 3525   headroom 18
+ *   after module 06   3512   budget 3525   headroom 13   ← did not restate it
+ *   after module 07   3535   budget 3560   headroom 25
+ *
+ * Module 06 spent 5 tokens on `get_order_status` and left this comment claiming
+ * 18 tokens of headroom when 13 remained. That is the whole reason the ledger
+ * above exists: whoever reads the prose instead of the check label gets a number
+ * that was true two modules ago.
+ *
+ * Module 07 spent ~23 advertising module 06's four write verbs — `open_case`,
+ * `confirm_order_intent`, `update_order_contact`, `cancel_order_from_chat` —
+ * which module 06 built everywhere except `agent/tools/`, leaving them
+ * uncallable. `TOOLS` renders `CUSTOMER_SLIM_TOOLS` directly, so making them
+ * reachable and advertising them is necessarily one edit.
+ *
+ * Rule 15 is still reserved for module 11 and this raise does NOT spend it: 25
+ * is edit headroom, and module 11 raises the constant again for its own rule.
+ * The aftersales rule block module 07 still owes gets its own raise and its own
+ * measurement, in the commit that writes it.
+ *
+ * The estimator understates Bangla badly (~4 chars/token against a script that
+ * costs far more), so every headroom figure here is the optimistic reading.
  */
-const CUSTOMER_PROMPT_BUDGET = 3525;
+const CUSTOMER_PROMPT_BUDGET = 3560;
 
 /** A founder principal — what the customer register must never render for. */
 const FOUNDER: SessionAuthContext = {

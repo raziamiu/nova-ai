@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import { INBOX_INTENTS } from "./inboxIntents";
+import type { NovaDepartment } from "../types";
 
 export const receiptEvidenceSchema = z.object({
   source: z
@@ -697,6 +698,26 @@ export const CASE_KINDS = [
   "restock_wait",
 ] as const;
 
+/**
+ * Which room owns each kind — byte-identical to `DEPARTMENT_BY_KIND` in
+ * dakio-api's `src/lib/novaCase.js`, which is the authority.
+ *
+ * The SERVER decides the case's department; this copy exists only so
+ * `open_case`'s tool can route the founder's DECISION CARD to the same desk the
+ * case itself lands on. A shipping case whose approval card sits in support is
+ * one the shipping room never sees. Same mirroring convention as `CASE_KINDS`
+ * directly above, and pinned by the eval for the same reason: a drift here is
+ * silent, and shows up as cards quietly arriving in the wrong room.
+ */
+export const DEPARTMENT_BY_CASE_KIND = {
+  delivery_stuck: "shipping",
+  failed_attempt: "shipping",
+  address_change_postdispatch: "shipping",
+  payment_unverified: "finance",
+  damaged_item: "support",
+  restock_wait: "inventory",
+} as const satisfies Record<(typeof CASE_KINDS)[number], NovaDepartment>;
+
 export const openCasePayload = z.object({
   kind: z.enum(CASE_KINDS).describe("What KIND of problem this is. It decides which room owns it — you do not choose the department."),
   conversationId: z.string().min(1).describe("The thread this was raised in."),
@@ -746,18 +767,34 @@ export const confirmOrderIntentPayload = z.object({
     .describe("The customer's OWN confirming message, verbatim — 'ji', 'হ্যাঁ', 'ok den'. This is the evidence that a human said yes. Never your paraphrase, never an emoji you read as agreement, and never a message you are still waiting for."),
 });
 
-export const updateOrderContactPayload = z
-  .object({
-    orderId: z.string().min(1),
-    conversationId: z.string().min(1),
-    address: z.string().min(5).optional().describe("The full new address as they typed it."),
-    city: z.string().min(1).optional(),
-    district: z.string().min(1).optional().describe("The district decides the delivery charge, so changing it re-prices the order."),
-    phone: z.string().min(1).optional().describe("A corrected contact number."),
-  })
-  .refine((p) => p.address || p.city || p.district || p.phone, {
-    message: "Give at least one field to change — an update that changes nothing is not an update.",
-  });
+/**
+ * The FIELDS, without the refinement.
+ *
+ * Split out because `.refine()` returns a `ZodEffects`, which has no `.extend`
+ * — and every action tool builds its input as `payload.extend({ receipt })`.
+ * The tool re-applies `atLeastOneContactField` on top of its own extension, so
+ * the rule is authored once here and enforced on both shapes.
+ */
+export const updateOrderContactFields = z.object({
+  orderId: z.string().min(1),
+  conversationId: z.string().min(1),
+  address: z.string().min(5).optional().describe("The full new address as they typed it."),
+  city: z.string().min(1).optional(),
+  district: z.string().min(1).optional().describe("The district decides the delivery charge, so changing it re-prices the order."),
+  phone: z.string().min(1).optional().describe("A corrected contact number."),
+});
+
+/** An update that changes nothing is not an update. */
+export const atLeastOneContactField = {
+  check: (p: { address?: string; city?: string; district?: string; phone?: string }) =>
+    Boolean(p.address || p.city || p.district || p.phone),
+  message: "Give at least one field to change — an update that changes nothing is not an update.",
+} as const;
+
+export const updateOrderContactPayload = updateOrderContactFields.refine(
+  atLeastOneContactField.check,
+  { message: atLeastOneContactField.message },
+);
 
 export const cancelOrderPayload = z.object({
   orderId: z.string().min(1),

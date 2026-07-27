@@ -91,6 +91,30 @@ export const CUSTOMER_SLIM_TOOLS: readonly string[] = [
   // tracking page shows — never a raw courier string — so what Nova says and
   // what the customer sees on their own link are the same sentence.
   "get_order_status",
+  // ── Module 06's four WRITE verbs, reachable from module 07 onward ─────────
+  //
+  // Module 06 shipped these verbs everywhere except here: `ActionType`,
+  // executors on both sides, risk classes, guardrails, duties, an eval suite —
+  // and no tool files, so the model could never call one and nothing minted an
+  // action row for a founder to approve either. The case system had no entry
+  // point at all: zero cases, of any kind, could be created in production.
+  //
+  // They belong on the CUSTOMER plane rather than the founder's because each
+  // one is a thing a customer says mid-sentence — "box ta bhanga chilo", "ji
+  // confirm", "flat number ta bhul", "lagbe na" — and an act that has to leave
+  // the thread to happen is an act that does not happen. `damaged_item` makes
+  // it structural: the courier reports DELIVERED, so no server signal can ever
+  // stand in for the customer telling us.
+  //
+  // Each is still held by its own guardrail — `inbox.cancelAuto` and
+  // `inbox.addressEditAuto` both ship FALSE — so being callable is not being
+  // automatic. `flag_courier_issue` is deliberately NOT here: it is
+  // ALWAYS_DRAFT and founder-facing, and its route to reality is a
+  // `courier_intervention` producer, which is still module 06's debt.
+  "open_case",
+  "confirm_order_intent",
+  "update_order_contact",
+  "cancel_order_from_chat",
 ];
 
 /**
