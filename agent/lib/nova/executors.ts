@@ -87,6 +87,16 @@ export interface ExecutionResult {
    */
   relatedId?: string | null;
   /**
+   * Where a non-zero `revenueInfluence` came from, e.g. `chat_order:<orderId>`
+   * (module 09). Byte-identical to the string dakio-api's approve path writes for
+   * the same verb, so one order reads the same in the room and in the export
+   * whichever surface created it.
+   *
+   * Omit it when `revenueInfluence` is 0 — a provenance for a figure that does
+   * not exist is a join key pointing at nothing.
+   */
+  revenueProvenance?: string | null;
+  /**
    * Founder-facing display snapshots for the E-8 receipt — what the record
    * looked like before and after the mutation. Distinct from `undoData`
    * (internal rollback state): these are for reading, not reverting.
@@ -245,6 +255,10 @@ export const executors: Record<ActionType, Executor> = {
       // "a link claims no revenue; orders do", and this is the order.
       revenueInfluence: order.total,
       relatedId: order.id,
+      // Module 09. Byte-identical to what dakio-api's approve path stamps, so
+      // one order reads the same whichever surface created it — and so the
+      // nightly sweep has a single join key instead of two shapes to match.
+      revenueProvenance: `chat_order:${order.id}`,
       before: null,
       after: {
         orderNumber: order.orderNumber,

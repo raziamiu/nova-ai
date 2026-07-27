@@ -100,6 +100,22 @@ export interface ActivityInput {
   relatedId?: string | null;
   /** Override the human-equivalent minutes if the defaults don't fit. */
   minutesSaved?: number;
+  /**
+   * Where a revenue figure came from, e.g. `chat_order:<orderId>` (module 09).
+   *
+   * `relatedId` is not enough on its own: it is a free-text column every verb
+   * shares, so it cannot say WHICH kind of thing produced the number. This
+   * string is what the nightly attribution sweep joins on and what makes a
+   * figure in a department room reproducible from the ledger export.
+   *
+   * Deliberately NOT paired with a `revenueBasis` override. Every figure this
+   * function writes is an estimate at write time — a COD order is not collected
+   * money — and only the sweep, which reads the parcel's actual outcome, may
+   * promote one to `measured`. Letting a caller pass `measured` here is exactly
+   * how dakio-api's approve path came to disagree with this one about the same
+   * verb.
+   */
+  revenueProvenance?: string | null;
 }
 
 export async function recordActivity(
@@ -121,6 +137,7 @@ export async function recordActivity(
     actionId: input.actionId ?? null,
     relatedId: input.relatedId ?? null,
     revenueBasis: "estimated",
+    revenueProvenance: input.revenueProvenance ?? null,
   });
 }
 

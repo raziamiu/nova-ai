@@ -252,6 +252,7 @@ async function executeNow(
     revenueInfluence: execution.revenueInfluence,
     actionId: record.id,
     relatedId: execution.relatedId,
+    revenueProvenance: execution.revenueProvenance,
   });
   return {
     status: "executed",
