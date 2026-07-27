@@ -157,12 +157,11 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
 
   courier_intervention:
     "A parcel has stopped moving and a customer is waiting on it. Do the " +
-    "homework the owner would otherwise do standing up: read the case with " +
-    "get_case, re-read the order's real delivery state, and write what you " +
-    "find onto the case as facts. Then flag it for the owner with " +
-    "flag_courier_issue — the tracking id, what the last scan actually said, " +
-    "how long it has sat there, what the customer was already told, and the " +
-    "one thing you would ask the courier for.\n\n" +
+    "homework the owner would otherwise do standing up: re-read the order's " +
+    "real delivery state and the courier it is with, and put in front of them " +
+    "the tracking id, what the last scan actually said, how long it has sat " +
+    "there, what the customer was already told, and the one thing you would " +
+    "ask the courier for.\n\n" +
     "BE HONEST ABOUT WHAT DAKIO CAN DO. It can book a parcel, cancel a " +
     "parcel, poll its status and receive the courier's webhooks. It CANNOT " +
     "reschedule, redirect or hold one — no courier here offers that. So this " +
@@ -173,11 +172,12 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
 
   case_update:
     "Something changed on a case and the customer is owed the news.\n\n" +
-    "READ THE CASE FIRST, THIS TURN. Whatever triggered this job may already " +
-    "be out of date — a parcel can move again between the trigger and now — " +
-    "so compose from what get_case and the order read say RIGHT NOW, never " +
-    "from what you were told when this job was booked. Quote the case's own " +
-    "facts; they are what the owner and the courier actually reported.\n\n" +
+    "READ THE THREAD AND THE ORDER FIRST, THIS TURN. Whatever triggered this " +
+    "job may already be out of date — a parcel can move again between the " +
+    "trigger and now — so compose from what the conversation and the order " +
+    "status say RIGHT NOW, never from what you were told when this job was " +
+    "booked. The order read carries the case and its latest fact; quote that, " +
+    "because it is what the owner and the courier actually reported.\n\n" +
     "One message, in their language, that says what happened and what comes " +
     "next. No apology theatre and no new promise unless a tool gave you " +
     "something real to promise. If the news is bad, say it plainly — a " +

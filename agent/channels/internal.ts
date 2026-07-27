@@ -282,11 +282,13 @@ export async function dispatchJobToChannel(
   // loop-closure lands as a prepared draft rather than not happening at all.
   //
   // THE SAME CUSTOMER-PRINCIPAL CONSEQUENCE AS EVERY OTHER BRANCH HERE: this is
-  // a `principalType: "customer"` session, so it holds the ten slim tools and
-  // nothing else. That is why the case rides in on `get_conversation`'s read
-  // rather than through a founder-gated `get_case` tool — a case tool would be
-  // DENIED in the one session that most needs it. The module doc's "job-session
-  // extras" plan assumed a narrowing mechanism this framework does not have.
+  // a `principalType: "customer"` session, so it holds the customer slim set and
+  // nothing else. That is why the case rides in on `get_conversation`'s and
+  // `get_order_status`'s reads rather than through a founder-gated `get_case`
+  // tool — a case tool would be DENIED in the one session that most needs it.
+  // The module doc's "job-session extras" plan assumed a narrowing mechanism
+  // this framework does not have. (The count is deliberately not written out
+  // here: it was "ten" for two modules after the set grew past ten.)
   if (job.kind === "case_update") {
     const conversationId = job.payload.conversationId;
     const caseId = job.payload.caseId;
