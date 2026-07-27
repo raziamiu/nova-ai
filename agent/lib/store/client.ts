@@ -148,7 +148,13 @@ export interface StoreClient {
   getCustomer(id: string): Promise<Customer | null>;
 
   // Orders
-  listOrders(filter?: { sinceDays?: number; status?: OrderStatus }): Promise<Order[]>;
+  /**
+   * `customerId` is module 07 D5.1 — one customer's own history, which is what
+   * a reorder or a returns conversation is about. Scoped by tenant server-side,
+   * so an id from another store matches nothing rather than refusing: the shape
+   * of a refusal is itself a probe for whether an id exists.
+   */
+  listOrders(filter?: { sinceDays?: number; status?: OrderStatus; customerId?: string }): Promise<Order[]>;
   getOrder(id: string): Promise<Order | null>;
   updateOrder(patch: { id: string; status?: OrderStatus; courierId?: string }): Promise<Order>;
 

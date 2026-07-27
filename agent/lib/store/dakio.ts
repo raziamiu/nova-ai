@@ -304,10 +304,11 @@ export class DakioStoreClient implements StoreClient {
   // Orders (read; status/courier mutations are Phase 2.2)
   // ==========================================================================
 
-  async listOrders(filter?: { sinceDays?: number; status?: OrderStatus }): Promise<Order[]> {
+  async listOrders(filter?: { sinceDays?: number; status?: OrderStatus; customerId?: string }): Promise<Order[]> {
     const { orders } = await this.get<{ orders: Order[] }>("/api/v1/store/orders", {
       sinceDays: filter?.sinceDays,
       status: filter?.status,
+      customerId: filter?.customerId,
     });
     return orders;
   }

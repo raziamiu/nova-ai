@@ -404,12 +404,16 @@ export class DemoStore implements StoreClient {
 
   // ---- Orders ----
 
-  async listOrders(filter?: { sinceDays?: number; status?: OrderStatus }): Promise<Order[]> {
+  async listOrders(filter?: { sinceDays?: number; status?: OrderStatus; customerId?: string }): Promise<Order[]> {
     const cutoff = filter?.sinceDays !== undefined ? this.sinceCutoff(filter.sinceDays) : null;
     return this.data.orders.filter(
       (o) =>
         (cutoff === null || Date.parse(o.placedAt) >= cutoff) &&
-        (filter?.status === undefined || o.status === filter.status),
+        (filter?.status === undefined || o.status === filter.status) &&
+        // Mirrors the live filter rather than ignoring it: a demo that returned
+        // every order for any customerId would make an eval pass on a history
+        // the live backend would never hand back.
+        (filter?.customerId === undefined || o.customerId === filter.customerId),
     );
   }
 
