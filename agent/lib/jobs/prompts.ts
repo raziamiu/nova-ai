@@ -113,6 +113,7 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
   promise_sweep: serverSideLane("promise_sweep"),
   identity_merge_sweep: serverSideLane("identity_merge_sweep"),
   conversation_distill: serverSideLane("conversation_distill"),
+  inbox_attribution: serverSideLane("inbox_attribution"),
   journey_sweep: serverSideLane("journey_sweep"),
 
   morning_report:

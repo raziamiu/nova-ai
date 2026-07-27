@@ -1890,7 +1890,21 @@ export type JobKind =
    */
   | "courier_intervention"
   | "case_update"
-  | "restock_check";
+  | "restock_check"
+  /**
+   * Stage 10 module 09 — the nightly attribution pass.
+   *
+   * A SERVER SWEEP. dakio-api runs it in `SERVER_SWEEPS`; nothing here ever
+   * leases it. It is named in this union anyway, on modules 03/04's precedent
+   * rather than module 08's (`inbox_sla_sweep` is absent and has no tripwire),
+   * so that `TEMPLATES` is forced to carry a body saying "not yours" — a lane
+   * that somehow reached a model with an `undefined` prompt would burn five
+   * failed attempts nightly, forever.
+   *
+   * It is the only thing in the system permitted to call a revenue figure
+   * `measured`, which is exactly why no model turn may own it.
+   */
+  | "inbox_attribution";
 export type JobStatus = "due" | "leased" | "done" | "failed" | "skipped";
 
 export interface NovaJobDef {

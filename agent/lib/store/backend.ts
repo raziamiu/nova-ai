@@ -119,6 +119,10 @@ const PRIORITY_BY_KIND: Record<JobKind, number> = {
   case_update: 4,
   restock_check: 5,
   reflection: 6,
+  // Stage 10 module 09. Mirrors dakio-api's PRIORITY_BY_KIND. Nightly, nothing
+  // waits on it, and it is a server sweep DemoStore never dispatches — present
+  // because this record is total over JobKind.
+  inbox_attribution: 6,
   // Stage 10 module 03: nightly/quiet-lane housekeeping. Nobody is waiting on
   // any of these, and all three author work for the founder rather than the
   // customer, so they sit with reflection at the bottom of the useful band.
