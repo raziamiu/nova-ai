@@ -23,9 +23,10 @@
     "test:voice": "npx --yes tsx evals/voice/run.ts",
     "check:duty-seed": "npx --yes tsx scripts/check-duty-seed-sync.ts",
     "check:undo": "npx --yes tsx scripts/check-undo-coverage.ts",
-    "test": "npm run typecheck && npm run check:undo && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority && npm run test:decisions && npm run test:night && npm run test:voice && npm run test:generate && npm run test:conversation && npm run test:reach && npm run test:research && npm run test:presence && npm run test:team && npm run test:launch && npm run test:inbox && npm run test:persona",
+    "check:reachability": "npx --yes tsx scripts/check-verb-reachability.ts",
+    "test": "npm run typecheck && npm run check:undo && npm run check:reachability && npm run check:duty-seed && npm run test:isolation && npm run test:memory && npm run test:jobs && npm run test:spine && npm run test:duties && npm run test:authority && npm run test:decisions && npm run test:night && npm run test:voice && npm run test:generate && npm run test:conversation && npm run test:reach && npm run test:research && npm run test:presence && npm run test:team && npm run test:launch && npm run test:inbox && npm run test:persona",
     "test:inbox": "npx --yes tsx evals/inbox/run.ts",
-    "_comment:test:selling": "Module 05's selling-guardrail corpus is FOLDED INTO test:inbox (evals/inbox/run.ts imports runSellingGuardrailSuite and adds its counts), exactly like c360/identity/promises/privacy/nba. It is deliberately NOT in the `test` && chain \u2014 it would run twice. This script stays for focused iteration on the 64 checks.",
+    "_comment:test:selling": "Module 05's selling-guardrail corpus is FOLDED INTO test:inbox (evals/inbox/run.ts imports runSellingGuardrailSuite and adds its counts), exactly like c360/identity/promises/privacy/nba. It is deliberately NOT in the `test` && chain — it would run twice. This script stays for focused iteration on the 64 checks.",
     "test:selling": "npx --yes tsx evals/inbox/selling.ts",
     "test:persona": "npx --yes tsx evals/inbox/persona.ts",
     "test:persona:live": "npx --yes tsx evals/inbox/persona.ts --live",
@@ -36,7 +37,7 @@
     "test:presence": "npx --yes tsx evals/presence/run.ts",
     "test:team": "npx --yes tsx evals/team/run.ts",
     "test:launch": "npx --yes tsx evals/launch/run.ts",
-    "_comment:test:delivery": "Module 06's delivery-guardrail corpus is FOLDED INTO test:inbox (evals/inbox/run.ts imports runDeliverySuite and adds its counts), exactly like selling/c360/identity/promises/privacy/nba. It is deliberately NOT in the `test` && chain \u2014 it would run twice. This script stays for focused iteration on the 41 checks.",
+    "_comment:test:delivery": "Module 06's delivery-guardrail corpus is FOLDED INTO test:inbox (evals/inbox/run.ts imports runDeliverySuite and adds its counts), exactly like selling/c360/identity/promises/privacy/nba. It is deliberately NOT in the `test` && chain — it would run twice. This script stays for focused iteration on the 41 checks.",
     "test:delivery": "npx --yes tsx evals/inbox/delivery.ts"
   },
   "dependencies": {
