@@ -178,6 +178,7 @@ import { runNbaSuite } from "./nba";
 // `npm run test:inbox` the single number for the whole channel again.
 import { runSellingGuardrailSuite } from "./selling";
 import { runDeliverySuite } from "./delivery";
+import { runAftersalesSuite } from "./aftersales";
 
 const AURORA = "store-aurora";
 const BEACON = "store-beacon";
@@ -2549,6 +2550,7 @@ async function main(): Promise<void> {
     ["nba", runNbaSuite],
     ["selling-guardrails", runSellingGuardrailSuite],
     ["delivery-guardrails", runDeliverySuite],
+    ["aftersales", runAftersalesSuite],
   ] as const) {
     console.log(`\n─── inbox corpus: ${label} ${"─".repeat(Math.max(0, 34 - label.length))}`);
     const result = await runSuite();

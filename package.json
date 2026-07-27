@@ -38,7 +38,9 @@
     "test:team": "npx --yes tsx evals/team/run.ts",
     "test:launch": "npx --yes tsx evals/launch/run.ts",
     "_comment:test:delivery": "Module 06's delivery-guardrail corpus is FOLDED INTO test:inbox (evals/inbox/run.ts imports runDeliverySuite and adds its counts), exactly like selling/c360/identity/promises/privacy/nba. It is deliberately NOT in the `test` && chain — it would run twice. This script stays for focused iteration on the 41 checks.",
-    "test:delivery": "npx --yes tsx evals/inbox/delivery.ts"
+    "test:delivery": "npx --yes tsx evals/inbox/delivery.ts",
+    "_comment:test:aftersales": "Module 07's aftersales corpus is FOLDED INTO test:inbox (evals/inbox/run.ts imports runAftersalesSuite and adds its counts), exactly like delivery/selling/c360/identity/promises/privacy/nba. It is deliberately NOT in the `test` && chain — it would run twice. This script stays for focused iteration on the 33 checks.",
+    "test:aftersales": "npx --yes tsx evals/inbox/aftersales.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.16",
