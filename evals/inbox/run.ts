@@ -439,7 +439,8 @@ function estimateTokens(text: string): number {
  *
  *   after module 05   3507   budget 3525   headroom 18
  *   after module 06   3512   budget 3525   headroom 13   ← did not restate it
- *   after module 07   3535   budget 3560   headroom 25
+ *   after module 07   3535   budget 3560   headroom 25   ← tools only
+ *   after module 07   3592   budget 3620   headroom 28   ← + the aftersales copy
  *
  * Module 06 spent 5 tokens on `get_order_status` and left this comment claiming
  * 18 tokens of headroom when 13 remained. That is the whole reason the ledger
@@ -452,15 +453,17 @@ function estimateTokens(text: string): number {
  * uncallable. `TOOLS` renders `CUSTOMER_SLIM_TOOLS` directly, so making them
  * reachable and advertising them is necessarily one edit.
  *
- * Rule 15 is still reserved for module 11 and this raise does NOT spend it: 25
- * is edit headroom, and module 11 raises the constant again for its own rule.
- * The aftersales rule block module 07 still owes gets its own raise and its own
- * measurement, in the commit that writes it.
+ * The second module-07 raise is the aftersales copy: 57 tokens for the narrowed
+ * refund clause in rule 20 and three playbook sections (damage/exchange,
+ * reviews, reorder). It added NO new hard rule — slot 15 is still reserved for
+ * module 11, and module 11 raises the constant again for its own. Most of the
+ * 57 is Bangla script, which the ~4 chars/token estimator understates badly, so
+ * the true cost is higher than the number above.
  *
  * The estimator understates Bangla badly (~4 chars/token against a script that
  * costs far more), so every headroom figure here is the optimistic reading.
  */
-const CUSTOMER_PROMPT_BUDGET = 3560;
+const CUSTOMER_PROMPT_BUDGET = 3620;
 
 /** A founder principal — what the customer register must never render for. */
 const FOUNDER: SessionAuthContext = {
