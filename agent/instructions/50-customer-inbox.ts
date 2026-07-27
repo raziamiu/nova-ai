@@ -208,12 +208,9 @@ export const SLIM_TOOLS_PENDING: Readonly<Record<string, string>> = {
   // deleted because D11 named it and the next module to want it should find
   // this note instead of re-deriving the question.
   get_product: "module 06 (delivery & RTO) — module 05 examined it and built nothing; get_products covers the catalogue",
-  // Order lookup is module 06's, and the attribution here was wrong: module 05
-  // never had it in scope (see its own Scope section), and `AS-BUILT-04` and
-  // `AS-BUILT-08` both told the module-05 builder otherwise. Handing the row on
-  // explicitly is the alternative to leaving a name pointed at a module that
-  // has shipped without it.
-  get_order_status: "module 06 (delivery & RTO)",
+  // `get_order_status` left this list in module 06 — its tool file landed, so
+  // it moved up into `CUSTOMER_SLIM_TOOLS`.
+  //
   // `validate_coupon` left this list in module 05: its tool file landed, so it
   // moved up into `CUSTOMER_SLIM_TOOLS` and is advertised — along with
   // `create_order_from_chat`, `offer_chat_discount` and `verify_payment_slip`.

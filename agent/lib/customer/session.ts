@@ -86,6 +86,11 @@ export const CUSTOMER_SLIM_TOOLS: readonly string[] = [
   "create_order_from_chat",
   "offer_chat_discount",
   "verify_payment_slip",
+  // Module 06. The one read that lets Nova answer "amar order kothay?" with a
+  // fact instead of a hand-off. It returns the SAME humanized step the public
+  // tracking page shows — never a raw courier string — so what Nova says and
+  // what the customer sees on their own link are the same sentence.
+  "get_order_status",
 ];
 
 /**

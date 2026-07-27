@@ -49,6 +49,7 @@ import type {
   CustomerMessage,
   CustomerRiskView,
   NovaCaseView,
+  OrderStatusView,
   OpenCaseRequest,
   PatchCaseRequest,
   UpdateOrderDeliveryRequest,
@@ -966,6 +967,14 @@ export class DakioStoreClient implements StoreClient {
   // ==========================================================================
   // Front Office — delivery coordination (Stage 10 module 06, `/api/v1/inbox/*`)
   // ==========================================================================
+
+  async getOrderStatus(orderId: string): Promise<OrderStatusView | null> {
+    return this.get<OrderStatusView | null>(
+      `/api/v1/inbox/orders/${encodeURIComponent(orderId)}/status`,
+      undefined,
+      true,
+    );
+  }
 
   async openCase(input: OpenCaseRequest): Promise<{ case: NovaCaseView; joined: boolean }> {
     return this.request<{ case: NovaCaseView; joined: boolean }>("/api/v1/inbox/cases", {

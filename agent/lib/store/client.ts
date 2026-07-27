@@ -41,6 +41,7 @@ import type {
   CustomerMessage,
   CustomerRiskView,
   NovaCaseView,
+  OrderStatusView,
   OpenCaseRequest,
   PatchCaseRequest,
   UpdateOrderDeliveryRequest,
@@ -587,6 +588,14 @@ export interface StoreClient {
    * second courier card for one problem. The server decides which happened,
    * atomically, off a unique claim; nothing here may infer it.
    */
+/**
+   * Where a customer's parcel is, in words a customer can hear.
+   *
+   * Deliberately NOT `getOrder`: that returns the founder-plane shape. This one
+   * carries no tracking id, no raw courier scan and no address, because it is
+   * the only order read a CUSTOMER session may call.
+   */
+  getOrderStatus(orderId: string): Promise<OrderStatusView | null>;
   openCase(input: OpenCaseRequest): Promise<{ case: NovaCaseView; joined: boolean }>;
   getCase(caseId: string): Promise<NovaCaseView | null>;
   /**

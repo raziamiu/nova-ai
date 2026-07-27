@@ -902,15 +902,25 @@ async function main(): Promise<void> {
     // in front of the model on every customer turn — far worse than a red check,
     // and it was deleted rather than kept alive to keep this green.
     //
-    // The replacement keeps the tripwire pointing the same way: the playbook must
-    // name the verb it DOES ship AND must still refuse the one it does not. Order
-    // LOOKUP is module 06's (`get_order_status` is still in SLIM_TOOLS_PENDING),
-    // so a playbook that quietly started promising order status would go red here
-    // rather than in front of a customer who was told their parcel was on the way.
+    // MODULE 06 TURNS IT OVER AGAIN, for the same reason and by the same rule:
+    // `get_order_status` now ships, so "There is no order-lookup verb" became a
+    // false instruction sitting in front of the model on every turn. The literal
+    // was deleted from the playbook and from this assertion in one commit — the
+    // alternative is a green check protecting a sentence that tells Nova to hand
+    // over a question it can now answer.
+    //
+    // The tripwire still points the same way: the playbook must NAME both order
+    // verbs it ships. What it must never do is promise a delivery DATE, because
+    // no courier gives Dakio one — so that refusal is pinned here instead, and
+    // it is the one that would reach a customer as a broken promise.
     check(
-      "the playbook names the order verb it now ships, and still refuses the one it does not",
+      "the playbook names both order verbs it now ships",
       (customerSkill?.markdown ?? "").includes("`create_order_from_chat`") &&
-        (customerSkill?.markdown ?? "").includes("There is no order-lookup verb"),
+        (customerSkill?.markdown ?? "").includes("`get_order_status`"),
+    );
+    check(
+      "…and still refuses to give a delivery date, which is the promise no courier lets this shop keep",
+      /[Nn]ever a date/.test(customerSkill?.markdown ?? ""),
     );
 
     // --- the assembled prompt ------------------------------------------------

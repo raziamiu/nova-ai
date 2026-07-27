@@ -1771,6 +1771,32 @@ export interface UpdateOrderDeliveryRequest {
   status?: OrderStatus;
 }
 
+/**
+ * What Nova may tell a customer about their parcel.
+ *
+ * NO RAW COURIER STRING and NO ETA. The server maps the scan through the same
+ * humanizer the public tracking page uses, and no courier gives Dakio a delivery
+ * date — so a date here would be a promise the shop then has to keep.
+ */
+export interface OrderStatusView {
+  orderNumber: string;
+  /** The step, in the same words the customer's own tracking page shows. */
+  displayStatus: string;
+  statusStep: number;
+  courierProvider: string | null;
+  /** Whole taka due at the door, or null when it is not a COD order. */
+  codAmount: number | null;
+  placedAt: string;
+  courierSentAt: string | null;
+  /** When the courier last actually moved it. */
+  lastMovedAt: string | null;
+  confirmed: boolean;
+  /** The SERVER's verdict, off the same rule the nightly sweep uses. */
+  stuck: boolean;
+  trackingCode: string;
+  openCase: { id: string; kind: string; status: string; latestFact: string | null } | null;
+}
+
 export interface CustomerRiskView {
   /** The normalized form the server matched on, never the raw input. */
   phone: string;

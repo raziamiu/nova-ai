@@ -34,6 +34,7 @@ import type {
   CustomerMessage,
   CustomerRiskView,
   NovaCaseView,
+  OrderStatusView,
   OpenCaseRequest,
   PatchCaseRequest,
   UpdateOrderDeliveryRequest,
@@ -1726,6 +1727,38 @@ export class DemoStore implements StoreClient {
   }
 
   private static readonly TERMINAL_CASE_STATUSES = ["resolved", "closed_unresolved", "expired"];
+
+  async getOrderStatus(orderId: string): Promise<OrderStatusView | null> {
+    const order = this.data.orders.find((o) => o.id === orderId);
+    if (!order) return null;
+    // The demo carries no courier scans, so `stuck` is honestly false and
+    // `lastMovedAt` is honestly null rather than invented. An eval that needs a
+    // stuck parcel seeds the case directly.
+    const openCase = this.cases.find(
+      (c) => c.orderId === orderId && !DemoStore.TERMINAL_CASE_STATUSES.includes(c.status),
+    );
+    return {
+      orderNumber: order.id,
+      displayStatus: order.status,
+      statusStep: 1,
+      courierProvider: order.courierId ?? null,
+      codAmount: order.total ?? null,
+      placedAt: order.placedAt,
+      courierSentAt: null,
+      lastMovedAt: null,
+      confirmed: false,
+      stuck: false,
+      trackingCode: String(order.id).replace(/^#/, "").toUpperCase(),
+      openCase: openCase
+        ? {
+            id: openCase.id,
+            kind: openCase.kind,
+            status: openCase.status,
+            latestFact: openCase.facts.length ? openCase.facts[openCase.facts.length - 1].note : null,
+          }
+        : null,
+    };
+  }
 
   async openCase(input: OpenCaseRequest): Promise<{ case: NovaCaseView; joined: boolean }> {
     const department = this.caseDepartment(input.kind);
