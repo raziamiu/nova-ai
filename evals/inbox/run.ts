@@ -177,6 +177,7 @@ import { runNbaSuite } from "./nba";
 // check fails and the later ones never run. Folding it in here is what makes
 // `npm run test:inbox` the single number for the whole channel again.
 import { runSellingGuardrailSuite } from "./selling";
+import { runDeliverySuite } from "./delivery";
 
 const AURORA = "store-aurora";
 const BEACON = "store-beacon";
@@ -2527,6 +2528,7 @@ async function main(): Promise<void> {
     ["privacy", runPrivacySuite],
     ["nba", runNbaSuite],
     ["selling-guardrails", runSellingGuardrailSuite],
+    ["delivery-guardrails", runDeliverySuite],
   ] as const) {
     console.log(`\n─── inbox corpus: ${label} ${"─".repeat(Math.max(0, 34 - label.length))}`);
     const result = await runSuite();
