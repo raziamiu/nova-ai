@@ -153,6 +153,53 @@ const TEMPLATES: Record<NovaJob["kind"], string> = {
   // branch resolves on, so "has a thread" means the same thing on both sides. A
   // cart contacted by BOTH lanes is one customer hearing about one basket twice,
   // in two channels, which is the failure this sentence exists to prevent.
+  // ── Stage 10 module 06 — delivery coordination ─────────────────────────
+
+  courier_intervention:
+    "A parcel has stopped moving and a customer is waiting on it. Do the " +
+    "homework the owner would otherwise do standing up: read the case with " +
+    "get_case, re-read the order's real delivery state, and write what you " +
+    "find onto the case as facts. Then flag it for the owner with " +
+    "flag_courier_issue — the tracking id, what the last scan actually said, " +
+    "how long it has sat there, what the customer was already told, and the " +
+    "one thing you would ask the courier for.\n\n" +
+    "BE HONEST ABOUT WHAT DAKIO CAN DO. It can book a parcel, cancel a " +
+    "parcel, poll its status and receive the courier's webhooks. It CANNOT " +
+    "reschedule, redirect or hold one — no courier here offers that. So this " +
+    "job never 'contacts the courier'; it puts a phone call in front of the " +
+    "person who can make it. Never write anything that implies otherwise.\n\n" +
+    "Do not message the customer from this job. Telling them is the " +
+    "case_update lane's work, and it happens once the owner has acted.",
+
+  case_update:
+    "Something changed on a case and the customer is owed the news.\n\n" +
+    "READ THE CASE FIRST, THIS TURN. Whatever triggered this job may already " +
+    "be out of date — a parcel can move again between the trigger and now — " +
+    "so compose from what get_case and the order read say RIGHT NOW, never " +
+    "from what you were told when this job was booked. Quote the case's own " +
+    "facts; they are what the owner and the courier actually reported.\n\n" +
+    "One message, in their language, that says what happened and what comes " +
+    "next. No apology theatre and no new promise unless a tool gave you " +
+    "something real to promise. If the news is bad, say it plainly — a " +
+    "customer who is told the truth on day five is a customer; one who is " +
+    "managed until day ten is not.\n\n" +
+    "If the owner has taken the thread over, or Nova is switched off for it, " +
+    "do not talk over them: leave the update prepared and stop. If the case " +
+    "is resolved, say so and close the loop rather than leaving it open.",
+
+  restock_check:
+    "A customer is waiting for something to come back in stock. Find out " +
+    "what is ACTUALLY on order — open purchase orders for that product, and " +
+    "the real supply position — and write it onto the case.\n\n" +
+    "THE HONESTY FORK IS THE WHOLE JOB. If there is a purchase order with a " +
+    "real expected date, you may give that date. If there is nothing on " +
+    "order, you may NOT invent 'next week' — say soon, promise to tell them " +
+    "the moment it lands, and mean it. A date you made up is a second " +
+    "disappointment on top of the first.\n\n" +
+    "If several people are waiting for the same product, that count is worth " +
+    "the owner knowing — three customers asking is a restock decision, not a " +
+    "coincidence.",
+
   cart_sweep:
     "Abandoned cart sweep. Load the cart-recovery skill and follow it: find " +
     "untouched carts, write personalized recovery messages in the brand " +

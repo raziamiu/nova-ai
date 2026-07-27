@@ -273,6 +273,47 @@ export async function dispatchJobToChannel(
     // that tells the session to touch nothing and report the fault.
   }
 
+  // Stage 10 module 06 — THE LOOP CLOSER.
+  //
+  // A case moved and the customer is owed the news. This rejoins their OWN
+  // thread, so the register, the tone, the language they write in and everything
+  // either side has already said come free — and the reply it composes passes
+  // the ordinary send gate like any other, which is why a T0 Shadow store's
+  // loop-closure lands as a prepared draft rather than not happening at all.
+  //
+  // THE SAME CUSTOMER-PRINCIPAL CONSEQUENCE AS EVERY OTHER BRANCH HERE: this is
+  // a `principalType: "customer"` session, so it holds the ten slim tools and
+  // nothing else. That is why the case rides in on `get_conversation`'s read
+  // rather than through a founder-gated `get_case` tool — a case tool would be
+  // DENIED in the one session that most needs it. The module doc's "job-session
+  // extras" plan assumed a narrowing mechanism this framework does not have.
+  if (job.kind === "case_update") {
+    const conversationId = job.payload.conversationId;
+    const caseId = job.payload.caseId;
+    if (typeof caseId !== "string" || caseId.length === 0) {
+      throw new Error(`case_update job ${job.id} has no payload.caseId`);
+    }
+    // A case with no thread is not malformed — a courier webhook or the
+    // stagnation sweep can open one on an order that was never discussed in
+    // chat. There is real dept work to do and simply nobody to tell, so it falls
+    // through to the founder plane rather than throwing.
+    if (typeof conversationId === "string" && conversationId.length > 0) {
+      const platform = typeof job.payload.platform === "string" ? job.payload.platform : "messenger";
+      return receive(customer, {
+        message:
+          `Case ${caseId} on this conversation has moved. ` +
+          "Read the thread and the case's current state THIS TURN before you write anything — " +
+          "whatever triggered this may already be out of date, and a message quoting a stale " +
+          "fact tells someone their parcel reached a place it has since left. " +
+          "One message: what happened, and what comes next. If the owner has taken the thread " +
+          "or Nova is switched off for it, leave the update prepared and stop rather than " +
+          "talking over them.",
+        target: { storeId, conversationId, platform },
+        auth: customerPrincipal(storeId, conversationId, platform),
+      });
+    }
+  }
+
   return receive(channel, {
     message: renderJobPrompt(job),
     target: { storeId, jobId: job.id },

@@ -1867,7 +1867,21 @@ export type JobKind =
   // It is the only one of the four with a cron: dakio-api's `PLATFORM_JOB_DEFS`
   // runs it daily on the PLATFORM timezone, not the tenant's. Pausing it is a
   // stored `NovaJobDef{enabled:false}` shadowing that default.
-  | "journey_sweep";
+  | "journey_sweep"
+  /**
+   * Stage 10 module 06 — delivery coordination.
+   *
+   * All three are LEASED MODEL TURNS, not server sweeps, because each one ends
+   * in a sentence a human reads and the sentence IS the work.
+   *
+   * `case_update` is the loop closer, and it is the one with a channel branch:
+   * it rejoins the customer's own thread so tone, memory and register come free,
+   * and the reply it composes passes the ordinary send gate — which is why a T0
+   * Shadow store's loop-closure lands as a draft rather than not happening.
+   */
+  | "courier_intervention"
+  | "case_update"
+  | "restock_check";
 export type JobStatus = "due" | "leased" | "done" | "failed" | "skipped";
 
 export interface NovaJobDef {

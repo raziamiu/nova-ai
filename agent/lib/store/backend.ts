@@ -110,6 +110,14 @@ const PRIORITY_BY_KIND: Record<JobKind, number> = {
   // sweeps' band. Canonical C-15 — one unified kind, priority 3.
   followup: 3,
   weekly_strategy: 4,
+  // Stage 10 module 06. Mirrors dakio-api's PRIORITY_BY_KIND exactly. Spread
+  // rather than bunched: a stuck parcel is a customer already waiting, so the
+  // intervention shares band 3; the loop-closure that tells them what was found
+  // sits behind it at 4, because it has nothing useful to say until the
+  // intervention has written its findings.
+  courier_intervention: 3,
+  case_update: 4,
+  restock_check: 5,
   reflection: 6,
   // Stage 10 module 03: nightly/quiet-lane housekeeping. Nobody is waiting on
   // any of these, and all three author work for the founder rather than the
