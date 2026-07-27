@@ -48,6 +48,10 @@ import type {
   Customer,
   CustomerMessage,
   CustomerRiskView,
+  NovaCaseView,
+  OpenCaseRequest,
+  PatchCaseRequest,
+  UpdateOrderDeliveryRequest,
   DecisionRecord,
   DepartmentGrade,
   Discount,
@@ -957,6 +961,60 @@ export class DakioStoreClient implements StoreClient {
       undefined,
       true,
     );
+  }
+
+  // ==========================================================================
+  // Front Office — delivery coordination (Stage 10 module 06, `/api/v1/inbox/*`)
+  // ==========================================================================
+
+  async openCase(input: OpenCaseRequest): Promise<{ case: NovaCaseView; joined: boolean }> {
+    return this.request<{ case: NovaCaseView; joined: boolean }>("/api/v1/inbox/cases", {
+      method: "POST",
+      body: input,
+      // The activeKey claim already makes a retry safe at the database level —
+      // a second attempt JOINS rather than creating a second case. This is what
+      // makes the retry return the same ANSWER, including the same `joined`, so
+      // a caller does not see "created" once and "joined" once for one logical
+      // request and book a department job on the strength of the first.
+      idempotencyKey: input.novaActionId,
+    });
+  }
+
+  async getCase(caseId: string): Promise<NovaCaseView | null> {
+    const res = await this.get<{ case: NovaCaseView } | null>(
+      `/api/v1/inbox/cases/${encodeURIComponent(caseId)}`,
+      undefined,
+      true,
+    );
+    return res?.case ?? null;
+  }
+
+  async patchCase(caseId: string, patch: PatchCaseRequest): Promise<NovaCaseView> {
+    const { case: updated } = await this.request<{ case: NovaCaseView }>(
+      `/api/v1/inbox/cases/${encodeURIComponent(caseId)}`,
+      {
+        method: "PATCH",
+        body: patch,
+        // 409 is the server saying this case is already closed and its key was
+        // released — another case may hold that key now, so reopening is
+        // refused. An answer to read, not a fault to retry.
+        refusalOn: [409],
+      },
+    );
+    return updated;
+  }
+
+  async updateOrderDelivery(orderId: string, patch: UpdateOrderDeliveryRequest): Promise<Order> {
+    return this.request<Order>(`/api/v1/store/orders/${encodeURIComponent(orderId)}`, {
+      method: "PATCH",
+      body: patch,
+      // 409 is "already with the courier", and it is the honest boundary of this
+      // whole module: Dakio can book, cancel, poll and receive webhooks at the
+      // three providers — it cannot edit a parcel already in their hands.
+      // Retrying will not change that; the flow's answer is to open an
+      // address_change_postdispatch case instead.
+      refusalOn: [409],
+    });
   }
 
   async scheduleFollowup(input: ScheduleFollowupRequest): Promise<ScheduleFollowupResult> {

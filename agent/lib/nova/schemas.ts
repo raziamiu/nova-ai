@@ -680,6 +680,94 @@ export const verifyPaymentSlipPayload = z.object({
     .describe("What the customer actually said, in their words. This is the evidence the owner judges — never your summary of it, and never a claim you inferred."),
 });
 
+// ── Stage 10 module 06 — delivery coordination ───────────────────────────────
+
+/**
+ * The case kinds, byte-identical to `CASE_KINDS` in dakio-api's
+ * `src/lib/novaCase.js`. `wholesale_inquiry` is deliberately NOT here: v1 treats
+ * a wholesale ask as a plain sales escalation, and a kind nothing can open reads
+ * as supported to the next person who greps for it.
+ */
+export const CASE_KINDS = [
+  "delivery_stuck",
+  "failed_attempt",
+  "payment_unverified",
+  "damaged_item",
+  "address_change_postdispatch",
+  "restock_wait",
+] as const;
+
+export const openCasePayload = z.object({
+  kind: z.enum(CASE_KINDS).describe("What KIND of problem this is. It decides which room owns it — you do not choose the department."),
+  conversationId: z.string().min(1).describe("The thread this was raised in."),
+  orderId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("The order this is about, when there is one. Supply it whenever you can: it is what makes a second person asking about the SAME parcel join this case instead of opening a duplicate."),
+  productId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("For a restock wait — the product they are waiting for."),
+  title: z
+    .string()
+    .min(5)
+    .max(160)
+    .describe("One line the owner reads on their desk. Name the order and the problem: 'Order #KQ3-8FZM stuck with Steadfast 5 days'. Not a paragraph."),
+  factsNote: z
+    .string()
+    .min(3)
+    .max(600)
+    .describe("What you know RIGHT NOW, in a sentence or two — including what the customer said, in their words. This gets quoted back to them, so do not write anything you would not want read out."),
+});
+
+export const flagCourierIssuePayload = z.object({
+  caseId: z.string().min(1).describe("The case this belongs to. Open one first if there is none."),
+  orderId: z.string().min(1),
+  courierType: z.string().min(1).describe("Which courier — steadfast, redx or pathao."),
+  trackingId: z.string().min(1).describe("The tracking id exactly as stored. The owner reads this out on the phone."),
+  reason: z
+    .string()
+    .min(10)
+    .describe("What is actually wrong, from the scans and the thread. Facts only — 'no scan since Tuesday, customer says nobody called' — never a theory about why."),
+  recommendation: z
+    .string()
+    .min(5)
+    .describe("What you would ask the courier for. The owner makes the call; this is the ask you would make, not a decision you made."),
+});
+
+export const confirmOrderIntentPayload = z.object({
+  orderId: z.string().min(1),
+  conversationId: z.string().min(1),
+  confirmedText: z
+    .string()
+    .min(1)
+    .describe("The customer's OWN confirming message, verbatim — 'ji', 'হ্যাঁ', 'ok den'. This is the evidence that a human said yes. Never your paraphrase, never an emoji you read as agreement, and never a message you are still waiting for."),
+});
+
+export const updateOrderContactPayload = z
+  .object({
+    orderId: z.string().min(1),
+    conversationId: z.string().min(1),
+    address: z.string().min(5).optional().describe("The full new address as they typed it."),
+    city: z.string().min(1).optional(),
+    district: z.string().min(1).optional().describe("The district decides the delivery charge, so changing it re-prices the order."),
+    phone: z.string().min(1).optional().describe("A corrected contact number."),
+  })
+  .refine((p) => p.address || p.city || p.district || p.phone, {
+    message: "Give at least one field to change — an update that changes nothing is not an update.",
+  });
+
+export const cancelOrderPayload = z.object({
+  orderId: z.string().min(1),
+  conversationId: z.string().min(1),
+  reason: z
+    .string()
+    .min(5)
+    .describe("Why they want it cancelled, in their words. The owner sees this, and it is the only record of why a sale went away."),
+});
+
 export const resolveTicketPayload = z.object({
   ticketId: z.string(),
   reply: z.string().min(10).describe("Reply to the customer, in the brand voice."),

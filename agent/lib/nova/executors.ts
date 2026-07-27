@@ -9,19 +9,23 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { ActionType, InboxHandoverResult } from "../types";
+import type { ActionType, InboxHandoverResult, OrderStatus } from "../types";
 import { InboxSendRefused, type StoreClient } from "../store/client";
 import {
   assignCourierPayload,
+  cancelOrderPayload,
+  confirmOrderIntentPayload,
   createCampaignPayload,
   createDiscountPayload,
   createOrderFromChatPayload,
   createPurchaseOrderPayload,
   escalateConversationPayload,
+  flagCourierIssuePayload,
   importProductPayload,
   linkCustomerPayload,
   mergeCustomerRecordsPayload,
   offerChatDiscountPayload,
+  openCasePayload,
   publishSocialPostPayload,
   resolveTicketPayload,
   scheduleFollowUpPayload,
@@ -29,6 +33,7 @@ import {
   sendInboxReplyPayload,
   switchSupplierPayload,
   updateCampaignPayload,
+  updateOrderContactPayload,
   updatePricePayload,
   verifyPaymentSlipPayload,
 } from "./schemas";
@@ -422,6 +427,191 @@ export const executors: Record<ActionType, Executor> = {
       // `order:<id>`: stamping the order with this action id would make the
       // Orders door render a by:nova chip claiming Nova touched that sale.
       targetRef: `inbox_conversation:${payload.conversationId}`,
+    };
+  },
+
+  // ── Stage 10 module 06 — delivery coordination ──────────────────────────
+
+  /**
+   * Open a case, or join the one already open for this parcel.
+   *
+   * `joined` is why this returns what it does. One problem gets one case however
+   * many people ask about it, and the OUTCOME sentence says which happened —
+   * a founder reading "opened a case" for the third time about one parcel would
+   * rightly conclude Nova is not paying attention.
+   */
+  async open_case(client, raw, context) {
+    const payload = openCasePayload.parse(raw);
+    const { case: c, joined } = await client.openCase({
+      ...payload,
+      novaActionId: context?.approvedActionId,
+    });
+    const asking = (c.refs.conversationIds ?? []).length;
+    return {
+      outcome: joined
+        ? `Joined the open ${c.kind.replace(/_/g, " ")} case for this — "${c.title}" — and added what this customer said. ` +
+          `${asking} conversation${asking === 1 ? "" : "s"} now asking about it, and they all get the same answer.`
+        : `Opened a ${c.kind.replace(/_/g, " ")} case with the ${c.department} room: "${c.title}".`,
+      // A case is CLOSED with a resolution sentence, never deleted. Module 09
+      // counts these rows, so a vanished case is a vanished number — and an
+      // undo that erased the record of a problem is the one kind this system
+      // must not offer.
+      undoable: false,
+      undoData: null,
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: { caseId: c.id, kind: c.kind, department: c.department, status: c.status, joined },
+      targetRef: `case:${c.id}`,
+    };
+  },
+
+  /**
+   * Put the phone call in front of the person who can make it.
+   *
+   * THIS VERB CHANGES NOTHING, and that is the honest shape of what Dakio can
+   * do rather than something to apologise for. Against Steadfast, RedX and
+   * Pathao we can book a parcel, cancel a parcel, poll its status and receive
+   * webhooks — we cannot reschedule, redirect or hold one. So "intervening"
+   * with a courier means a human ringing the hub, and what software can usefully
+   * do is make sure they ring it holding the tracking id, the last scan, the
+   * expected COD and what the customer was already told, instead of assembling
+   * all of that first.
+   *
+   * `ALWAYS_DRAFT` in `authority.ts` is what makes this reach a founder rather
+   * than auto-executing into nobody's inbox.
+   */
+  async flag_courier_issue(client, raw) {
+    const payload = flagCourierIssuePayload.parse(raw);
+    await client.patchCase(payload.caseId, {
+      status: "waiting_founder",
+      appendFacts: [{
+        source: "nova",
+        note: `Flagged for the owner: ${payload.reason} — suggested ask: ${payload.recommendation}`,
+        data: { courierType: payload.courierType, trackingId: payload.trackingId },
+      }],
+    });
+    return {
+      outcome:
+        `Ready for your call to ${payload.courierType}: tracking ${payload.trackingId} on order ${payload.orderId}. ` +
+        `${payload.reason} Suggested ask: ${payload.recommendation}. ` +
+        `Dakio cannot reschedule or redirect a parcel at any courier — approving this records that you are handling it, it does not contact anyone.`,
+      undoable: false,
+      undoData: null,
+      revenueInfluence: 0,
+      relatedId: payload.caseId,
+      before: null,
+      after: {
+        courierType: payload.courierType,
+        trackingId: payload.trackingId,
+        reason: payload.reason,
+        recommendation: payload.recommendation,
+        contactedCourier: false,
+      },
+      targetRef: `case:${payload.caseId}`,
+    };
+  },
+
+  /**
+   * Record that the customer confirmed their order, pre-dispatch.
+   *
+   * The highest-value ping in the product: an unconfirmed COD parcel is the one
+   * that comes back. `confirmedText` is the customer's OWN words and is
+   * evidence-grade — the server writes `confirmedAt` off it, and a confirmation
+   * inferred from an emoji would be a shop claiming a human said yes when they
+   * did not.
+   */
+  async confirm_order_intent(client, raw, context) {
+    const payload = confirmOrderIntentPayload.parse(raw);
+    const order = await client.updateOrderDelivery(payload.orderId, {
+      confirm: true,
+      confirmedByActionId: context?.approvedActionId,
+    });
+    return {
+      outcome:
+        `Order ${payload.orderId} confirmed with the customer — they said "${payload.confirmedText}". ` +
+        `It is marked confirmed for dispatch.`,
+      // `confirmedAt` records that a human said yes. Un-saying it is not
+      // something software gets to do; an address change resets it, and that is
+      // a different event with its own reason.
+      undoable: false,
+      undoData: null,
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: { orderId: order.id, confirmedText: payload.confirmedText },
+      targetRef: `order:${payload.orderId}`,
+    };
+  },
+
+  /**
+   * Fix the address or phone before the parcel goes.
+   *
+   * PRE-DISPATCH ONLY, enforced by the server — once the courier has the parcel
+   * the label is theirs. A district change RE-PRICES the order, and any contact
+   * change RESETS the confirmation: the customer said yes to a specific address
+   * and a specific total, so changing either makes that yes about something that
+   * no longer exists.
+   */
+  async update_order_contact(client, raw) {
+    const payload = updateOrderContactPayload.parse(raw);
+    const changed = (["address", "city", "district", "phone"] as const).filter(
+      (k) => payload[k] !== undefined,
+    );
+    const order = await client.updateOrderDelivery(payload.orderId, {
+      address: payload.address,
+      city: payload.city,
+      district: payload.district,
+      phone: payload.phone,
+    });
+    return {
+      outcome:
+        `Updated ${changed.join(", ")} on order ${payload.orderId} before dispatch.` +
+        (payload.district
+          ? " The district changed, so the delivery charge and total were recalculated — re-confirm the new total with the customer."
+          : " The order needs re-confirming with the customer before it goes."),
+      // The previous address is in the case facts. An undo here would mean
+      // shipping to an address the customer has already said is wrong.
+      undoable: false,
+      undoData: null,
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: null,
+      after: { orderId: order.id, changed },
+      targetRef: `order:${payload.orderId}`,
+    };
+  },
+
+  /**
+   * Cancel an order the customer no longer wants.
+   *
+   * Gated by `inbox.cancelAuto`, which ships false — so on every store today
+   * this reaches the founder as a decision. The reason is kept in the
+   * customer's own words, because it is the only record of why a sale went away.
+   */
+  async cancel_order_from_chat(client, raw) {
+    const payload = cancelOrderPayload.parse(raw);
+    const before = await client.getOrder(payload.orderId);
+    await client.updateOrderDelivery(payload.orderId, { status: "cancelled" });
+    return {
+      outcome:
+        `Cancelled order ${payload.orderId} at the customer's request: "${payload.reason}". ` +
+        `If it was already booked with the courier, cancel the parcel too.`,
+      undoable: true,
+      undoData: {
+        // The `kind` string is the ONLY bridge between this repo's verb-keyed
+        // undoers and dakio-api's kind-keyed UNDO map. Getting it wrong reaches
+        // a founder as "No inverse is defined for undefined" — which has
+        // shipped twice.
+        kind: "uncancel_chat_order",
+        orderId: payload.orderId,
+        previousStatus: before?.status ?? "placed",
+      },
+      revenueInfluence: 0,
+      relatedId: payload.conversationId,
+      before: before ? { status: before.status } : null,
+      after: { orderId: payload.orderId, status: "cancelled", reason: payload.reason },
+      targetRef: `order:${payload.orderId}`,
     };
   },
 
@@ -1152,6 +1342,23 @@ export const executors: Record<ActionType, Executor> = {
 };
 
 export const undoers: Partial<Record<ActionType, Undoer>> = {
+  /**
+   * Module 06. Put a cancelled order back the way it was.
+   *
+   * Only the ORDER is restored. If the parcel had already been booked and the
+   * cancellation reached the courier, that booking is gone and nothing here can
+   * un-cancel it. The sentence says so rather than implying the parcel is back
+   * on its way — a founder who reads "restored" and stops checking is exactly
+   * how a customer ends up waiting for something nobody is sending.
+   */
+  async cancel_order_from_chat(client, undoData) {
+    const previous = String(undoData.previousStatus ?? "placed");
+    await client.updateOrder({ id: String(undoData.orderId), status: previous as OrderStatus });
+    return (
+      `Restored order ${String(undoData.orderId)} to ${previous}. ` +
+      `If the parcel had already been booked with a courier, that booking is NOT restored — rebook it.`
+    );
+  },
   async update_campaign(client, undoData) {
     const campaign = await client.updateCampaign(String(undoData.campaignId), {
       status: undoData.status as "active" | "paused",

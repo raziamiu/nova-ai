@@ -38,7 +38,8 @@ function check(name: string, condition: boolean, detail = ""): void {
  *       `evaluateAuthority` refuse with `duty:unknown` at every tier.
  */
 const MINED_TOTAL = 65;
-const FRONT_OFFICE_DUTIES = 5;
+// 2 (module 02 inbox) + 3 (module 05 selling) + 2 (module 06 delivery cases).
+const FRONT_OFFICE_DUTIES = 7;
 const EXPECTED_TOTAL = MINED_TOTAL + FRONT_OFFICE_DUTIES;
 
 /** The prototype's per-department totals, after the documented curation edits. */
@@ -49,7 +50,7 @@ const EXPECTED_COUNTS: Record<string, number> = {
   support: 8, // 6 mined + the 2 module-02 Front Office inbox duties
   product_research: 7,
   inventory: 5,
-  shipping: 5,
+  shipping: 7, // 5 mined + the 2 module-06 delivery duties
   finance: 7,
   operations: 5,
   growth: 6,

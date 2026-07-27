@@ -717,6 +717,32 @@ export type ActionType =
   | "create_order_from_chat"
   | "offer_chat_discount"
   | "verify_payment_slip"
+  /**
+   * Module 06 — delivery coordination. Five verbs, and two of them are the
+   * first things Nova does that a customer can feel BEFORE a parcel moves.
+   *
+   * Undo slugs, fixed here so the two repos cannot each invent one:
+   *
+   *   open_case              → no inverse. A case is closed with a resolution
+   *                            sentence, never deleted; module 09 counts these
+   *                            rows and a vanished case is a vanished number.
+   *   flag_courier_issue     → no inverse. It is a proposal on a founder's desk,
+   *                            and it changes nothing to reverse.
+   *   confirm_order_intent   → no inverse. `confirmedAt` records that a human
+   *                            said yes; un-saying it is not a thing software
+   *                            gets to do. An address change resets it, which is
+   *                            a different event with its own reason.
+   *   update_order_contact   → no inverse. The previous address is in the case
+   *                            facts; "undo" would mean shipping to an address
+   *                            the customer has already told us is wrong.
+   *   cancel_order_from_chat → undoData.kind `uncancel_chat_order` (restores a
+   *                            PENDING order the courier never received).
+   */
+  | "open_case"
+  | "flag_courier_issue"
+  | "confirm_order_intent"
+  | "update_order_contact"
+  | "cancel_order_from_chat"
   /** Founder-only (PRD 5.4): Nova may propose, never execute. */
   | "bulk_refund";
 
@@ -1664,6 +1690,87 @@ export interface StoreSettings {
  * RTO count off `cancelledOrders` would double-count a customer who cancelled
  * twice and never refused a parcel.
  */
+// ── Stage 10 module 06 — delivery coordination ───────────────────────────────
+
+/** One appended fact. `at` is server-set; the note is what gets quoted back. */
+export interface NovaCaseFact {
+  at: string;
+  source: string;
+  note: string;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * A case as the service surface returns it.
+ *
+ * `refs` is where everything this case touched is listed — actions, decisions,
+ * jobs, and every conversation that asked about it. That last list is the one
+ * the loop-closer fans out over, so it is the difference between "one company
+ * answering" and two threads each getting half an answer.
+ */
+export interface NovaCaseView {
+  id: string;
+  kind: string;
+  status: string;
+  department: string;
+  conversationId: string | null;
+  orderId: string | null;
+  customerId: string | null;
+  journeyId: string | null;
+  title: string;
+  facts: NovaCaseFact[];
+  refs: {
+    actionIds?: string[];
+    decisionIds?: string[];
+    jobIds?: string[];
+    conversationIds?: string[];
+  };
+  promiseId: string | null;
+  openedByActionId: string | null;
+  resolvedAt: string | null;
+  resolution: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** How long this has been open. The number a founder actually triages on. */
+  ageHours: number;
+}
+
+export interface OpenCaseRequest {
+  kind: string;
+  conversationId: string;
+  orderId?: string;
+  productId?: string;
+  customerId?: string;
+  title: string;
+  factsNote?: string;
+  factsSource?: string;
+  /** The action that opened it. Absent when the SERVER opened it — a courier
+   *  webhook or the stagnation sweep — and that null is meaningful: those cases
+   *  never passed through the authority gate because no model asked for them. */
+  novaActionId?: string;
+}
+
+export interface PatchCaseRequest {
+  status?: string;
+  /** Named `appendFacts`, not `facts`, so a replacement cannot be expressed. */
+  appendFacts?: Array<{ source?: string; note: string; data?: Record<string, unknown> }>;
+  /** Required when moving to a terminal status, including the bad endings. */
+  resolution?: string;
+}
+
+export interface UpdateOrderDeliveryRequest {
+  /** Requires `confirmedByActionId` — a confirmation with no receipt is a claim. */
+  confirm?: boolean;
+  confirmedByActionId?: string;
+  address?: string;
+  city?: string;
+  /** Changing this RE-PRICES the order off the shop's own delivery charges. */
+  district?: string;
+  phone?: string;
+  /** 'cancelled' is the only status this path sets; the rest go through `updateOrder`. */
+  status?: OrderStatus;
+}
+
 export interface CustomerRiskView {
   /** The normalized form the server matched on, never the raw input. */
   phone: string;

@@ -33,6 +33,10 @@ import type {
   Customer,
   CustomerMessage,
   CustomerRiskView,
+  NovaCaseView,
+  OpenCaseRequest,
+  PatchCaseRequest,
+  UpdateOrderDeliveryRequest,
   ContentDraftInput,
   ContentItem,
   DecisionRecord,
@@ -1685,6 +1689,143 @@ export class DemoStore implements StoreClient {
     // answer the same way, and that is right: both mean "no scaffold", and the
     // caller's contract is to answer the person anyway.
     return this.inbox.get(conversationId)?.nba ?? null;
+  }
+
+  // ==========================================================================
+  // Front Office — delivery coordination (Stage 10 module 06)
+  //
+  // The create-or-join is modelled for real rather than stubbed, because "one
+  // parcel, one case, however many people ask" is the behaviour the evals rest
+  // on. A demo backend that minted a fresh case per call would make every
+  // coordination test pass for the wrong reason.
+  // ==========================================================================
+
+  private readonly cases: NovaCaseView[] = [];
+
+  /** Mirrors dakio-api's `activeKeyFor` — order beats product beats thread. */
+  private caseActiveKey(kind: string, subject: { orderId?: string | null; productId?: string | null; conversationId?: string | null }): string | null {
+    if (subject.orderId) return `${kind}:order:${subject.orderId}`;
+    if (subject.productId) return `${kind}:product:${subject.productId}`;
+    if (subject.conversationId) return `${kind}:conv:${subject.conversationId}`;
+    return null;
+  }
+
+  /** Mirrors dakio-api's `DEPARTMENT_BY_KIND`. Derived, never caller-supplied. */
+  private caseDepartment(kind: string): string {
+    const map: Record<string, string> = {
+      delivery_stuck: "shipping",
+      failed_attempt: "shipping",
+      address_change_postdispatch: "shipping",
+      payment_unverified: "finance",
+      damaged_item: "support",
+      restock_wait: "inventory",
+    };
+    const dept = map[kind];
+    if (!dept) throw new Error(`Unknown case kind: ${kind}`);
+    return dept;
+  }
+
+  private static readonly TERMINAL_CASE_STATUSES = ["resolved", "closed_unresolved", "expired"];
+
+  async openCase(input: OpenCaseRequest): Promise<{ case: NovaCaseView; joined: boolean }> {
+    const department = this.caseDepartment(input.kind);
+    const activeKey = this.caseActiveKey(input.kind, input);
+    // Only a case that still HOLDS the key can be joined. A closed one released
+    // it, which is what lets the same order have a second case later.
+    const existing = activeKey
+      ? this.cases.find(
+          (c) =>
+            !DemoStore.TERMINAL_CASE_STATUSES.includes(c.status) &&
+            this.caseActiveKey(c.kind, c) === activeKey,
+        )
+      : undefined;
+
+    const now = this.now();
+    const fact = input.factsNote
+      ? [{ at: now, source: input.factsSource ?? "nova", note: input.factsNote }]
+      : [];
+
+    if (existing) {
+      existing.facts.push(...fact);
+      // A set, not a list: the loop-closer fans out over this, so a duplicate
+      // entry is one customer told the same thing twice.
+      const convs = existing.refs.conversationIds ?? [];
+      if (input.conversationId && !convs.includes(input.conversationId)) convs.push(input.conversationId);
+      existing.refs.conversationIds = convs;
+      existing.updatedAt = now;
+      return { case: { ...existing }, joined: true };
+    }
+
+    const created: NovaCaseView = {
+      id: this.nextId("case"),
+      kind: input.kind,
+      status: "open",
+      department,
+      conversationId: input.conversationId ?? null,
+      orderId: input.orderId ?? null,
+      customerId: input.customerId ?? null,
+      journeyId: null,
+      title: input.title,
+      facts: fact,
+      refs: input.conversationId ? { conversationIds: [input.conversationId] } : {},
+      promiseId: null,
+      openedByActionId: input.novaActionId ?? null,
+      resolvedAt: null,
+      resolution: null,
+      createdAt: now,
+      updatedAt: now,
+      ageHours: 0,
+    };
+    this.cases.push(created);
+    return { case: { ...created }, joined: false };
+  }
+
+  async getCase(caseId: string): Promise<NovaCaseView | null> {
+    const found = this.cases.find((c) => c.id === caseId);
+    return found ? { ...found } : null;
+  }
+
+  async patchCase(caseId: string, patch: PatchCaseRequest): Promise<NovaCaseView> {
+    const found = this.cases.find((c) => c.id === caseId);
+    if (!found) throw new Error(`Case not found: ${caseId}`);
+    if (DemoStore.TERMINAL_CASE_STATUSES.includes(found.status) && patch.status && patch.status !== found.status) {
+      throw new InboxSendRefused(
+        "CASE_CLOSED",
+        `This case is already ${found.status}; its key was released and another case may hold it now.`,
+      );
+    }
+    // Append-only, exactly like the server. There is no branch that replaces.
+    for (const f of patch.appendFacts ?? []) {
+      found.facts.push({ at: this.now(), source: f.source ?? "nova", note: f.note, ...(f.data ? { data: f.data } : {}) });
+    }
+    if (patch.status) {
+      if (DemoStore.TERMINAL_CASE_STATUSES.includes(patch.status) && !patch.resolution) {
+        throw new Error("closing a case needs a one-sentence resolution, including when the ending is a bad one");
+      }
+      found.status = patch.status;
+      if (DemoStore.TERMINAL_CASE_STATUSES.includes(patch.status)) {
+        found.resolution = patch.resolution ?? null;
+        found.resolvedAt = this.now();
+      }
+    }
+    found.updatedAt = this.now();
+    return { ...found };
+  }
+
+  async updateOrderDelivery(orderId: string, patch: UpdateOrderDeliveryRequest): Promise<Order> {
+    const order = this.mustFind(this.data.orders.find((o) => o.id === orderId), "Order", orderId);
+    // The demo has no `courierSentAt` column, so the pre-dispatch fence is
+    // modelled on the status the seed DOES carry — same refusal shape as the
+    // real route, so a flow that must handle it is exercised here too.
+    const dispatched = order.status === "fulfilled" || order.status === "delivered" || order.status === "rto";
+    if (dispatched && (patch.address || patch.city || patch.district || patch.phone || patch.confirm)) {
+      throw new InboxSendRefused(
+        "ALREADY_DISPATCHED",
+        "This order is already with the courier, so its address cannot be edited here.",
+      );
+    }
+    if (patch.status === "cancelled") order.status = "cancelled";
+    return { ...order };
   }
 
   async scheduleFollowup(input: ScheduleFollowupRequest): Promise<ScheduleFollowupResult> {

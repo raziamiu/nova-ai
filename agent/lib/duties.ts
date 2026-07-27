@@ -196,7 +196,18 @@ export const DUTIES: DutySpec[] = [
   { key: "inventory.dead_stock_clearance", department: "inventory", name: "Dead-stock clearance", nameBn: "অবিক্রীত স্টক ছাড়", door: "Coupons", minLevel: 3 },
   { key: "inventory.multi_channel_sync", department: "inventory", name: "Multi-channel sync", nameBn: "মাল্টি-চ্যানেল সিঙ্ক", door: "Products", minLevel: 3 },
 
-  // ── Shipping (5) ─────────────────────────────────────────────────────────
+  // ── Shipping (7) ─────────────────────────────────────────────────────────
+  //
+  // The two module-06 duties sit in the **Inbox** door rather than Delivery, and
+  // that is deliberate: `CASE_INSENSITIVE_DOOR_SCOPES` in `authority.ts` contains
+  // only "Inbox", so a `door:delivery` mode does nothing today — a duty parked
+  // there would look configurable on the dial and silently ignore it. They are
+  // inbox work anyway; the customer is in a thread, waiting.
+  //
+  // minLevel 2, so a T0 Shadow store can DRAFT them. The whole orchestra runs at
+  // T0 — only the last inch, anything a customer can see, is held back.
+  { key: "shipping.delivery_cases", department: "shipping", name: "Delivery cases", nameBn: "ডেলিভারি কেস", door: "Inbox", minLevel: 2 },
+  { key: "shipping.predispatch_confirms", department: "shipping", name: "Pre-dispatch confirmations", nameBn: "পাঠানোর আগে নিশ্চিতকরণ", door: "Inbox", minLevel: 2 },
   { key: "shipping.pickup_booking", department: "shipping", name: "Pickup booking", nameBn: "পিকআপ বুকিং", door: "Delivery", minLevel: 3 },
   { key: "shipping.delay_chasing", department: "shipping", name: "Delay chasing", nameBn: "দেরির তাগাদা", door: "Delivery", minLevel: 3 },
   { key: "shipping.rate_compare", department: "shipping", name: "Courier rate comparison", nameBn: "কুরিয়ার রেট তুলনা", door: "Rate Compare", minLevel: 2 },

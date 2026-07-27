@@ -108,6 +108,27 @@ export const RISK_CLASS: Record<ActionType, RiskClass> = {
   // mechanism that makes the promise true. This row states the risk; that set
   // enforces it. Exactly the same pairing as `merge_customer_records` above.
   verify_payment_slip: "high",
+  // ── Module 06 ───────────────────────────────────────────────────────────
+  // `open_case` is bookkeeping in the honest sense: one row, no money, nothing
+  // a customer can see. It is still `low` rather than absent from the gate,
+  // because opening a case ENQUEUES department work whose last step speaks to a
+  // customer, and `NEVER_GATED` — the only mechanism that would bypass the dial
+  // — is reserved for verbs that cannot spend, send, or choose.
+  open_case: "low",
+  // A proposal on a founder's desk. Low risk BECAUSE it executes nothing; what
+  // makes it always-ask is `ALWAYS_DRAFT`, not this row.
+  flag_courier_issue: "low",
+  // Writes `confirmedAt` off the customer's own yes. Low, and deliberately
+  // auto-able at T1+: a confirmation ping that needs approving is a confirmation
+  // that arrives after the parcel has already gone.
+  confirm_order_intent: "low",
+  // Changes where a parcel is going. Pre-dispatch only — the executor refuses
+  // once `courierSentAt` is set, because after that the address on the label is
+  // the courier's, not ours.
+  update_order_contact: "medium",
+  // Cancels a real order. `medium` states the risk; `inbox.cancelAuto` (shipped
+  // false) is what actually gates it.
+  cancel_order_from_chat: "medium",
   bulk_refund: "high",
 };
 
@@ -601,6 +622,53 @@ async function checkGuardrails(
         return {
           result: "needs_approval",
           why: `PO total ৳${total.toFixed(2)} exceeds the ৳${guardrails.maxAutoPurchaseOrderTotal} autonomous limit.`, rule: "max_auto_purchase_order_total",
+        };
+      }
+      return { result: "allow" };
+    }
+    /**
+     * Cancelling an order from a chat (module 06). One switch, fail-closed,
+     * bracket-indexed like every other `inbox.*` key — `guardrails.cancelAuto`
+     * would compile here and be `undefined` at runtime, which is the trap
+     * `create_discount`'s dead arm above is still sitting in.
+     *
+     * `!== true`, never `=== false`: a missing key, a string "true", or a 1 are
+     * none of them permission.
+     */
+    case "cancel_order_from_chat": {
+      if (guardrails["inbox.cancelAuto"] !== true) {
+        return {
+          result: "needs_approval",
+          rule: "guardrail:inbox_cancel_auto_off",
+          why: "Nova doesn't cancel orders on its own, so it prepared this for you to confirm.",
+          whyBn: "নোভা নিজে থেকে অর্ডার বাতিল করে না, তাই এটি আপনার অনুমোদনের জন্য প্রস্তুত করেছে।",
+        };
+      }
+      return { result: "allow" };
+    }
+    /**
+     * Changing where a parcel is going (module 06).
+     *
+     * THIS ARM WAS FIRST WRITTEN AS AN UNCONDITIONAL `allow`, on the reasoning
+     * that the server already refuses any change once `courierSentAt` is set and
+     * that a pre-dispatch correction is just the customer fixing details they
+     * gave a minute ago. `evals/inbox/run.ts`'s empty-platform check caught it,
+     * and the check is right: the address is where a COD parcel worth real money
+     * goes, and "whoever is typing in this thread" is not the same claim as
+     * "the person who placed the order". A redirect is a fraud shape, not only a
+     * typo fix.
+     *
+     * So it gets its own switch, shipped false, and the honest cost is stated:
+     * a typo'd address waits for a founder tap. That is the right side to err on
+     * when the alternative is Nova silently re-pointing a parcel.
+     */
+    case "update_order_contact": {
+      if (guardrails["inbox.addressEditAuto"] !== true) {
+        return {
+          result: "needs_approval",
+          rule: "guardrail:inbox_address_edit_auto_off",
+          why: "Nova doesn't change a delivery address on its own, so it prepared this correction for you to confirm.",
+          whyBn: "নোভা নিজে থেকে ডেলিভারি ঠিকানা বদলায় না, তাই সংশোধনটি আপনার অনুমোদনের জন্য প্রস্তুত করেছে।",
         };
       }
       return { result: "allow" };

@@ -40,6 +40,10 @@ import type {
   Customer,
   CustomerMessage,
   CustomerRiskView,
+  NovaCaseView,
+  OpenCaseRequest,
+  PatchCaseRequest,
+  UpdateOrderDeliveryRequest,
   DecisionRecord,
   DepartmentGrade,
   Discount,
@@ -571,6 +575,39 @@ export interface StoreClient {
    * customer auto-order at the top of the dial.
    */
   getCustomerRisk(phone: string): Promise<CustomerRiskView>;
+
+  // ---- Front Office delivery coordination (Stage 10 module 06) ----
+
+  /**
+   * Open a case, or JOIN the one already open for this subject.
+   *
+   * `joined` is not decoration. One parcel gets one case however many people ask
+   * about it — a Facebook thread and an Instagram thread, or a husband and a
+   * wife — and a caller that treats a join as a creation books the founder a
+   * second courier card for one problem. The server decides which happened,
+   * atomically, off a unique claim; nothing here may infer it.
+   */
+  openCase(input: OpenCaseRequest): Promise<{ case: NovaCaseView; joined: boolean }>;
+  getCase(caseId: string): Promise<NovaCaseView | null>;
+  /**
+   * Append facts, move status, or close with a resolution.
+   *
+   * Facts are APPEND-ONLY server-side and the request cannot express a
+   * replacement — a shortened list must never erase what a courier poll found,
+   * because those facts get quoted back to a customer. Promise fields are not
+   * patchable at all: `keptAt` is stamped only after Graph confirms a real
+   * bubble, which is the only reason kept-rate is a number Nova cannot inflate.
+   */
+  patchCase(caseId: string, patch: PatchCaseRequest): Promise<NovaCaseView>;
+  /**
+   * Confirm an order against the customer's own yes, or correct its contact
+   * details. PRE-DISPATCH ONLY — the server answers 409 once `courierSentAt` is
+   * set, because after that the address on the label belongs to the courier.
+   * Any contact change RESETS the confirmation: the customer said yes to a
+   * specific address and a specific total, and changing either makes that yes
+   * about something that no longer exists.
+   */
+  updateOrderDelivery(orderId: string, patch: UpdateOrderDeliveryRequest): Promise<Order>;
 
   // ---- Proactive job queue (Phase 05) ----
 

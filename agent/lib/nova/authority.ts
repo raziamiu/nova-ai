@@ -173,6 +173,28 @@ export const NEVER_GATED: ReadonlySet<string> = new Set([
 export const ALWAYS_DRAFT: ReadonlySet<string> = new Set([
   "merge_customer_records",
   "verify_payment_slip",
+  // ── Module 06 settles the contradiction the note on NEVER_GATED records. ──
+  //
+  // Module 08's doc wanted `flag_courier_issue` never-gated; module 06's wants
+  // it forced `needs_approval` ALWAYS. 06 owns the ruling and this is it: the
+  // verb belongs here, and 06's READING is right while its MECHANISM was wrong.
+  //
+  // A guardrail-arm `needs_approval` is a per-tenant platform check — it is only
+  // as permanent as the platform bag, and module 05 shipped a ceiling that was
+  // unreachable for exactly that reason. `riskClass` cannot express it either
+  // (`verdictForLevel` executes every class at level 4). This set is the only
+  // thing in the codebase that means "always, at every tier, forever", and it
+  // sits below the founder's own rules and above the dial — the right altitude
+  // for a verb whose entire output is a proposal.
+  //
+  // What the verb actually does is worth stating, because it decides the
+  // ruling: it changes NOTHING. Dakio can book, cancel, poll and receive
+  // webhooks at the three couriers — it cannot reschedule, redirect or hold a
+  // parcel. So this verb gathers the tracking id, the last scan, the expected
+  // COD and what the customer was told, and puts them in front of the person
+  // who can pick up a phone. Auto-executing a proposal would mean Nova
+  // "flagging" things to nobody.
+  "flag_courier_issue",
 ]);
 
 /**
@@ -329,6 +351,53 @@ export const TARGET_TEXT: Partial<Record<ActionType | string, Extractor>> = {
       "slip",
       "claim",
     ].join(" "),
+  /**
+   * Module 06. Five extractors, and they are mandatory rather than nice to have:
+   * this map is `Partial<Record<…>>`, so tsc will not miss one, and a verb
+   * without an extractor makes `targetTextFor` return null — which
+   * `evaluateAuthority` turns into `no_touch:unverifiable` for EVERY tenant that
+   * has set ANY lock. The failure is silent to the compiler and total for the
+   * merchant.
+   *
+   * The `kind` is included on the case verbs so a founder who has locked
+   * "REFUND" also stops a `payment_unverified` case being opened on a thread —
+   * the lock is about the SUBJECT, and a case is one of the places a subject
+   * shows up.
+   */
+  open_case: (p) => [str(p.kind), str(p.title), str(p.factsNote), "case"].join(" "),
+  /**
+   * The courier name and the tracking id matter here beyond the free text: a
+   * founder who has stopped Nova touching a particular courier's parcels while
+   * a dispute is running expects that to hold at every door, and this is one.
+   */
+  flag_courier_issue: (p) =>
+    [
+      str(p.courierType),
+      str(p.trackingId),
+      str(p.reason),
+      str(p.recommendation),
+      "courier",
+      "delivery",
+      "shipping",
+    ].join(" "),
+  confirm_order_intent: (p) =>
+    [str(p.orderId), str(p.confirmedText), "confirm", "order"].join(" "),
+  /**
+   * The NEW address is in, and that is the deliberate half: a founder who locked
+   * a district Nova must not ship to should have that lock fire when a customer
+   * asks to redirect a parcel there, not only when an order is first placed.
+   */
+  update_order_contact: (p) =>
+    [
+      str(p.orderId),
+      str(p.address),
+      str(p.city),
+      str(p.district),
+      "address",
+      "delivery",
+    ].join(" "),
+  cancel_order_from_chat: (p) =>
+    [str(p.orderId), str(p.reason), "cancel", "order"].join(" "),
 };
 
 /**

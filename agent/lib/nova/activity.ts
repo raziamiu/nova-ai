@@ -65,6 +65,19 @@ export const MINUTES_BY_ACTION: Record<ActionType, number> = {
   assign_courier: 6,
   create_purchase_order: 25,
   switch_supplier: 40,
+  // ── Module 06 ───────────────────────────────────────────────────────────
+  // Opening the case, writing the first fact, and remembering to come back —
+  // the part a busy founder reliably drops, not the part that is hard.
+  open_case: 3,
+  // THE PHONE CALL IT REPLACES. Dakio cannot reschedule or redirect a parcel at
+  // any of the three couriers, so the founder still rings the hub — but they
+  // ring it holding the tracking id, the last scan, the expected COD and what
+  // the customer was already told, instead of assembling all of that first. Ten
+  // minutes is the assembly, not the call.
+  flag_courier_issue: 10,
+  confirm_order_intent: 2,
+  update_order_contact: 5,
+  cancel_order_from_chat: 6,
 };
 
 const MINUTES_BY_KIND: Record<ActivityEntry["kind"], number> = {
