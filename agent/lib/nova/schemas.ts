@@ -189,6 +189,13 @@ export const sendInboxReplyPayload = z.object({
     .describe(
       "Why this specific message exists, when it is not a plain answer: 'cart_recovery' | 'holding' | 'escalation_draft' | 'review_ask'. An escalation draft never auto-sends.",
     ),
+  orderId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Which order this message is about. Required alongside purpose 'review_ask' — it is what records that this customer was asked about THIS order, so nobody asks them twice for it. Leave it out for an ordinary reply.",
+    ),
   language: z
     .enum(["bn", "banglish", "en"])
     .describe(

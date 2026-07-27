@@ -1127,6 +1127,15 @@ export interface InboxReplyRequest {
   intent: string;
   language: InboxLanguage;
   purpose?: string | null;
+  /**
+   * Module 07 D10: which order this message is about. Carried only for
+   * `purpose:'review_ask'` today, where it is the key "once per order, EVER" is
+   * written under. dakio-api rides it on the stored chunk rather than an
+   * `InboxOutbound` column and stamps `stageData.reviewAsks[orderId]` at
+   * send-confirm — never at enqueue, or a cancelled send would burn the
+   * customer's single ask for that order.
+   */
+  orderId?: string | null;
   /** `instant` skips the human-pacing engine (founder already waited). */
   timing?: { mode: "human" | "instant" };
   /** D6 identity-disclosure counters for this turn. */

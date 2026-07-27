@@ -841,6 +841,11 @@ export const executors: Record<ActionType, Executor> = {
       intent: payload.intent,
       language: payload.language,
       purpose: payload.purpose ?? null,
+      // Module 07 D10. Only sent when the model supplied one; a plain reply is
+      // byte-identical to before. The server writes `reviewAsks[orderId]` at
+      // send-confirm, which is what makes "once per order, EVER" hold across an
+      // approve that lands hours after the draft.
+      ...(payload.orderId ? { orderId: payload.orderId } : {}),
       // D7: an approved draft sends immediately — the founder already waited,
       // and re-entering the pacing engine would hold a deliberately released
       // reply behind the hour bands (at 02:00 with nightMode 'off', until the
